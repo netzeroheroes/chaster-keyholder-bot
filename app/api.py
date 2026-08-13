@@ -5,12 +5,19 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.autopilot import autopilot_loop, autopilot_status, in_window
+from app.chaster_webhooks import (
+    handle_chaster_webhook,
+    read_json_body,
+    verify_webhook_basic,
+    webhook_auth_configured,
+)
 from app.extension_routes import register_extension_routes
 from app.lock_watch import lock_watch_loop
 from app.lockbox_sync import (
@@ -262,6 +269,7 @@ def create_api(
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     api.mount("/media/images", StaticFiles(directory=IMAGES_DIR), name="media-images")
     oauth_states: set[str] = set()
+    webhook_basic = HTTPBasic(auto_error=False)
 
     @api.middleware("http")
     async def collapse_double_slashes(request: Request, call_next):
@@ -285,6 +293,25 @@ def create_api(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @api.post("/api/chaster/webhook")
+    async def chaster_webhook(
+        request: Request,
+        credentials: HTTPBasicCredentials | None = Depends(webhook_basic),
+    ) -> dict:
+        """Chaster Developer → Extension URLs → action_log.created (Basic auth)."""
+        verify_webhook_basic(settings, credentials)
+        body = await read_json_body(request)
+        return await handle_chaster_webhook(
+            settings=settings,
+            body=body,
+            chaster=chaster,
+            rad=rad_client,
+            agent=agent,
+            store=store,
+            scene=scene,
+            memory=memory,
+        )
+
     @api.get("/api/meta")
     async def meta() -> dict:
         rad_meta: dict = {
@@ -299,6 +326,16 @@ def create_api(
             "image_enabled": images.enabled,
             "image_model": settings.image_model,
             "chaster_configured": chaster.configured,
+            "chaster_webhook": {
+                "auth_configured": webhook_auth_configured(settings),
+                "path": "/api/chaster/webhook",
+                "events": [
+                    "action_log.created",
+                    "extension_session.created",
+                    "extension_session.updated",
+                    "extension_session.deleted",
+                ],
+            },
             "auto_punish_enabled": controls.auto_punish_enabled,
             "autopilot": {
                 **controls.snapshot(),

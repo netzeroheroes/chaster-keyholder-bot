@@ -51,8 +51,12 @@ class Settings(BaseSettings):
     # Partner extension slug used for lock actions (add/freeze/pillory…)
     chaster_extension_slug: str = "duo-domme"
     # Poll Chaster lock history and let the AI Domme react in group chat
+    # (backup if webhooks miss; primary path is POST /api/chaster/webhook)
     lock_watch_enabled: bool = True
     lock_watch_seconds: int = 45
+    # Partner-extension webhook Basic auth (set in Chaster Developer → Extension URLs)
+    chaster_webhook_user: str = "chaster-bot"
+    chaster_webhook_password: str = ""
 
     # Research & Desire Lockbox (Dashboard API) — Chaster hygiene ↔ physical box
     # Docs: https://dev.researchanddesire.com/ — Ultra API token required

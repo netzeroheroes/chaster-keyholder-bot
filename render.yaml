@@ -24,6 +24,10 @@ services:
         sync: false
       - key: CHASTER_LOCK_ID
         sync: false
+      - key: CHASTER_WEBHOOK_USER
+        value: "chaster-bot"
+      - key: CHASTER_WEBHOOK_PASSWORD
+        sync: false
       - key: STANDALONE_UI_ENABLED
         value: "false"
       - key: EXTENSION_DEV_BYPASS

@@ -139,6 +139,30 @@ def format_history_event(event: dict[str, Any]) -> str:
     return " — ".join(bits)
 
 
+def mark_history_events_seen(events: list[dict[str, Any]]) -> None:
+    """Record history ids so the poller does not double-handle webhook events."""
+    if not events:
+        return
+    state = _load_state()
+    seen = [str(x) for x in (state.get("seen") or []) if x]
+    seen_set = set(seen)
+    last_id = str(state.get("last_id") or "")
+    for ev in events:
+        eid = str(ev.get("_id") or "")
+        if not eid:
+            continue
+        if eid not in seen_set:
+            seen.append(eid)
+            seen_set.add(eid)
+        # Mongo ObjectIds sort chronologically as strings
+        if not last_id or eid > last_id:
+            last_id = eid
+    state["seen"] = seen[-80:]
+    if last_id:
+        state["last_id"] = last_id
+    _save_state(state)
+
+
 async def fetch_new_events(
     chaster: ChasterClient, *, limit: int = 15
 ) -> list[dict[str, Any]]:
@@ -156,6 +180,7 @@ async def fetch_new_events(
 
     state = _load_state()
     last_id = str(state.get("last_id") or "")
+    seen_set = {str(x) for x in (state.get("seen") or []) if x}
     newest_id = str(results[0].get("_id") or "")
 
     if not last_id:
@@ -170,9 +195,20 @@ async def fetch_new_events(
         eid = str(ev.get("_id") or "")
         if not eid or eid == last_id:
             break
+        if eid in seen_set:
+            # Already handled via webhook — advance watermark past it
+            continue
         new.append(ev)
 
     if not new:
+        # Still advance tip so we don't re-scan forever after webhook-only updates
+        if newest_id and newest_id != last_id:
+            state["last_id"] = newest_id
+            if newest_id not in seen_set:
+                seen = list(state.get("seen") or [])
+                seen.append(newest_id)
+                state["seen"] = seen[-80:]
+            _save_state(state)
         return []
 
     # results are newest-first; react oldest-first
@@ -181,8 +217,9 @@ async def fetch_new_events(
     seen = list(state.get("seen") or [])
     for ev in new:
         eid = str(ev.get("_id") or "")
-        if eid:
+        if eid and eid not in seen_set:
             seen.append(eid)
+            seen_set.add(eid)
     state["seen"] = seen[-80:]
     _save_state(state)
     return new
