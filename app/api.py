@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -178,6 +179,19 @@ def create_api(
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     api.mount("/media/images", StaticFiles(directory=IMAGES_DIR), name="media-images")
     oauth_states: set[str] = set()
+
+    @api.middleware("http")
+    async def collapse_double_slashes(request: Request, call_next):
+        # Chaster Extension URLs often end up as ...com//ext when a trailing slash is pasted
+        path = request.url.path or "/"
+        if "//" in path:
+            cleaned = re.sub(r"/{2,}", "/", path)
+            if cleaned != path:
+                target = cleaned
+                if request.url.query:
+                    target = f"{cleaned}?{request.url.query}"
+                return RedirectResponse(url=target, status_code=308)
+        return await call_next(request)
 
     def _check_pin(role: Role, pin: str) -> None:
         expected = settings.domme_pin if role == "domme" else settings.sub_pin
