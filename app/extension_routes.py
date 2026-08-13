@@ -243,7 +243,7 @@ def register_extension_routes(
             if key == "bot_name" and key not in cfg:
                 cfg[key] = memory.bot_name or "Keyholder"
             if key == "domme_title" and key not in cfg:
-                cfg[key] = memory.domme_title or "Mistress"
+                cfg[key] = memory.domme_title or ""
         return {
             "ok": True,
             "config": cfg,
@@ -290,7 +290,7 @@ def register_extension_routes(
         if "bot_name" not in cfg:
             cfg["bot_name"] = memory.bot_name or "Keyholder"
         if "domme_title" not in cfg:
-            cfg["domme_title"] = memory.domme_title or "Mistress"
+            cfg["domme_title"] = memory.domme_title or ""
         return cfg
 
     class ExtSettingsSaveBody(BaseModel):
