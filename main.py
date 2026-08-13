@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.images import ImageService
 from app.memory import LongTermMemory
 from app.persist import load_scene, load_sessions
+from app.rad_lockbox import init_rad_client
 from app.sessions import SessionStore
 from app.telegram_bot import build_telegram_app
 from app.tools import build_default_registry
@@ -49,6 +50,7 @@ def main() -> None:
     bridge = GroupBridge()
     images = ImageService(settings)
     chaster = ChasterClient(settings)
+    rad = init_rad_client(settings)
 
     run_http = not args.telegram_only
     run_telegram = bool(settings.telegram_bot_token.strip()) and not args.http_only
@@ -76,6 +78,13 @@ def main() -> None:
     )
     log.info("Chaster: configured=%s", chaster.configured)
     log.info(
+        "R+D Lockbox: configured=%s sync=%s hygiene=%s template=%s",
+        rad.configured,
+        settings.rad_lockbox_sync_enabled,
+        settings.rad_sync_hygiene,
+        settings.rad_lock_settings_id or "?",
+    )
+    log.info(
         "Auto-punish=%s Autopilot=%s window=%s-%s %s",
         settings.auto_punish_enabled,
         settings.autopilot_enabled,
@@ -87,7 +96,15 @@ def main() -> None:
     if run_telegram and run_http:
         def _serve_http() -> None:
             api = create_api(
-                agent, store, scene, settings, bridge, memory, images, chaster
+                agent,
+                store,
+                scene,
+                settings,
+                bridge,
+                memory,
+                images,
+                chaster,
+                rad=rad,
             )
             uvicorn.run(api, host=settings.host, port=settings.port, log_level="info")
 
@@ -122,7 +139,9 @@ def main() -> None:
         tg.run_polling(allowed_updates=["message"])
         return
 
-    api = create_api(agent, store, scene, settings, bridge, memory, images, chaster)
+    api = create_api(
+        agent, store, scene, settings, bridge, memory, images, chaster, rad=rad
+    )
     uvicorn.run(api, host=settings.host, port=settings.port, log_level="info")
 
 

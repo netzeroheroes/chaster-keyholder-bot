@@ -24,7 +24,9 @@ from app.extension_auth import (
     resolve_main_token,
 )
 from app.images import ImageService
+from app.lockbox_sync import last_sync_status, relock_after_hygiene, unlock_for_hygiene
 from app.memory import LongTermMemory
+from app.rad_lockbox import RadLockboxClient
 from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
@@ -74,6 +76,11 @@ class ExtTypingBody(BaseModel):
     room: Room = "group"
     active: bool = True
     label: str = ""
+
+
+class ExtLockboxBody(BaseModel):
+    main_token: str = Field(min_length=8)
+    action: str = ""  # lock | unlock | status
 
 
 class ExtConfigGetBody(BaseModel):
@@ -152,6 +159,7 @@ def register_extension_routes(
     images: ImageService,
     chaster: ChasterClient,
     controls: RuntimeControls,
+    rad: RadLockboxClient | None = None,
 ) -> None:
     cache = ExtensionAuthCache(ttl_seconds=120)
 
@@ -523,6 +531,48 @@ def register_extension_routes(
             "posted": (posted or {}).get("posted") if posted else None,
             "autopilot": autopilot_status(settings),
         }
+
+    @api.post("/api/ext/lockbox/status")
+    async def ext_lockbox_status(body: ExtSessionBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        if not rad or not rad.configured:
+            return {
+                "ok": False,
+                "configured": False,
+                "error": "Set RAD_API_TOKEN on the server",
+                "last_sync": last_sync_status(),
+            }
+        snap = await rad.status_snapshot()
+        snap["ok"] = True
+        snap["last_sync"] = last_sync_status()
+        return snap
+
+    @api.post("/api/ext/lockbox/action")
+    async def ext_lockbox_action(body: ExtLockboxBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        if not rad or not rad.configured:
+            raise HTTPException(
+                status_code=503,
+                detail="R+D Lockbox not configured (RAD_API_TOKEN)",
+            )
+        action = (body.action or "").strip().lower()
+        if action == "status":
+            snap = await rad.status_snapshot()
+            snap["ok"] = True
+            snap["last_sync"] = last_sync_status()
+            return snap
+        if action == "unlock":
+            result = await unlock_for_hygiene(rad, reason="manual_ext", force=True)
+        elif action == "lock":
+            result = await relock_after_hygiene(rad, reason="manual_ext", force=True)
+        else:
+            raise HTTPException(status_code=400, detail="action must be lock or unlock")
+        snap = await rad.status_snapshot()
+        snap["ok"] = bool(result.get("ok"))
+        snap["last_sync"] = result
+        return snap
 
     # Denied probe — opening APIs without token
     @api.get("/api/ext/ping")

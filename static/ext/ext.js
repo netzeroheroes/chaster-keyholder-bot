@@ -227,6 +227,71 @@
     el.textContent = bits.join(" · ");
   }
 
+  function renderLockboxStatus(st) {
+    const el = document.getElementById("lockboxLive");
+    if (!el) return;
+    if (!st || typeof st !== "object") {
+      el.textContent = "Lockbox: —";
+      return;
+    }
+    if (!st.configured) {
+      el.textContent =
+        "Lockbox: not configured (set RAD_API_TOKEN + RAD_LOCK_SETTINGS_ID on Render)";
+      return;
+    }
+    const sess = st.session || null;
+    const state = sess
+      ? `${sess.lockState || "?"}${sess.isActive ? " (active)" : ""}`
+      : "no active session";
+    const sync = st.sync_enabled ? "sync ON" : "sync OFF";
+    const hyg = st.hygiene_unlock ? "hygiene→unlock" : "hygiene off";
+    const bits = [sync, hyg, state];
+    if (st.last_sync && st.last_sync.detail) {
+      bits.push(
+        `last ${st.last_sync.action || "?"}: ${st.last_sync.detail}` +
+          (st.last_sync.ok === false ? " (failed)" : "")
+      );
+    }
+    if (st.error) bits.push(String(st.error));
+    el.textContent = "Lockbox: " + bits.join(" · ");
+  }
+
+  async function refreshLockboxStatus() {
+    if (!state.mainToken) return;
+    try {
+      const res = await fetch("/api/ext/lockbox/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      renderLockboxStatus(data);
+    } catch (_) {
+      renderLockboxStatus({ configured: false, error: "status fetch failed" });
+    }
+  }
+
+  async function lockboxAction(action) {
+    const statusEl = document.getElementById("settingsStatus");
+    if (statusEl) statusEl.textContent = `${action}ing lockbox…`;
+    try {
+      const res = await fetch("/api/ext/lockbox/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken, action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Lockbox action failed"));
+      renderLockboxStatus(data);
+      if (statusEl) {
+        const ls = data.last_sync || {};
+        statusEl.textContent = ls.detail || `Lockbox ${action} done.`;
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = String(err.message || err);
+    }
+  }
+
   function fillSettings(cfg) {
     const g = (id) => document.getElementById(id);
     const minSec =
@@ -312,6 +377,7 @@
       if (!res.ok) throw new Error(apiDetail(data, "Could not load settings"));
       fillSettings(data.config || {});
       renderAutopilotStatus(data.autopilot);
+      await refreshLockboxStatus();
       els.settingsStatus.textContent = "Edit and save.";
     } catch (err) {
       els.settingsStatus.textContent = String(err.message || err);
@@ -529,6 +595,13 @@
       }
     });
   }
+
+  const lbUnlock = document.getElementById("lockboxUnlock");
+  const lbLock = document.getElementById("lockboxLock");
+  const lbRefresh = document.getElementById("lockboxRefresh");
+  if (lbUnlock) lbUnlock.addEventListener("click", () => lockboxAction("unlock"));
+  if (lbLock) lbLock.addEventListener("click", () => lockboxAction("lock"));
+  if (lbRefresh) lbRefresh.addEventListener("click", () => refreshLockboxStatus());
 
   els.messages.addEventListener("scroll", () => {
     state.stickToBottom = nearBottom();

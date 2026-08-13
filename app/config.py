@@ -54,6 +54,22 @@ class Settings(BaseSettings):
     lock_watch_enabled: bool = True
     lock_watch_seconds: int = 45
 
+    # Research & Desire Lockbox (Dashboard API) — Chaster hygiene ↔ physical box
+    # Docs: https://dev.researchanddesire.com/ — Ultra API token required
+    rad_api_token: str = ""
+    rad_api_base_url: str = "https://dashboard.researchanddesire.com/api/v1"
+    rad_lockbox_sync_enabled: bool = False
+    rad_sync_hygiene: bool = True
+    # Also mirror full Chaster unlock/lock (usually leave false)
+    rad_sync_session_lock: bool = False
+    # Lockee's R+D user id (keyholder token acting on linked user)
+    rad_target_user_id: int = 0
+    # Lock template id used when re-locking after hygiene (GET /lkbx/templates)
+    rad_lock_settings_id: int = 0
+    # Comma-separated R+D user ids assigned as keyholders on re-lock
+    rad_keyholder_ids: str = ""
+    rad_is_test_lock: bool = False
+
     # Auto-punish Sub rule breaks with real lock detriment
     auto_punish_enabled: bool = True
     auto_punish_seconds: int = 600

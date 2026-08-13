@@ -196,10 +196,21 @@ async def react_to_lock_events(
     memory: LongTermMemory,
     chaster: ChasterClient,
     events: list[dict[str, Any]],
+    rad: Any | None = None,
 ) -> int:
     """Post AI Domme reactions into the group room for new lock history events."""
     if not events:
         return 0
+
+    # Physical lockbox bridge — no AI, just API sync
+    if rad is not None:
+        try:
+            from app.lockbox_sync import handle_chaster_events
+
+            await handle_chaster_events(rad, events)
+        except Exception:  # noqa: BLE001
+            log.exception("R+D lockbox sync from Chaster events failed")
+
     bot = bot_label(memory)
     from app.roles import domme_address
 
@@ -272,6 +283,7 @@ async def lock_watch_loop(
     scene: SceneState,
     memory: LongTermMemory,
     chaster: ChasterClient,
+    rad: Any | None = None,
 ) -> None:
     """Background poll of Chaster lock history."""
     interval = max(15, int(getattr(settings, "lock_watch_seconds", 45) or 45))
@@ -290,6 +302,7 @@ async def lock_watch_loop(
                         memory=memory,
                         chaster=chaster,
                         events=events,
+                        rad=rad,
                     )
         except asyncio.CancelledError:
             raise

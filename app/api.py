@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from app.autopilot import autopilot_loop, autopilot_status, in_window
 from app.extension_routes import register_extension_routes
 from app.lock_watch import lock_watch_loop
+from app.lockbox_sync import last_sync_status, relock_after_hygiene, unlock_for_hygiene
+from app.rad_lockbox import RadLockboxClient, get_rad_client
 from app.runtime_controls import init_controls
 
 from app.agent import ChatAgent
@@ -177,8 +179,10 @@ def create_api(
     memory: LongTermMemory,
     images: ImageService,
     chaster: ChasterClient,
+    rad: RadLockboxClient | None = None,
 ) -> FastAPI:
     controls = init_controls(settings)
+    rad_client = rad or get_rad_client()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -233,6 +237,7 @@ def create_api(
                     scene=scene,
                     memory=memory,
                     chaster=chaster,
+                    rad=rad_client,
                 ),
                 name="lock-watch",
             ),
@@ -277,6 +282,13 @@ def create_api(
 
     @api.get("/api/meta")
     async def meta() -> dict:
+        rad_meta: dict = {
+            "configured": bool(rad_client and rad_client.configured),
+            "sync_enabled": bool(settings.rad_lockbox_sync_enabled),
+            "sync_ready": bool(rad_client and rad_client.sync_ready),
+            "hygiene_unlock": bool(settings.rad_sync_hygiene),
+            "last_sync": last_sync_status(),
+        }
         return {
             "model": settings.llm_model,
             "image_enabled": images.enabled,
@@ -287,11 +299,52 @@ def create_api(
                 **controls.snapshot(),
                 **autopilot_status(settings),
             },
+            "rad_lockbox": rad_meta,
             "pins_required": {
                 "domme": bool(settings.domme_pin),
                 "sub": bool(settings.sub_pin),
             },
         }
+
+    class LockboxActionBody(BaseModel):
+        role: Role = "domme"
+        pin: str = ""
+        action: str = Field(description="lock or unlock")
+
+    @api.get("/api/lockbox/status")
+    async def lockbox_status(
+        role: Role = "domme",
+        x_role_pin: str = Header(default=""),
+    ) -> dict:
+        if role != "domme":
+            raise HTTPException(status_code=403, detail="Domme only")
+        _check_pin(role, x_role_pin)
+        if not rad_client:
+            return {"configured": False, "error": "R+D client not initialized"}
+        snap = await rad_client.status_snapshot()
+        snap["last_sync"] = last_sync_status()
+        return snap
+
+    @api.post("/api/lockbox/action")
+    async def lockbox_action(body: LockboxActionBody) -> dict:
+        if body.role != "domme":
+            raise HTTPException(status_code=403, detail="Domme only")
+        _check_pin(body.role, body.pin)
+        if not rad_client or not rad_client.configured:
+            raise HTTPException(
+                status_code=503,
+                detail="R+D Lockbox not configured (set RAD_API_TOKEN)",
+            )
+        action = (body.action or "").strip().lower()
+        if action == "unlock":
+            result = await unlock_for_hygiene(rad_client, reason="manual", force=True)
+        elif action == "lock":
+            result = await relock_after_hygiene(rad_client, reason="manual", force=True)
+        else:
+            raise HTTPException(status_code=400, detail="action must be lock or unlock")
+        snap = await rad_client.status_snapshot()
+        snap["last_sync"] = result
+        return snap
 
     @api.get("/api/controls")
     async def get_controls_api(
@@ -636,6 +689,7 @@ def create_api(
         images=images,
         chaster=chaster,
         controls=controls,
+        rad=rad_client,
     )
 
     if STATIC_DIR.is_dir():

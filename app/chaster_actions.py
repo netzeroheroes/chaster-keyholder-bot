@@ -1297,6 +1297,16 @@ async def run_chaster_intent(
                     lock=before,
                     facts=f"Could not open hygiene: {exc}",
                 )
+            # Immediate physical-box unlock (also caught by lock-watch history)
+            try:
+                from app.lockbox_sync import unlock_for_hygiene
+                from app.rad_lockbox import get_rad_client
+
+                rad = get_rad_client()
+                if rad is not None:
+                    await unlock_for_hygiene(rad, reason="hygiene_open_api")
+            except Exception:  # noqa: BLE001
+                log.exception("R+D unlock after hygiene_open failed")
             after = summarize_lock(await refresh_lock(chaster, lock))
             return ChasterActionResult(
                 ok=True,
