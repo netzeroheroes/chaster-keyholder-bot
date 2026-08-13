@@ -10,6 +10,7 @@
     privateTab: document.getElementById("privateTab"),
     roomHint: document.getElementById("roomHint"),
     messages: document.getElementById("messages"),
+    jumpLatest: document.getElementById("jumpLatest"),
     form: document.getElementById("chatForm"),
     input: document.getElementById("input"),
     sendBtn: document.getElementById("sendBtn"),
@@ -18,11 +19,12 @@
 
   const state = {
     mainToken: "",
-    role: null, // app role: domme | sub
-    chasterRole: null, // keyholder | wearer
+    role: null,
+    chasterRole: null,
     room: "group",
     lastCount: 0,
     stickToBottom: true,
+    pendingNew: 0,
     pollTimer: null,
   };
 
@@ -58,6 +60,32 @@
     return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }
 
+  function scrollToBottom() {
+    els.messages.scrollTop = els.messages.scrollHeight;
+    state.stickToBottom = true;
+    state.pendingNew = 0;
+    if (els.jumpLatest) els.jumpLatest.classList.add("hidden");
+  }
+
+  function updateJumpBtn() {
+    if (!els.jumpLatest) return;
+    if (state.pendingNew > 0 && !state.stickToBottom) {
+      els.jumpLatest.classList.remove("hidden");
+      els.jumpLatest.textContent =
+        state.pendingNew === 1
+          ? "↓ New message"
+          : `↓ ${state.pendingNew} new messages`;
+    } else {
+      els.jumpLatest.classList.add("hidden");
+    }
+  }
+
+  function autosizeInput() {
+    const el = els.input;
+    el.style.height = "auto";
+    el.style.height = Math.min(120, Math.max(44, el.scrollHeight)) + "px";
+  }
+
   function updateRoomUi() {
     els.roomTabs.querySelectorAll(".room-tab").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.room === state.room);
@@ -76,7 +104,9 @@
   }
 
   function renderMessages(messages) {
-    const grew = messages.length > state.lastCount && state.lastCount >= 0;
+    const prev = state.lastCount;
+    const grew = messages.length > prev && prev >= 0;
+    const added = grew ? messages.length - prev : 0;
     els.messages.innerHTML = "";
     for (const m of messages) {
       const div = document.createElement("div");
@@ -91,11 +121,13 @@
       div.append(document.createTextNode(m.content || ""));
       els.messages.appendChild(div);
     }
-    if (state.stickToBottom || state.lastCount <= 0 || !grew) {
-      els.messages.scrollTop = els.messages.scrollHeight;
-      state.stickToBottom = true;
-    }
     state.lastCount = messages.length;
+    if (state.stickToBottom || prev <= 0) {
+      scrollToBottom();
+    } else if (added > 0) {
+      state.pendingNew += added;
+      updateJumpBtn();
+    }
   }
 
   async function loadSession() {
@@ -156,6 +188,7 @@
     els.sendBtn.disabled = true;
     setStatus("…");
     els.input.value = "";
+    autosizeInput();
     try {
       const res = await fetch("/api/ext/chat", {
         method: "POST",
@@ -189,6 +222,8 @@
     state.room = room;
     state.lastCount = -1;
     state.stickToBottom = true;
+    state.pendingNew = 0;
+    updateJumpBtn();
     updateRoomUi();
     setStatus("");
     await loadHistory();
@@ -202,13 +237,22 @@
 
   els.messages.addEventListener("scroll", () => {
     state.stickToBottom = nearBottom();
+    if (state.stickToBottom) {
+      state.pendingNew = 0;
+      updateJumpBtn();
+    }
   });
+
+  if (els.jumpLatest) {
+    els.jumpLatest.addEventListener("click", scrollToBottom);
+  }
 
   els.form.addEventListener("submit", (e) => {
     e.preventDefault();
     sendMessage(els.input.value);
   });
 
+  els.input.addEventListener("input", autosizeInput);
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -218,7 +262,6 @@
 
   async function boot() {
     state.mainToken = parseHashToken();
-    // Local testing: /ext#dev:keyholder or /ext#dev:wearer with EXTENSION_DEV_BYPASS=true
     if (!state.mainToken && /^#dev:/.test(window.location.hash || "")) {
       state.mainToken = (window.location.hash || "").slice(1);
     }
@@ -230,6 +273,7 @@
     try {
       await loadSession();
       await loadHistory();
+      autosizeInput();
       state.pollTimer = setInterval(() => loadHistory().catch(() => {}), 2500);
     } catch (err) {
       els.gateMsg.textContent = String(err.message || err);

@@ -17,8 +17,9 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; color: var(--text); font-family: var(--font); background: var(--bg0); }
-body { min-height: 100vh; }
+html, body { margin: 0; height: 100%; color: var(--text); font-family: var(--font); background: var(--bg0); }
+body { min-height: 100%; overflow: hidden; }
+body.gate-open { overflow: auto; }
 .hidden { display: none !important; }
 
 .bg {
@@ -62,9 +63,11 @@ body { min-height: 100vh; }
   grid-template-columns: minmax(280px, 380px) 1fr;
   gap: 18px;
   max-width: 1280px;
+  height: 100%;
+  max-height: 100%;
   margin: 0 auto;
   padding: 18px;
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 .panel, .chat {
@@ -73,6 +76,7 @@ body { min-height: 100vh; }
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
+  min-height: 0;
 }
 
 .panel {
@@ -80,6 +84,7 @@ body { min-height: 100vh; }
   flex-direction: column;
   gap: 14px;
   padding: 22px;
+  overflow: auto;
 }
 
 .brand h1, .gate-card h1 {
@@ -182,7 +187,8 @@ input:focus, textarea:focus {
 .chat {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 36px);
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -246,11 +252,13 @@ input:focus, textarea:focus {
 }
 
 .composer {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 10px;
   padding: 16px;
   border-top: 1px solid var(--line);
+  background: var(--panel);
 }
 .composer textarea { min-height: 56px; max-height: 180px; }
 .send { align-self: end; min-width: 96px; }
@@ -320,7 +328,8 @@ a.btn {
 }
 
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; padding: 12px; }
-  .chat { min-height: 65vh; order: 1; }
+  .app { grid-template-columns: 1fr; padding: 12px; height: 100%; }
+  .panel { max-height: 40%; }
+  .chat { order: 1; height: 60%; min-height: 0; }
   .panel { order: 2; }
 }

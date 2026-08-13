@@ -12,34 +12,49 @@
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
 }
+body:not(.config-body) {
+  max-height: 100%;
+  overflow: hidden;
+}
+body.config-body {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
 .hidden { display: none !important; }
 .gate {
-  min-height: 100vh;
+  height: 100%;
   display: grid;
   place-content: center;
   gap: 0.5rem;
   padding: 1.5rem;
   text-align: center;
+  overflow: auto;
 }
 .title { margin: 0; font-size: 1.25rem; font-weight: 700; }
 .meta, #gateMsg { color: var(--muted); margin: 0; font-size: 0.9rem; }
+
+/* Messaging shell: header fixed, messages scroll, composer pinned */
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  max-height: 100%;
   max-width: 720px;
   margin: 0 auto;
+  overflow: hidden;
 }
 .top {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.9rem 1rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -52,11 +67,11 @@ html, body {
 }
 h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
 .room-tabs {
+  flex: 0 0 auto;
   display: flex;
   gap: 0.35rem;
-  padding: 0.55rem 0.75rem 0;
+  padding: 0.55rem 0.75rem 0.35rem;
   background: var(--panel);
-  border-bottom: 1px solid var(--line);
 }
 .room-tab {
   border: 1px solid var(--line);
@@ -75,19 +90,57 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   border-color: transparent;
 }
 .room-hint {
+  flex: 0 0 auto;
   margin: 0;
-  padding: 0.45rem 0.9rem 0.2rem;
+  padding: 0.35rem 0.9rem 0.55rem;
   font-size: 0.75rem;
   color: var(--muted);
   background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.messages-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .messages {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 1rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 5;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 .msg {
   max-width: 92%;
@@ -108,13 +161,19 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   color: var(--muted);
   margin-bottom: 0.25rem;
 }
+
+.composer-dock {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
 .composer {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.5rem;
-  padding: 0.75rem;
-  border-top: 1px solid var(--line);
-  background: var(--panel);
+  padding: 0.65rem 0.75rem 0.35rem;
+  align-items: end;
 }
 textarea, input[type="text"], input[type="number"] {
   width: 100%;
@@ -124,6 +183,12 @@ textarea, input[type="text"], input[type="number"] {
   border-radius: 10px;
   padding: 0.65rem 0.75rem;
   font: inherit;
+  resize: none;
+}
+#input {
+  min-height: 44px;
+  max-height: 120px;
+  overflow-y: auto;
 }
 .btn {
   border: 0;
@@ -133,10 +198,22 @@ textarea, input[type="text"], input[type="number"] {
   color: #1a100c;
   font-weight: 700;
   cursor: pointer;
+  align-self: end;
 }
-.status { min-height: 1.2em; margin: 0; padding: 0 0.75rem 0.75rem; color: var(--accent); font-size: 0.85rem; }
+.status {
+  min-height: 1.1em;
+  margin: 0;
+  padding: 0 0.75rem 0.55rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
 
-.config-body { padding: 0.75rem; }
+.config-body {
+  height: auto;
+  max-height: none;
+  overflow: auto;
+  padding: 0.75rem;
+}
 .cfg { display: flex; flex-direction: column; gap: 0.65rem; max-width: 520px; margin: 0 auto; }
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
 .field span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

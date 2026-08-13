@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=3" />
 </head>
 <body>
   <div id="gate" class="gate">
@@ -28,14 +28,22 @@
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
-    <div id="messages" class="messages"></div>
-    <form id="chatForm" class="composer">
-      <textarea id="input" rows="2" placeholder="Message…"></textarea>
-      <button type="submit" class="btn" id="sendBtn">Send</button>
-    </form>
-    <p id="status" class="status"></p>
+
+    <div class="chat-body">
+      <div class="messages-wrap">
+        <div id="messages" class="messages"></div>
+        <button type="button" id="jumpLatest" class="jump-latest hidden">↓ New messages</button>
+      </div>
+      <div class="composer-dock">
+        <form id="chatForm" class="composer">
+          <textarea id="input" rows="1" placeholder="Message…"></textarea>
+          <button type="submit" class="btn" id="sendBtn">Send</button>
+        </form>
+        <p id="status" class="status"></p>
+      </div>
+    </div>
   </div>
 
-  <script src="/static/ext/ext.js"></script>
+  <script src="/static/ext/ext.js?v=3"></script>
 </body>
 </html>
