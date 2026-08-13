@@ -25,14 +25,9 @@ log = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STATE_PATH = DATA_DIR / "lock_watch.json"
 
-# Events worth narrating in chat (extensions, share/hygiene, games, lock changes)
+# Events worth narrating in chat (games / other plugins — not our own Duo Domme edits)
 _REACT_TYPES = frozenset(
     {
-        "time_changed",
-        "lock_frozen",
-        "lock_unfrozen",
-        "timer_hidden",
-        "timer_revealed",
         "pillory_started",
         "pillory_ended",
         "temporary_opening_opened",
@@ -52,6 +47,17 @@ _REACT_TYPES = frozenset(
         "locked",
         "max_limit_date_removed",
         "session_offer_accepted",
+    }
+)
+
+# Chat already confirms these when Domme/AI change the lock — don't double-post.
+_SKIP_TYPES = frozenset(
+    {
+        "time_changed",
+        "lock_frozen",
+        "lock_unfrozen",
+        "timer_hidden",
+        "timer_revealed",
     }
 )
 
@@ -152,18 +158,24 @@ async def react_to_lock_events(
     reacted = 0
     for ev in events[:5]:
         etype = str(ev.get("type") or "")
+        if etype in _SKIP_TYPES:
+            continue
         if etype and etype not in _REACT_TYPES and not etype.endswith("_changed"):
-            # Still surface unknown extension events
+            # Still surface unknown extension/plugin events
             if not ev.get("extension"):
                 continue
         summary = format_history_event(ev)
         system = (
             f"You are {bot}, the AI Domme/keyholder in GROUP chat (18+).\n"
+            f"ACTIVE CHANNEL: GROUP — Domme + Sub + you can all see this.\n"
             f"A real Chaster lock event just happened. React in 1–3 short sentences "
             f"to the Sub (and {title} if relevant). Stay in character. "
             f"Do NOT invent further lock changes. Do NOT emit [[[LOCK]]] tags.\n"
+            f"IMPORTANT: In Chaster, 'extension' means a lock PLUGIN (wheel, tasks, "
+            f"puzzle, etc.), NOT 'more lock time'. Never congratulate someone for "
+            f"'an extension' unless a plugin was actually enabled/updated.\n"
             f"Event: {summary}\n"
-            f"Raw type={etype} extension={ev.get('extension')} "
+            f"Raw type={etype} extension/plugin={ev.get('extension')} "
             f"payload={json.dumps(ev.get('payload') or {}, ensure_ascii=False)[:300]}"
         )
         try:

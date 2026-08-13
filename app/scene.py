@@ -155,11 +155,26 @@ class SceneState:
         with self._lock:
             plan = self.secret_directives.strip() or "(none locked yet — help Domme define one)"
             if room == "private":
+                banner = (
+                    "ACTIVE CHANNEL RIGHT NOW: PRIVATE (Domme ↔ AI only).\n"
+                    "The Sub is NOT in this chat and cannot read anything here.\n"
+                    "Speak to Mistress as her co-conspirator. Do not address the Sub "
+                    "directly unless you emit a [[[GROUP]]] block for the shared room.\n"
+                )
                 return (
+                    f"{banner}\n"
                     f"{self.private_prompt.strip()}\n\n"
                     f"ACTIVE PLAN (refine with Domme; group executes this):\n{plan}"
                 )
+            banner = (
+                "ACTIVE CHANNEL RIGHT NOW: GROUP (Domme + Sub + AI).\n"
+                "Everyone in this room can see your reply — Domme and Sub.\n"
+                "Execute the scene. Do not reveal private planning notes as a document.\n"
+                "When Domme speaks, answer her here in front of him (short ack is fine) "
+                "and keep controlling the Sub.\n"
+            )
             return (
+                f"{banner}\n"
                 f"{self.group_prompt.strip()}\n\n"
                 f"ACTIVE PLAN TO EXECUTE (do not reveal as a private document):\n{plan}"
             )

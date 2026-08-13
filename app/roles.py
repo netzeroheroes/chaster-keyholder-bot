@@ -58,6 +58,7 @@ def format_user_line(
     *,
     chaster_role: str | None = None,
     chaster_username: str | None = None,
+    room: Room | None = None,
 ) -> str:
     label = speaker_label(role, memory, chaster_username=chaster_username)
     if role == "domme":
@@ -70,9 +71,22 @@ def format_user_line(
     if cr or handle:
         bits = [b for b in (cr or None, f"@{handle}" if handle else None) if b]
         chaster_bit = f" Chaster identity: {', '.join(bits)}."
+    if room == "private":
+        channel = (
+            "[CHANNEL: PRIVATE — only you and the human Domme. "
+            "The Sub cannot see this. Plan/scheme here; use [[[GROUP]]] to speak to him.]"
+        )
+    elif room == "group":
+        channel = (
+            "[CHANNEL: GROUP — Domme + Sub + you. Everyone here can see your reply. "
+            "Execute the scene; do not workshop private strategy out loud.]"
+        )
+    else:
+        channel = ""
     return (
         f"[{label}]: {message}\n"
         f"[IDENTITY: This message is from the {who}.{chaster_bit} "
         f"You are the AI Domme/keyholder — a separate person. "
         f"Never confuse yourself with {SPEAKER[role]} or speak as if you are them.]"
+        + (f"\n{channel}" if channel else "")
     )

@@ -218,28 +218,43 @@ async def handle_chat_turn(
         memory,
         chaster_role=chaster_role,
         chaster_username=handle or None,
+        room=room,
     )
     hands_off = role == "domme" and _domme_hands_off(message)
     if role == "domme" and _domme_wants_decision(message) and not hands_off:
-        user_line += (
-            "\n\n[DIRECTOR: Domme delegated. You MUST choose a concrete punishment "
-            "NOW, announce it to BOY, and start enforcing it. Do not ask BOY what he wants.]"
-        )
+        if room == "group":
+            user_line += (
+                "\n\n[DIRECTOR: Domme delegated in GROUP. You MUST choose a concrete "
+                "punishment NOW, announce it to BOY here, and start enforcing it. "
+                "Do not ask BOY what he wants.]"
+            )
+        else:
+            user_line += (
+                "\n\n[DIRECTOR: Domme delegated in PRIVATE. Propose the concrete "
+                "punishment to her here; use [[[GROUP]]] only if she wants him told now.]"
+            )
     if hands_off:
         how_long = _hands_off_duration_hint(message)
         title = memory.domme_title or "Mistress"
-        user_line += (
-            f"\n\n[DIRECTOR: {title} is BUSY / handed the Sub to YOU for {how_long}. "
-            "This is a TAKEOVER beat in GROUP.\n"
-            f"1) Briefly acknowledge {title} (one short line).\n"
-            "2) Pivot hard to the Sub — open roughly like: "
-            "\"Well… it's just the two of us. Let's have some fun.\" "
-            f"(She'll be busy for {how_long}.)\n"
-            "3) Give ONE concrete tease/order immediately (edges, posture, lock nudge). "
-            "You may use [[[LOCK]]] tags.\n"
-            "Do NOT ask what he wants. Do NOT wait for Mistress to come back. "
-            "Do NOT claim YOU are busy/out — SHE is.]"
-        )
+        if room == "group":
+            user_line += (
+                f"\n\n[DIRECTOR: {title} is BUSY / handed the Sub to YOU for {how_long}. "
+                "This is a TAKEOVER beat in GROUP (Sub can see this).\n"
+                f"1) Briefly acknowledge {title} (one short line).\n"
+                "2) Pivot hard to the Sub — open roughly like: "
+                "\"Well… it's just the two of us. Let's have some fun.\" "
+                f"(She'll be busy for {how_long}.)\n"
+                "3) Give ONE concrete tease/order immediately (edges, posture, lock nudge). "
+                "You may use [[[LOCK]]] tags.\n"
+                "Do NOT ask what he wants. Do NOT wait for Mistress to come back. "
+                "Do NOT claim YOU are busy/out — SHE is.]"
+            )
+        else:
+            user_line += (
+                f"\n\n[DIRECTOR: {title} is handing the Sub to you for {how_long}, but "
+                "you are in PRIVATE chat. Confirm the plan with her here, then emit "
+                "[[[GROUP]]] with the takeover line for the Sub (he only sees GROUP).]"
+            )
 
     bot_name = bot_label(memory)
 
@@ -512,23 +527,38 @@ async def handle_chat_turn(
         user_line += chaster_note
 
     recent = _recent_assistant_texts(history)
-    anti_loop = (
-        "\n\nHARD RULES THIS TURN:\n"
-        f"- The human speaking this turn is: {speaker}. Address them correctly.\n"
-        f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
-        "never claim to be the human Domme or Sub.\n"
-        "- Never claim lock changes unless confirmed by real lock facts this turn.\n"
-        "- Lock history messages (custom logs) are real and may push-notify him — use them.\n"
-        "- Reminder schedules still cannot be set via API; don't invent those.\n"
-        "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
-        "- GROUP: you and the human Domme are BOTH Dominants; either may decide lock actions.\n"
-        "- Sub may BEG either Dominant for mercy. Never scold him for addressing Mistress.\n"
-        "- Sub may NOT give direct lock orders. Orders get refused (and may be punished).\n"
-        "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
-        "- Never claim lock changes without LOCK tags or confirmed facts this turn.\n"
-        "- Never repeat a previous bot message.\n"
-        "- Advance with a NEW concrete order or punishment.\n"
-    )
+    if room == "private":
+        anti_loop = (
+            "\n\nHARD RULES THIS TURN (PRIVATE CHANNEL):\n"
+            f"- You are ONLY talking to {speaker} (human Domme). The Sub cannot see this.\n"
+            f"- Your name is '{bot_name}'. You are the AI Domme/keyholder — not her stand-in body.\n"
+            "- Plan, scheme, encourage her meanness. Do not perform for the Sub here.\n"
+            "- To speak to the Sub, emit [[[GROUP]]]…[[[/GROUP]]] (that posts to Group).\n"
+            "- Never claim lock changes unless confirmed by real lock facts this turn.\n"
+            "- If YOU grant a lock change from private, emit [[[LOCK]]]…[[[/LOCK]]].\n"
+            "- Never invent reminder schedules. Never repeat a previous bot message.\n"
+            "- Do not pretend this reply is already in Group unless you emitted GROUP tags.\n"
+        )
+    else:
+        anti_loop = (
+            "\n\nHARD RULES THIS TURN (GROUP CHANNEL):\n"
+            f"- The human speaking this turn is: {speaker}. Address them correctly.\n"
+            f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
+            "never claim to be the human Domme or Sub.\n"
+            "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
+            "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
+            "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
+            "- Sub may BEG either Dominant for mercy. Never scold him for addressing Mistress.\n"
+            "- Sub may NOT give direct lock orders. Orders get refused (and may be punished).\n"
+            "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
+            "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
+            "- Never claim lock changes without LOCK tags or confirmed facts this turn.\n"
+            "- Lock history messages (custom logs) are real and may push-notify him — use them.\n"
+            "- Reminder schedules still cannot be set via API; don't invent those.\n"
+            "- Never repeat a previous bot message.\n"
+            "- Advance with a NEW concrete order or punishment.\n"
+            "- Do not workshop private strategy out loud; execute.\n"
+        )
     if recent:
         listed = "\n".join(f"- {t[:200]}" for t in recent)
         anti_loop += f"Banned recent bot lines (do not reuse):\n{listed}\n"
