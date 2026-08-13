@@ -25,15 +25,21 @@ _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
         RuleBreak(reason="came/unlocked without permission", seconds=3600, freeze=True),
     ),
     # Insulting Domme / AI keyholder (not Domme calling HIM names)
-    # Matches singular/plural: slut(s), whore(s), bitch(es), cunt(s)
+    # Includes plurals + common misspellings (hores, hoes)
     (
         re.compile(
             r"^[\s\"']*(hi|hello|hey|yo|sup|hiya)?[\s,]*"
-            r"(sluts?|whores?|bitches|bitch|cunts?|stupid\s+bitches?|dumb\s+sluts?)\b"
-            r"|^(sluts?|whores?|bitches|bitch|cunts?)\s*[.!]?\s*$"
+            r"(sluts?|whores?|hores?|hoes?|bitches|bitch|cunts?|"
+            r"stupid\s+bitches?|dumb\s+sluts?)\b"
+            r"|^(sluts?|whores?|hores?|hoes?|bitches|bitch|cunts?)\s*[.!]?\s*$"
             r"|\b(fuck you|fuck off|shut up)\b"
-            r"|\b(you('re| are)\s+(a\s+)?(stupid\s+)?(sluts?|whores?|bitches|bitch|cunts?))\b"
-            r"|\b(hey|hi|hello)\s+(you\s+)?(sluts?|whores?|bitches|bitch)\b",
+            r"|\b(you('re| are)\s+(a\s+)?(stupid\s+)?"
+            r"(sluts?|whores?|hores?|hoes?|bitches|bitch|cunts?))\b"
+            r"|\b(you are one of them)\b"
+            r"|\b(a\s+couple\s+of|couple\s+of|those|two)\s+"
+            r"(sluts?|whores?|hores?|hoes?|bitches)\b"
+            r"|\b(hey|hi|hello)\s+(you\s+)?"
+            r"(sluts?|whores?|hores?|hoes?|bitches|bitch)\b",
             re.I,
         ),
         RuleBreak(

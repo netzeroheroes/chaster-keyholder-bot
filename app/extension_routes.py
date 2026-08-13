@@ -179,7 +179,7 @@ def register_extension_routes(
             "ok": True,
             "session": public_session_view(sess),
             "bot_name": memory.bot_name or "Keyholder",
-            "domme_title": memory.domme_title or "Mistress",
+            "domme_title": memory.domme_title or "",
         }
 
     @api.post("/api/ext/history")

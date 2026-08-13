@@ -297,10 +297,10 @@ def format_scene_director_block(scene: BuiltScene, *, room: str) -> str:
         )
 
     where = (
-        "Speak to Mistress with the plan, then if she wants it live use GROUP tags / "
-        "be ready to execute."
+        "Speak to the human Domme by her NAME with the plan, then if she wants it live "
+        "use GROUP tags / be ready to execute."
         if room == "private"
-        else "Execute in GROUP: acknowledge Mistress, then run the scene on BOY now."
+        else "Execute in GROUP: acknowledge the Domme by NAME, then run the scene on BOY now."
     )
 
     return (

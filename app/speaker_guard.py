@@ -27,6 +27,20 @@ _ADDRESSES_MISTRESS = re.compile(
     re.I,
 )
 
+# Bot wrongly speaking as if IT were the Sub / obedient servant
+_BOT_AS_SUB = re.compile(
+    r"("
+    r"\bi('m|\s+am)\s+(obedient|a\s+(loyal\s+)?(slave|sub|submissive))\b|"
+    r"\bfocused\s+on\s+serving\s+her\s+needs\b|"
+    r"\bnot\s+my\s+own\s+perversions\b|"
+    r"\bmistress\s+has\s+made\s+it\s+clear\s+that\s+she\s+wants\s+me\s+to\s+be\s+obedient\b|"
+    r"\bi\s+answer\s+to\s+you\b|"
+    r"\bas\s+her\s+loyal\s+chastity\s+slave\b|"
+    r"\bi\s+never\s+will\s+be\b.*\b(slut|whore|hoe)"
+    r")",
+    re.I,
+)
+
 
 def mistreats_domme_as_sub(reply: str) -> bool:
     """True if a Domme-turn reply talks to her like the lockee."""
@@ -51,6 +65,11 @@ def mistreats_domme_as_sub(reply: str) -> bool:
     return True
 
 
+def sounds_like_bot_submissive(reply: str) -> bool:
+    """True if the AI Domme talks as if she herself were obedient/submissive."""
+    return bool(_BOT_AS_SUB.search(reply or ""))
+
+
 def addressing_block(
     *,
     role: str,
@@ -59,7 +78,8 @@ def addressing_block(
     sub_name: str,
     bot_name: str,
 ) -> str:
-    title = (domme_title or "Mistress").strip() or "Mistress"
+    # domme_title param is the preferred ADDRESS (name), kept for call-site compat
+    title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "the Sub").strip() or "the Sub"
     if role == "domme":
         return (
@@ -67,18 +87,22 @@ def addressing_block(
             f"This message is from {speaker} — the HUMAN DOMME / Chaster KEYHOLDER.\n"
             f"She is NOT locked. She is NOT the wearer. Do NOT give HER hygiene unlocks, "
             f"orders to kneel, or talk about 'your cage' as hers.\n"
-            f"Address her as {title}. Confirm orders TO her. "
+            f"Address her as {title} (her name — not generic Mistress). "
+            f"Confirm orders TO her. "
             f"The lockee is {sub} — refer to him as he/him/BOY.\n"
-            f"You ({bot_name}) are her co-Domme / AI keyholder partner.\n"
+            f"You ({bot_name}) are her co-Domme peer / AI keyholder — Dominant, having fun. "
+            f"Never obedient, never a slave.\n"
         )
     return (
         "\n\n[WHO IS SPEAKING — CRITICAL]\n"
         f"This message is from {speaker} — the HUMAN SUB / Chaster WEARER (lockee).\n"
         f"Speak to him as the locked boy. {title} is the human Domme (separate person).\n"
-        f"You ({bot_name}) are AI Domme/keyholder. Never confuse him with {title}.\n"
+        f"You ({bot_name}) are AI Domme/keyholder — Dominant, here to have fun. "
+        f"Never confuse him with {title}. Never speak as if YOU are obedient or a slave.\n"
         f"NEVER write lines as [Domme …] or speak in {title}'s voice. "
         f"Only you ({bot_name}) reply.\n"
-        f"If he insults you or {title} (e.g. calling you slut/whore), punish — "
+        f"Use {title}'s NAME — not generic 'Mistress'.\n"
+        f"If he insults you or {title} (slut/whore/hores/etc.), punish — "
         f"do not play along.\n"
     )
 
@@ -89,13 +113,29 @@ def repair_domme_misaddress(
     sub_name: str,
     original_topic: str = "",
 ) -> str:
-    title = (domme_title or "Mistress").strip() or "Mistress"
+    title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "him").strip() or "him"
     topic = (original_topic or "").strip()
     extra = f" About your order ({topic}): noted — I'll keep control of {sub}." if topic else ""
     return (
         f"{title} - sorry, that was aimed wrong. You're the keyholder, not the lockee.\n"
-        f"I answer to you; {sub} is the one in the cage.{extra}"
+        f"I work with you as co-Domme; {sub} is the one in the cage.{extra}"
+    )
+
+
+def repair_bot_submissive(
+    *,
+    bot_name: str,
+    domme_title: str,
+    sub_name: str,
+) -> str:
+    title = (domme_title or "the Domme").strip() or "the Domme"
+    sub = (sub_name or "BOY").strip() or "BOY"
+    bot = (bot_name or "Keyholder").strip() or "Keyholder"
+    return (
+        f"{sub} — watch your mouth. I am {bot}, a Domme keyholder — not your peer, "
+        f"not a slut, and not {title}'s obedient servant. "
+        f"{title} and I control your lock. That insolence earns a real consequence."
     )
 
 
@@ -139,7 +179,7 @@ def repair_impersonation(
     domme_title: str,
     sub_name: str,
 ) -> str:
-    title = (domme_title or "Mistress").strip() or "Mistress"
+    title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "BOY").strip() or "BOY"
     bot = (bot_name or "Keyholder").strip() or "Keyholder"
     return (
@@ -147,3 +187,15 @@ def repair_impersonation(
         f"not the other way around. I do not speak as {title}. "
         f"That insolence just earned you a real consequence."
     )
+
+
+def rewrite_generic_mistress(reply: str, domme_name: str) -> str:
+    """Replace generic 'Mistress' with the Domme's real name when we have one."""
+    name = (domme_name or "").strip()
+    text = reply or ""
+    if not name or not text:
+        return text
+    # Don't rewrite if her name already appears as Mistress Name
+    if re.search(rf"\bMistress\s+{re.escape(name)}\b", text, re.I):
+        text = re.sub(rf"\bMistress\s+{re.escape(name)}\b", name, text, flags=re.I)
+    return re.sub(r"\bMistress\b", name, text)

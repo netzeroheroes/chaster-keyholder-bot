@@ -85,6 +85,12 @@ class MemoryUpdate(BaseModel):
     domme_title: str | None = None
     bot_name: str | None = None
     sub_name: str | None = None
+    domme_gender: str | None = None
+    domme_sexuality: str | None = None
+    domme_pronouns: str | None = None
+    sub_gender: str | None = None
+    sub_sexuality: str | None = None
+    sub_pronouns: str | None = None
     sub_titles: list[str] | None = None
     hard_limits: list[str] | None = None
     soft_limits: list[str] | None = None

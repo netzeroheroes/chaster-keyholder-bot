@@ -51,6 +51,24 @@ def bot_label(memory: LongTermMemory | None = None) -> str:
     return name
 
 
+def domme_address(
+    memory: LongTermMemory | None = None,
+    *,
+    name: str = "",
+    title: str = "",
+) -> str:
+    """How the bot should address the human Domme — prefer her real name, not 'Mistress'."""
+    n = (name or ((memory.domme_name if memory else "") or "")).strip()
+    t = (title or ((memory.domme_title if memory else "") or "")).strip()
+    if n:
+        return n
+    if t and t.lower() not in {"mistress", "miss", "ma'am", "madam"}:
+        return t
+    if t:
+        return t
+    return "the Domme"
+
+
 def format_user_line(
     role: Role,
     message: str,
@@ -90,9 +108,11 @@ def format_user_line(
             "The wearer is a different person — use he/him for the Sub.]"
         )
     else:
+        her = domme_address(memory)
         address = (
-            "[ADDRESS: Reply TO the Sub/wearer. The human Domme is a separate person "
-            "(Mistress). Do not speak as if this wearer is the Domme.]"
+            f"[ADDRESS: Reply TO the Sub/wearer. The human Domme is a separate person "
+            f"({her}). Do not speak as if this wearer is the Domme. "
+            f"Address her by name ({her}), not as generic 'Mistress'.]"
         )
     return (
         f"[{label}]: {message}\n"

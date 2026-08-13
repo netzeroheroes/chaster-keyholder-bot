@@ -187,7 +187,9 @@ async def react_to_lock_events(
     if not events:
         return 0
     bot = bot_label(memory)
-    title = memory.domme_title or "Mistress"
+    from app.roles import domme_address
+
+    title = domme_address(memory)
     reacted = 0
     for ev in events[:5]:
         if not _should_react(ev):

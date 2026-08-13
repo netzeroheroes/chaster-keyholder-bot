@@ -51,5 +51,5 @@ def scrub_lock_hallucinations(
         "Your lock numbers come from Chaster - I don't invent them.\n\n"
         f"Live remaining: {rem}. "
         "No fake day totals, keypad codes, or 'new lengths'. "
-        "Mistress and I change the real lock when we decide."
+        "The Domme and I change the real lock when we decide."
     )

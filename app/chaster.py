@@ -215,8 +215,40 @@ class ChasterClient:
             json_body={"content": (content or "").strip()[:10000]},
         )
 
+    async def get_user_profile_overview(self, username: str) -> dict[str, Any]:
+        """Public profile: gender, sexuality, pronouns, kink profile, etc."""
+        handle = (username or "").strip().lstrip("@")
+        if not handle:
+            return {}
+        data = await self._request("GET", f"/user-profile/{handle}/overview")
+        if not isinstance(data, dict):
+            return {}
+        user = data.get("user") if isinstance(data.get("user"), dict) else {}
+        kink = data.get("kinkProfile") if isinstance(data.get("kinkProfile"), dict) else {}
+        return {
+            "username": str(user.get("username") or handle),
+            "gender": str(user.get("gender") or "").strip(),
+            "sexual_orientation": str(user.get("sexualOrientation") or "").strip(),
+            "pronouns": str(user.get("pronouns") or "").strip(),
+            "chaster_role": str(user.get("role") or "").strip(),
+            "age": user.get("age"),
+            "description": str(user.get("description") or "").strip(),
+            "kinkProfile": dict(kink),
+        }
+
     async def get_user_kink_profile(self, username: str) -> dict[str, Any]:
-        data = await self._request("GET", f"/users/profile/{username}/details")
+        """Kink/toys list; prefers overview endpoint, falls back to legacy details."""
+        handle = (username or "").strip().lstrip("@")
+        if not handle:
+            return {}
+        try:
+            overview = await self.get_user_profile_overview(handle)
+            kink = overview.get("kinkProfile") if isinstance(overview, dict) else None
+            if isinstance(kink, dict) and (kink.get("kinks") or kink.get("toys") or kink.get("bio")):
+                return dict(kink)
+        except Exception:  # noqa: BLE001
+            log.debug("Overview kink fetch failed for %s; trying legacy", handle, exc_info=True)
+        data = await self._request("GET", f"/users/profile/{handle}/details")
         if not isinstance(data, dict):
             return {}
         return dict(data.get("kinkProfile") or {})

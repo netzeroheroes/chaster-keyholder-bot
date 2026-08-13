@@ -77,7 +77,9 @@ async def run_unprompted_tick(
         return None
 
     bot = bot_label(memory)
-    title = memory.domme_title or "Mistress"
+    from app.roles import domme_address
+
+    title = domme_address(memory)
     sub = memory.sub_name or "BOY"
 
     c = _ctrl(settings)

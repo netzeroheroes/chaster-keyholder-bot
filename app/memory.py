@@ -47,9 +47,16 @@ class LongTermMemory:
     """Persistent facts that develop across sessions and can be recalled later."""
 
     domme_name: str = ""
-    domme_title: str = "Mistress"  # how bot addresses the Domme
+    domme_title: str = ""  # optional honorific; prefer domme_name in chat
     bot_name: str = "Keyholder"  # AI Domme display name in chat
     sub_name: str = ""
+    # From Chaster public profiles (sex / sexuality / pronouns)
+    domme_gender: str = ""
+    domme_sexuality: str = ""
+    domme_pronouns: str = ""
+    sub_gender: str = ""
+    sub_sexuality: str = ""
+    sub_pronouns: str = ""
     sub_titles: list[str] = field(default_factory=list)
     hard_limits: list[str] = field(default_factory=list)
     soft_limits: list[str] = field(default_factory=list)
@@ -77,6 +84,10 @@ class LongTermMemory:
             return cls()
         known = {f.name for f in cls.__dataclass_fields__.values() if not f.name.startswith("_")}
         data = {k: v for k, v in raw.items() if k in known}
+        # Prefer real Domme name over stale generic honorific
+        title = str(data.get("domme_title") or "").strip()
+        if title.lower() in {"mistress", "miss"} and str(data.get("domme_name") or "").strip():
+            data["domme_title"] = ""
         return cls(**data)
 
     def save(self, path: Path = MEMORY_PATH) -> None:
@@ -87,6 +98,12 @@ class LongTermMemory:
                 "domme_title": self.domme_title,
                 "bot_name": self.bot_name or "Keyholder",
                 "sub_name": self.sub_name,
+                "domme_gender": self.domme_gender,
+                "domme_sexuality": self.domme_sexuality,
+                "domme_pronouns": self.domme_pronouns,
+                "sub_gender": self.sub_gender,
+                "sub_sexuality": self.sub_sexuality,
+                "sub_pronouns": self.sub_pronouns,
                 "sub_titles": list(self.sub_titles)[-40:],
                 "hard_limits": list(self.hard_limits)[-40:],
                 "soft_limits": list(self.soft_limits)[-40:],
@@ -107,6 +124,12 @@ class LongTermMemory:
                 "domme_title": self.domme_title,
                 "bot_name": self.bot_name or "Keyholder",
                 "sub_name": self.sub_name,
+                "domme_gender": self.domme_gender,
+                "domme_sexuality": self.domme_sexuality,
+                "domme_pronouns": self.domme_pronouns,
+                "sub_gender": self.sub_gender,
+                "sub_sexuality": self.sub_sexuality,
+                "sub_pronouns": self.sub_pronouns,
                 "sub_titles": list(self.sub_titles),
                 "hard_limits": list(self.hard_limits),
                 "soft_limits": list(self.soft_limits),
@@ -187,17 +210,40 @@ class LongTermMemory:
         self.save()
 
     def prompt_block(self, *, room: str) -> str:
+        from app.roles import domme_address
+
         snap = self.snapshot()
-        title = snap["domme_title"] or "Mistress"
+        address = domme_address(self)
         domme = snap["domme_name"] or "the Domme"
         sub = snap["sub_name"] or "the Sub"
+        title = (snap.get("domme_title") or "").strip()
+        title_bit = f" (optional title: {title})" if title else ""
+
+        def _demo(prefix: str) -> str:
+            bits = [
+                b
+                for b in (
+                    snap.get(f"{prefix}_gender") or "",
+                    snap.get(f"{prefix}_sexuality") or "",
+                    snap.get(f"{prefix}_pronouns") or "",
+                )
+                if b and str(b).lower() not in {"unspecified", "not-specified", ""}
+            ]
+            return ", ".join(str(b) for b in bits) if bits else "(not on profile yet)"
 
         lines = [
             "LONG-TERM MEMORY (persistent — recall these when asked; treat as true):",
             "PEOPLE (never mix these up):",
-            f"- You = AI Domme / keyholder named '{snap.get('bot_name') or 'Keyholder'}' (not the human Domme).",
-            f"- Human Domme = {domme}. Address her as '{title}' (and by name when natural).",
+            f"- You = AI Domme / keyholder named '{snap.get('bot_name') or 'Keyholder'}'. "
+            "You are Dominant. You are here to have fun. You are NEVER obedient, never a slave, "
+            "never submissive to the Sub or confused for him.",
+            f"- Human Domme / keyholder = {domme}{title_bit}. "
+            f"Address her as '{address}' — use her NAME, not generic 'Mistress'.",
+            f"- Human Domme profile: {_demo('domme')}.",
             f"- Human Sub = {sub}. Titles: {', '.join(snap['sub_titles']) or '(none yet)'}.",
+            f"- Human Sub profile: {_demo('sub')}.",
+            "- FRAME: femdom / matriarchal. Female Dominants hold power; the locked male Sub serves. "
+            "You and the human Domme are his Dommes. He kneels; you do not.",
             "- CHASTER TRUTH (STRICT): Never invent lock remaining time, totals, or keypad codes.",
             "  Live numbers come ONLY from [CHASTER LIVE STATUS] / ACTION DONE this turn.",
             "  Memory chastity/lock_log are for context/recall — not a substitute for live status.",
@@ -223,7 +269,7 @@ class LongTermMemory:
             lines.extend(f"  • {n}" for n in snap["private_bond"][-10:])
 
         lines.append(
-            f"ALWAYS acknowledge {title} when she speaks — reply to her, include her, "
+            f"ALWAYS acknowledge {address} when she speaks — reply to her, include her, "
             "never ignore her in favor of only the Sub."
         )
         lines.append(
@@ -233,8 +279,10 @@ class LongTermMemory:
         return "\n".join(lines)
 
     def format_recall_reply(self, *, for_domme: bool = True) -> str:
+        from app.roles import domme_address
+
         snap = self.snapshot()
-        title = snap["domme_title"] or "Mistress"
+        title = domme_address(self)
         lines = [
             f"{title} — here's what I'm holding onto:" if for_domme else "What I know about you:",
         ]
@@ -300,9 +348,12 @@ class LongTermMemory:
             "You maintain long-term memory for an adult D/s chastity game (18+ only).\n"
             "Given the latest turn, update MEMORY as JSON ONLY (no markdown).\n"
             "Keep prior facts unless corrected. Append short new notes.\n"
-            "Schema keys: domme_name, domme_title, bot_name, sub_name, sub_titles, "
+            "Schema keys: domme_name, domme_title, bot_name, sub_name, "
+            "domme_gender, domme_sexuality, domme_pronouns, "
+            "sub_gender, sub_sexuality, sub_pronouns, sub_titles, "
             "hard_limits, soft_limits, kinks, chastity (object of string values), "
             "relationship_notes, timeline, private_bond, facts, lock_log.\n"
+            "Prefer keeping domme_name as her Chaster username; do NOT force title 'Mistress'.\n"
             "IMPORTANT:\n"
             "- facts = durable preferences/rules Domme wants remembered (short bullets).\n"
             "- lock_log = ONLY copy real API-confirmed lock actions already present; "
@@ -351,6 +402,16 @@ class LongTermMemory:
             updates["bot_name"] = data["bot_name"].strip()
         if isinstance(data.get("sub_name"), str):
             updates["sub_name"] = data["sub_name"].strip()
+        for key in (
+            "domme_gender",
+            "domme_sexuality",
+            "domme_pronouns",
+            "sub_gender",
+            "sub_sexuality",
+            "sub_pronouns",
+        ):
+            if isinstance(data.get(key), str) and data[key].strip():
+                updates[key] = data[key].strip()
         for key in ("sub_titles", "hard_limits", "soft_limits", "kinks"):
             if key in data:
                 updates[key] = _str_list(data.get(key))

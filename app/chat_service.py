@@ -26,8 +26,11 @@ from app.speaker_guard import (
     addressing_block,
     impersonates_human,
     mistreats_domme_as_sub,
+    repair_bot_submissive,
     repair_domme_misaddress,
     repair_impersonation,
+    rewrite_generic_mistress,
+    sounds_like_bot_submissive,
     strip_impersonation,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
@@ -57,6 +60,7 @@ from app.roles import (
     Room,
     Role,
     bot_label,
+    domme_address,
     format_user_line,
     session_id_for,
     speaker_label,
@@ -236,10 +240,11 @@ async def handle_chat_turn(
         chaster_username=handle or None,
         room=room,
     )
+    her = domme_address(memory)
     user_line += addressing_block(
         role=role,
         speaker=speaker,
-        domme_title=memory.domme_title or "Mistress",
+        domme_title=her,
         sub_name=memory.sub_name
         or (handle if role == "sub" else "")
         or "the Sub",
@@ -260,7 +265,7 @@ async def handle_chat_turn(
             )
     if hands_off:
         how_long = _hands_off_duration_hint(message)
-        title = memory.domme_title or "Mistress"
+        title = her
         if room == "group":
             user_line += (
                 f"\n\n[DIRECTOR: {title} is BUSY / handed the Sub to YOU for {how_long}. "
@@ -271,7 +276,7 @@ async def handle_chat_turn(
                 f"(She'll be busy for {how_long}.)\n"
                 "3) Give ONE concrete tease/order immediately (edges, posture, lock nudge). "
                 "You may use [[[LOCK]]] tags.\n"
-                "Do NOT ask what he wants. Do NOT wait for Mistress to come back. "
+                f"Do NOT ask what he wants. Do NOT wait for {title} to come back. "
                 "Do NOT claim YOU are busy/out — SHE is.]"
             )
         else:
@@ -349,8 +354,8 @@ async def handle_chat_turn(
                 )
             else:
                 user_line += (
-                    "\n\n[DIRECTOR: Scene build requested but no wearer username. "
-                    "Ask Mistress which profile, or sync Chaster first.]"
+                    f"\n\n[DIRECTOR: Scene build requested but no wearer username. "
+                    f"Ask {domme_address(memory)} which profile, or sync Chaster first.]"
                 )
         except Exception:  # noqa: BLE001
             log.exception("Scene builder failed")
@@ -372,9 +377,61 @@ async def handle_chat_turn(
                 updates["domme_name"] = kh
             if wearer and not (memory.sub_name or "").strip():
                 updates["sub_name"] = wearer
+            # Drop stale generic Mistress title once we know her real name
+            if (updates.get("domme_name") or memory.domme_name) and (
+                (memory.domme_title or "").strip().lower() in {"mistress", "miss"}
+            ):
+                updates["domme_title"] = ""
             if updates:
                 memory.update_fields(**updates)
                 log.info("Synced names from Chaster: %s", updates)
+
+            # Pull Domme + Sub sex/sexuality/pronouns from public profiles
+            people = [
+                (
+                    (memory.domme_name or kh or "").strip(),
+                    "domme_gender",
+                    "domme_sexuality",
+                    "domme_pronouns",
+                ),
+                (
+                    (memory.sub_name or wearer or "").strip(),
+                    "sub_gender",
+                    "sub_sexuality",
+                    "sub_pronouns",
+                ),
+            ]
+            demo_updates: dict[str, str] = {}
+            for uname, gkey, skey, pkey in people:
+                if not uname:
+                    continue
+                need = not (
+                    (getattr(memory, gkey, "") or "").strip()
+                    and (getattr(memory, skey, "") or "").strip()
+                )
+                if not need:
+                    continue
+                try:
+                    overview = await chaster.get_user_profile_overview(uname)
+                except Exception:  # noqa: BLE001
+                    log.exception("Profile overview failed for %s", uname)
+                    continue
+                if not overview:
+                    continue
+                g = str(overview.get("gender") or "").strip()
+                s = str(overview.get("sexual_orientation") or "").strip()
+                p = str(overview.get("pronouns") or "").strip()
+                if g and not (getattr(memory, gkey, "") or "").strip():
+                    demo_updates[gkey] = g
+                if s and s.lower() != "unspecified" and not (
+                    getattr(memory, skey, "") or ""
+                ).strip():
+                    demo_updates[skey] = s
+                if p and not (getattr(memory, pkey, "") or "").strip():
+                    demo_updates[pkey] = p
+            if demo_updates:
+                memory.update_fields(**demo_updates)
+                log.info("Synced profile demographics: %s", demo_updates)
         except Exception:  # noqa: BLE001
             log.exception("Chaster name sync failed")
 
@@ -416,7 +473,7 @@ async def handle_chat_turn(
             step = tour.peek()
             if step is None:
                 chaster_truth_reply = (
-                    "Mistress — that's the end of the list for now. "
+                    f"{her} — that's the end of the list for now. "
                     "Want add/remove time, freeze, hide/show his timer, or pillory? "
                     "Just give the order."
                 )
@@ -452,20 +509,20 @@ async def handle_chat_turn(
                 if is_mercy_plea(message):
                     chaster_note += (
                         "\n\n[DIRECTOR: Sub is BEGGING for lock mercy "
-                        f"(wanted: {intent.kind}). He may beg YOU or Mistress — both of "
-                        "you are Dominants. Do NOT scold him for addressing Mistress. "
+                        f"(wanted: {intent.kind}). He may beg YOU or {her} — both of "
+                        f"you are Dominants. Do NOT scold him for addressing {her}. "
                         "Either Dominant may grant or deny. If YOU grant, emit a [[[LOCK]]] "
                         "tag. If denying, tease — begging is allowed; orders are not.]"
                     )
                 elif is_direct_lock_order(message):
                     chaster_note += (
                         "\n\n[DIRECTOR: Sub tried to ORDER a lock change "
-                        f"({intent.kind}). Refuse. He may beg you or Mistress politely — "
+                        f"({intent.kind}). Refuse. He may beg you or {her} politely — "
                         "he may not give orders. Correct him sharply. Auto-punish may apply.]"
                     )
                 else:
                     chaster_note += (
-                        "\n\n[DIRECTOR: Sub mentioned a lock change. Mistress and YOU "
+                        f"\n\n[DIRECTOR: Sub mentioned a lock change. {her} and YOU "
                         "both control Chaster — he does not. If it was a plea, tease or "
                         "decide; if an order, shut it down. No lock mutation from Sub "
                         "speech alone (use [[[LOCK]]] if YOU grant).]"
@@ -492,7 +549,7 @@ async def handle_chat_turn(
                     )
                 elif result.ok and intent.kind == "list_capabilities":
                     chaster_truth_reply = (
-                        "BOY — lock control is for Mistress and me. "
+                        f"BOY — lock control is for {her} and me. "
                         "You don't get the control menu. Ask about your cage, toys, or orders."
                     )
                 elif result.ok and intent.kind in ("list_extensions", "list_history"):
@@ -545,7 +602,7 @@ async def handle_chat_turn(
                     )
                 else:
                     chaster_truth_reply = (
-                        "Mistress — that didn't take on his lock. "
+                        f"{her} — that didn't take on his lock. "
                         "Nothing changed. Want me to try again?"
                     )
                     chaster_note = f"\n\n[CHASTER ERROR: {result.error}]"
@@ -556,9 +613,9 @@ async def handle_chat_turn(
             if "[DIRECTOR: Sub is BEGGING" not in chaster_note:
                 chaster_note += (
                     "\n\n[DIRECTOR: Sub is BEGGING (timer/time/unfreeze mercy) to the "
-                    "Dommes. Allowed — he may beg Mistress or you. Refer to both of you "
+                    f"Dommes. Allowed — he may beg {her} or you. Refer to both of you "
                     "as Dominants. Either of you may grant/deny. If YOU grant, emit "
-                    "[[[LOCK]]]. Never scold him for saying please Mistress.]"
+                    f"[[[LOCK]]]. Never scold him for addressing {her}.]"
                 )
 
         # Automatic Chaster detriment first — lock is the bot's main lever
@@ -636,15 +693,18 @@ async def handle_chat_turn(
         user_line += chaster_note
 
     recent = _recent_assistant_texts(history)
-    title = memory.domme_title or "Mistress"
+    title = domme_address(memory)
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
     if room == "private":
         anti_loop = (
             "\n\nHARD RULES THIS TURN (PRIVATE CHANNEL):\n"
             f"- You are ONLY talking to {speaker} (human Domme / keyholder). "
-            f"Address her as {title}. The Sub ({sub_nm}) cannot see this.\n"
-            f"- Your name is '{bot_name}'. You are the AI Domme/keyholder — not her stand-in body.\n"
+            f"Address her as {title} (her name — not 'Mistress'). "
+            f"The Sub ({sub_nm}) cannot see this.\n"
+            f"- Your name is '{bot_name}'. You are AI Domme/keyholder — Dominant peer, "
+            "here to have fun. Never obedient/submissive.\n"
             f"- NEVER treat {title} as locked. NEVER give her hygiene unlocks or cage orders.\n"
+            "- Femdom/matriarchal: you and she rule; he serves.\n"
             "- Plan, scheme, encourage her meanness. Do not perform for the Sub here.\n"
             "- To speak to the Sub, emit [[[GROUP]]]…[[[/GROUP]]] (that posts to Group).\n"
             "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
@@ -669,23 +729,26 @@ async def handle_chat_turn(
         else:
             who_rules = (
                 f"- SPEAKER THIS TURN: {speaker} = HUMAN SUB / WEARER. Speak to him.\n"
-                f"- {title} is the human Domme (separate). You are '{bot_name}'.\n"
+                f"- {title} is the human Domme (separate). You are '{bot_name}' — Dominant.\n"
             )
         anti_loop = (
             "\n\nHARD RULES THIS TURN (GROUP CHANNEL):\n"
             f"{who_rules}"
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
-            "never claim to be the human Domme or Sub.\n"
+            "Dominant, here to have fun. Never claim to be the human Domme or Sub. "
+            "Never speak as if YOU are obedient, a slave, or 'serving her needs'.\n"
+            f"- Address the human Domme as {title} — never generic 'Mistress'.\n"
             f"- NEVER write as [Domme …], [Sub …], or forge {title}'s voice. "
             "Only you reply under your own name.\n"
-            "- If Sub insults Dommes (slut/whore/sluts/etc.), PUNISH with ADD time. "
+            "- Femdom/matriarchal: female Dominants hold power; the locked Sub serves.\n"
+            "- If Sub insults Dommes (slut/whore/hores/etc.), PUNISH with ADD time. "
             "Never remove time, never tease-reward, never play along with the slur.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
             "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
             "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
             "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
-            "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
-            "- Sub may BEG either Dominant for mercy. Never scold him for addressing Mistress.\n"
+            f"- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
+            f"- Sub may BEG either Dominant for mercy. Never scold him for addressing {title}.\n"
             "- Sub may NOT give direct lock orders (e.g. 'add some time'). Refuse; he begs.\n"
             "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
             "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
@@ -748,7 +811,7 @@ async def handle_chat_turn(
             rewrite_user = (
                 f"{user_line}\n\n"
                 "[SYSTEM: You are looping. Write a completely different reply. "
-                "Acknowledge Mistress, announce ONE specific cruel punishment for BOY "
+                f"Acknowledge {title}, announce ONE specific cruel punishment for BOY "
                 "(e.g. locked longer, edges with no release, corner time, lines, ice, "
                 "denied orgasm for X days), and give the first order to start it. "
                 "Do not ask BOY what he wants.]"
@@ -764,7 +827,6 @@ async def handle_chat_turn(
             log.error("Model still looping — using decisive fallback line")
             if hands_off:
                 how_long = _hands_off_duration_hint(message)
-                title = memory.domme_title or "Mistress"
                 reply = (
                     f"{title} — I've got him.\n\n"
                     f"BOY… {title} is busy for {how_long}, so it's just the two of us. "
@@ -773,10 +835,10 @@ async def handle_chat_turn(
                 )
             else:
                 reply = (
-                    "Mistress, thank you — I'll take this. BOY, you came without permission, "
+                    f"{title}, thank you — I'll take this. BOY, you came without permission, "
                     "so you don't get a vote. Punishment: you're locked, denied, and you will "
                     "edge twice tonight under our count with no orgasm — then cage back on. "
-                    "Stroke slow for sixty seconds starting now. Mistress, want me to make the "
+                    f"Stroke slow for sixty seconds starting now. {title}, want me to make the "
                     "edges nastier?"
                 )
             messages = list(history) + [
@@ -802,7 +864,7 @@ async def handle_chat_turn(
             )
             if weak:
                 how_long = _hands_off_duration_hint(message)
-                title = memory.domme_title or "Mistress"
+                title = domme_address(memory)
                 reply = (
                     f"{title} — leave him with me.\n\n"
                     f"Well, BOY… it's just the two of us for {how_long}. "
@@ -837,10 +899,32 @@ async def handle_chat_turn(
         if role == "domme" and mistreats_domme_as_sub(reply):
             log.warning("Repaired Domme-as-Sub misaddress in %s", room)
             reply = repair_domme_misaddress(
-                domme_title=memory.domme_title or "Mistress",
+                domme_title=domme_address(memory),
                 sub_name=memory.sub_name or "him",
                 original_topic=message[:120],
             )
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
+        # Strict: AI Domme must never sound obedient/submissive herself
+        if sounds_like_bot_submissive(reply):
+            log.warning("Repaired bot-as-submissive voice in %s", room)
+            reply = repair_bot_submissive(
+                bot_name=bot_name,
+                domme_title=domme_address(memory),
+                sub_name=memory.sub_name or "BOY",
+            )
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
+        # Prefer keyholder name over generic Mistress in visible replies
+        rewritten = rewrite_generic_mistress(reply, memory.domme_name or "")
+        if rewritten != reply:
+            reply = rewritten
             messages = list(history) + [
                 {"role": "user", "content": user_line},
                 {"role": "assistant", "content": reply},
@@ -853,7 +937,7 @@ async def handle_chat_turn(
             if not cleaned or len(cleaned) < 20:
                 cleaned = repair_impersonation(
                     bot_name=bot_name,
-                    domme_title=memory.domme_title or "Mistress",
+                    domme_title=domme_address(memory),
                     sub_name=memory.sub_name or "BOY",
                 )
             reply = cleaned
@@ -888,7 +972,7 @@ async def handle_chat_turn(
                     )
         if chaster and chaster.configured and not chaster_truth_reply and lock_intents:
             confirms: list[str] = []
-            title = memory.domme_title or "Mistress"
+            title = domme_address(memory)
             for lint in lock_intents[:4]:
                 result = await run_chaster_intent(
                     chaster, lint, requested_by=f"{bot_name} (AI Domme)"

@@ -169,7 +169,7 @@ class GroupBridge:
             else "You stay caged under my watch. No release. Be useful and obedient until she's back."
         )
         return (
-            "BOY — Mistress is going out tonight, so I'm in charge of you. "
+            "BOY — your Domme is going out tonight, so I'm in charge of you. "
             + tease
         )
 
@@ -194,11 +194,12 @@ class GroupBridge:
         log.warning("Group post stole Domme's night out — rewriting")
         rewrite_system = (
             "Rewrite the group message. Output ONLY the corrected message.\n"
-            "You are the AI Domme. Mistress (human Domme) is going out.\n"
-            "MUST include: Mistress is going out tonight + you are in charge of the Sub.\n"
+            "You are the AI Domme (Dominant). The human Domme is going out — use her NAME "
+            "from context if known, not generic 'Mistress'.\n"
+            "MUST include: she is going out tonight + you are in charge of the Sub.\n"
             "Tease him (cuck/denial if relevant). "
             "FORBIDDEN: saying YOU are going out, on the date, or with the gentleman.\n"
-            "Use third person for Mistress."
+            "You are Dominant — never obedient/submissive."
         )
         rewrite_user = (
             f"Domme order: {domme_message}\n\n"
@@ -237,10 +238,12 @@ class GroupBridge:
 
         craft_system = (
             "You are the AI Domme/keyholder in a shared adult D/s group chat.\n"
-            "The HUMAN Domme (Mistress) is a separate person. You are NOT her.\n"
+            "You are Dominant and here to have fun. Never obedient or submissive.\n"
+            "The HUMAN Domme is a separate person — address her by NAME, not 'Mistress'. "
+            "You are NOT her.\n"
             "Output ONLY one in-character group message — no quotes, no preamble.\n"
-            "If Mistress is going out: SHE goes out; YOU are in charge of the Sub.\n"
-            "Open like: 'Mistress is going out tonight, so I'm in charge of you…'\n"
+            "If she is going out: SHE goes out; YOU are in charge of the Sub.\n"
+            "Open like: '{her name} is going out tonight, so I'm in charge of you…'\n"
             "NEVER claim you are going out or on her date.\n"
             "Never involve anyone under 18.\n\n"
             f"ACTIVE PLAN:\n{scene.secret_directives.strip() or '(none)'}"

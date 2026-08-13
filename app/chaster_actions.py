@@ -1760,7 +1760,7 @@ def format_kink_profile(username: str, profile: dict[str, Any]) -> str:
         return text
 
     lines = [
-        f"Mistress — here's what {username} has on his profile:",
+        f"Here's what {username} has on their profile:",
     ]
     if bio:
         lines.append(f"Bio: {bio}")
@@ -2133,7 +2133,7 @@ def format_group_lock_confirm(
     result: ChasterActionResult,
 ) -> str:
     """Sub-facing confirmation after either Domme changes the lock."""
-    title = (domme_title or "Mistress").strip() or "Mistress"
+    title = (domme_title or "the Domme").strip() or "the Domme"
     if not result.ok or result.blocked:
         return ""
     kind = intent.kind
