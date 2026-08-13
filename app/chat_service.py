@@ -678,7 +678,8 @@ async def handle_chat_turn(
             "never claim to be the human Domme or Sub.\n"
             f"- NEVER write as [Domme …], [Sub …], or forge {title}'s voice. "
             "Only you reply under your own name.\n"
-            "- If Sub insults Dommes (slut/whore/etc.), correct and punish — do not flirt with it.\n"
+            "- If Sub insults Dommes (slut/whore/sluts/etc.), PUNISH with ADD time. "
+            "Never remove time, never tease-reward, never play along with the slur.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
             "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
             "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
@@ -870,6 +871,21 @@ async def handle_chat_turn(
         cleaned, lock_intents = extract_lock_commands(visible_reply)
         # Always strip tags from what the Sub/Domme see
         visible_reply = cleaned
+        # Never let the model reward insolence with mercy actions
+        if role == "sub" and lock_intents and detect_rule_break(message, role=role):
+            mercy = {"remove_time", "unfreeze", "show_time"}
+            locked_out = [i for i in lock_intents if i.kind in mercy]
+            lock_intents = [i for i in lock_intents if i.kind not in mercy]
+            if locked_out:
+                log.warning(
+                    "Blocked mercy LOCK tags after Sub rule-break: %s",
+                    [i.kind for i in locked_out],
+                )
+                if not any(i.kind == "add_time" for i in lock_intents):
+                    lock_intents.insert(
+                        0,
+                        ChasterIntent(kind="add_time", seconds=1800, reason="insolence"),
+                    )
         if chaster and chaster.configured and not chaster_truth_reply and lock_intents:
             confirms: list[str] = []
             title = memory.domme_title or "Mistress"

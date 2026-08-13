@@ -25,13 +25,15 @@ _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
         RuleBreak(reason="came/unlocked without permission", seconds=3600, freeze=True),
     ),
     # Insulting Domme / AI keyholder (not Domme calling HIM names)
+    # Matches singular/plural: slut(s), whore(s), bitch(es), cunt(s)
     (
         re.compile(
-            r"^[\s\"']*(hi|hello|hey|yo)?[\s,]*"
-            r"(slut|whore|bitch|cunt|stupid\s+bitch|dumb\s+slut)\b"
-            r"|^(slut|whore|bitch)\s*[.!]?\s*$"
-            r"|\b(fuck you|fuck off|shut up)\b.*\b(mistress|miss|domme|keyholder)?\b"
-            r"|\b(you('re| are)\s+(a\s+)?(stupid\s+)?(slut|whore|bitch))\b",
+            r"^[\s\"']*(hi|hello|hey|yo|sup|hiya)?[\s,]*"
+            r"(sluts?|whores?|bitches|bitch|cunts?|stupid\s+bitches?|dumb\s+sluts?)\b"
+            r"|^(sluts?|whores?|bitches|bitch|cunts?)\s*[.!]?\s*$"
+            r"|\b(fuck you|fuck off|shut up)\b"
+            r"|\b(you('re| are)\s+(a\s+)?(stupid\s+)?(sluts?|whores?|bitches|bitch|cunts?))\b"
+            r"|\b(hey|hi|hello)\s+(you\s+)?(sluts?|whores?|bitches|bitch)\b",
             re.I,
         ),
         RuleBreak(
