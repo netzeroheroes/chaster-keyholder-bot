@@ -142,7 +142,11 @@ class ImageService:
         if not images:
             raise RuntimeError(f"No images in chat response: {result}")
 
-        image_url = images[0].get("image_url", {}).get("url") or ""
+        first = images[0] if images else {}
+        image_meta = first.get("image_url") if isinstance(first, dict) else None
+        if not isinstance(image_meta, dict):
+            image_meta = {}
+        image_url = str(image_meta.get("url") or "")
         if image_url.startswith("data:"):
             header, b64 = image_url.split(",", 1)
             ext = "png"

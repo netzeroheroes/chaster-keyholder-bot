@@ -15,9 +15,9 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: "openai/gpt-oss-20b:free"
+        value: "gryphe/mythomax-l2-13b"
       - key: LLM_MAX_TOKENS
-        value: "1024"
+        value: "768"
       - key: CHASTER_ACCESS_TOKEN
         sync: false
       - key: CHASTER_EXTENSION_SLUG

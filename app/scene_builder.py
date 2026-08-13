@@ -126,22 +126,29 @@ def requested_toy_count(message: str, default: int = 3) -> int:
     return default
 
 
-def _names(items: list[dict[str, Any]]) -> list[str]:
+def _names(items: list) -> list[str]:
     out: list[str] = []
     for i in items:
-        n = str(i.get("name") or "").strip()
+        if isinstance(i, dict):
+            n = str(i.get("name") or "").strip()
+        elif isinstance(i, str):
+            n = i.strip()
+        else:
+            continue
         if n:
             out.append(n)
     return out
 
 
-def _rating_names(kinks: list[dict[str, Any]], rating: str) -> list[str]:
+def _rating_names(kinks: list, rating: str) -> list[str]:
     want = rating.lower()
-    return [
-        str(k.get("name") or "").strip()
-        for k in kinks
-        if str(k.get("rating") or "").lower() == want and k.get("name")
-    ]
+    out: list[str] = []
+    for k in kinks:
+        if not isinstance(k, dict):
+            continue
+        if str(k.get("rating") or "").lower() == want and k.get("name"):
+            out.append(str(k.get("name") or "").strip())
+    return out
 
 
 def _toy_matches(toy: str, needles: list[str]) -> bool:

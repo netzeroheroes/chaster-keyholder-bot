@@ -864,12 +864,29 @@ def format_kink_profile(username: str, profile: dict[str, Any]) -> str:
     toys = list(profile.get("toys") or [])
     bio = str(profile.get("bio") or "").strip()
 
-    love = [k for k in kinks if str(k.get("rating") or "").lower() == "love"]
-    like = [k for k in kinks if str(k.get("rating") or "").lower() == "like"]
-    curious = [k for k in kinks if str(k.get("rating") or "").lower() == "curious"]
+    love = [
+        k
+        for k in kinks
+        if isinstance(k, dict) and str(k.get("rating") or "").lower() == "love"
+    ]
+    like = [
+        k
+        for k in kinks
+        if isinstance(k, dict) and str(k.get("rating") or "").lower() == "like"
+    ]
+    curious = [
+        k
+        for k in kinks
+        if isinstance(k, dict) and str(k.get("rating") or "").lower() == "curious"
+    ]
 
-    def _names(items: list[dict[str, Any]], limit: int = 20) -> str:
-        names = [str(i.get("name") or "").strip() for i in items if i.get("name")]
+    def _names(items: list[Any], limit: int = 20) -> str:
+        names: list[str] = []
+        for i in items:
+            if isinstance(i, dict) and i.get("name"):
+                names.append(str(i.get("name") or "").strip())
+            elif isinstance(i, str) and i.strip():
+                names.append(i.strip())
         names = [n for n in names if n]
         if not names:
             return "(none listed)"

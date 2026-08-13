@@ -78,47 +78,42 @@ class ChatAgent:
         )
 
         max_tokens = max(256, int(self.settings.llm_max_tokens or 1024))
+        model = (self.settings.llm_model or "").strip()
+        use_penalties = ":free" not in model.lower()
+
         for _ in range(self.max_tool_rounds):
             kwargs: dict[str, Any] = {
-                "model": self.settings.llm_model,
+                "model": model,
                 "messages": messages,
                 # Cap so OpenRouter credit checks don't reserve a huge completion
                 "max_tokens": max_tokens,
-                # Reduce copy-paste loops on smaller/uncensored models
                 "temperature": 0.9,
-                "frequency_penalty": 0.7,
-                "presence_penalty": 0.5,
             }
+            if use_penalties:
+                # Some free/reasoning models reject or mishandle these
+                kwargs["frequency_penalty"] = 0.7
+                kwargs["presence_penalty"] = 0.5
             if tool_schemas:
                 kwargs["tools"] = tool_schemas
                 kwargs["tool_choice"] = "auto"
 
-            try:
-                completion = await self.client.chat.completions.create(**kwargs)
-            except APIStatusError as exc:
-                # OpenRouter 402: requested max_tokens > affordable balance
-                if exc.status_code == 402 and max_tokens > 256:
-                    affordable = _affordable_tokens(str(exc))
-                    retry_for = max(256, min(max_tokens // 2, affordable or max_tokens // 2))
-                    if retry_for < max_tokens:
-                        log.warning(
-                            "OpenRouter 402 — retrying with max_tokens=%s (was %s)",
-                            retry_for,
-                            max_tokens,
-                        )
-                        max_tokens = retry_for
-                        kwargs["max_tokens"] = max_tokens
-                        completion = await self.client.chat.completions.create(**kwargs)
-                    else:
-                        raise
-                else:
-                    raise
-            choice = completion.choices[0].message
-            tool_calls = choice.tool_calls or []
+            completion = await self._create_with_retries(kwargs)
+            choices = getattr(completion, "choices", None) or []
+            if not choices:
+                raise RuntimeError(
+                    "Model returned no choices. Try another LLM_MODEL or retry."
+                )
+            first = choices[0]
+            choice = getattr(first, "message", None)
+            if choice is None:
+                raise RuntimeError("Model returned an empty message.")
+
+            tool_calls = list(getattr(choice, "tool_calls", None) or [])
+            text = _message_text(choice)
 
             assistant_msg: ChatCompletionMessageParam = {
                 "role": "assistant",
-                "content": choice.content or "",
+                "content": text,
             }
             if tool_calls:
                 assistant_msg["tool_calls"] = [  # type: ignore[typeddict-item]
@@ -131,14 +126,16 @@ class ChatAgent:
                         },
                     }
                     for tc in tool_calls
+                    if getattr(tc, "function", None) is not None
                 ]
             messages.append(assistant_msg)
 
             if not tool_calls:
-                text = (choice.content or "").strip() or "(empty response)"
-                return text, messages
+                return (text.strip() or "(empty response)"), messages
 
             for tc in tool_calls:
+                if getattr(tc, "function", None) is None:
+                    continue
                 result = await self.tools.call(
                     tc.function.name,
                     tc.function.arguments,
@@ -154,6 +151,63 @@ class ChatAgent:
             "Stopped after too many tool rounds. Try a simpler request.",
             messages,
         )
+
+    async def _create_with_retries(self, kwargs: dict[str, Any]) -> Any:
+        max_tokens = int(kwargs.get("max_tokens") or 1024)
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                return await self.client.chat.completions.create(**kwargs)
+            except APIStatusError as exc:
+                last_exc = exc
+                if exc.status_code == 402 and max_tokens > 256:
+                    affordable = _affordable_tokens(str(exc))
+                    retry_for = max(
+                        256, min(max_tokens // 2, affordable or max_tokens // 2)
+                    )
+                    if retry_for < max_tokens:
+                        log.warning(
+                            "OpenRouter 402 — retrying with max_tokens=%s (was %s)",
+                            retry_for,
+                            max_tokens,
+                        )
+                        max_tokens = retry_for
+                        kwargs["max_tokens"] = max_tokens
+                        continue
+                if exc.status_code == 429 and attempt < 2:
+                    log.warning("OpenRouter 429 — retry %s", attempt + 1)
+                    continue
+                raise
+        assert last_exc is not None
+        raise last_exc
+
+
+def _message_text(choice: Any) -> str:
+    """Normalize assistant content (string | list parts | reasoning-only)."""
+    content = getattr(choice, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        bits: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                bits.append(part)
+                continue
+            if isinstance(part, dict):
+                text = part.get("text") or part.get("content") or ""
+                if text:
+                    bits.append(str(text))
+                continue
+            text = getattr(part, "text", None) or getattr(part, "content", None)
+            if text:
+                bits.append(str(text))
+        joined = "".join(bits).strip()
+        if joined:
+            return joined
+    refusal = getattr(choice, "refusal", None)
+    if isinstance(refusal, str) and refusal.strip():
+        return refusal.strip()
+    return ""
 
 
 def _affordable_tokens(error_text: str) -> int | None:
