@@ -111,7 +111,7 @@
 
         <p class="title">R+D Lockbox</p>
         <p class="meta">
-          Physical box only — timer comes from Chaster (not the R+D dashboard). Hygiene opens unlock; close re-locks with Chaster remaining time.
+          Physical box only — timer/freeze/hide follow Chaster. R+D has no freeze API, so frozen Chaster soft-freezes the box by rewinding duration each poll; hidden Chaster timer parks the box on a long dummy duration.
         </p>
         <p id="lockboxLive" class="meta">Lockbox: —</p>
         <div class="row">
@@ -133,6 +133,6 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=14"></script>
+  <script src="/static/ext/ext.js?v=15"></script>
 </body>
 </html>

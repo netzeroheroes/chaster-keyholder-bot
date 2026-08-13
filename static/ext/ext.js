@@ -246,6 +246,9 @@
     const sync = st.sync_enabled ? "sync ON" : "sync OFF";
     const hyg = st.hygiene_unlock ? "hygiene→unlock" : "hygiene off";
     const bits = [sync, "time from Chaster", hyg, state];
+    if (st.last_sync && st.last_sync.chaster_frozen) bits.push("Chaster FROZEN");
+    if (st.last_sync && st.last_sync.chaster_time_hidden)
+      bits.push("Chaster timer HIDDEN");
     if (st.last_sync && st.last_sync.chaster_remaining != null) {
       bits.push(`Chaster ~${st.last_sync.chaster_remaining}s`);
     }

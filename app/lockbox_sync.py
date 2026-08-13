@@ -32,6 +32,8 @@ _LAST: dict[str, Any] = {
     "at": None,
     "chaster_type": None,
     "chaster_remaining": None,
+    "chaster_frozen": None,
+    "chaster_time_hidden": None,
 }
 
 
@@ -46,6 +48,8 @@ def _stamp(
     detail: str,
     chaster_type: str | None = None,
     chaster_remaining: int | None = None,
+    chaster_frozen: bool | None = None,
+    chaster_time_hidden: bool | None = None,
 ) -> dict[str, Any]:
     _LAST.update(
         {
@@ -55,6 +59,8 @@ def _stamp(
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "chaster_type": chaster_type,
             "chaster_remaining": chaster_remaining,
+            "chaster_frozen": chaster_frozen,
+            "chaster_time_hidden": chaster_time_hidden,
         }
     )
     return dict(_LAST)
@@ -71,8 +77,15 @@ def _clamp_duration(seconds: int) -> int:
     return max(_MIN_DURATION, min(_MAX_DURATION, int(seconds)))
 
 
-async def chaster_remaining_seconds(chaster: ChasterClient | None) -> int | None:
-    """Seconds left on the configured / first linked Chaster lock."""
+# When Chaster hides the timer, R+D API cannot set isTimeDisplayed — approximate
+# by parking the box on a long dummy duration until time is revealed again.
+_HIDDEN_DURATION = 86400 * 365 * 5  # 5 years (looks indefinite on the box)
+
+
+async def chaster_lock_snapshot(
+    chaster: ChasterClient | None,
+) -> dict[str, Any] | None:
+    """Read Chaster remaining / frozen / timer-hidden for R+D mirroring."""
     if chaster is None or not getattr(chaster, "configured", False):
         return None
     try:
@@ -83,24 +96,72 @@ async def chaster_remaining_seconds(chaster: ChasterClient | None) -> int | None
             if sessions:
                 raw = sessions[0].get("lock") if isinstance(sessions[0], dict) else None
                 if isinstance(raw, dict) and (raw.get("_id") or raw.get("id")):
-                    lock = await chaster.get_lock(str(raw.get("_id") or raw.get("id"))) or raw
+                    lock = await chaster.get_lock(
+                        str(raw.get("_id") or raw.get("id"))
+                    ) or raw
         if not isinstance(lock, dict):
             return None
         status = str(lock.get("status") or "").lower()
         if status in ("unlocked", "archived", "deserted", "ended"):
-            return None
+            return {
+                "status": status,
+                "remaining": None,
+                "frozen": False,
+                "time_hidden": False,
+                "end_date": None,
+            }
+        frozen = bool(lock.get("isFrozen"))
+        # Chaster: displayRemainingTime True = shown; False = hidden
+        display = lock.get("displayRemainingTime")
+        time_hidden = display is False
+        rem: int | None = None
         end = lock.get("endDate")
-        if not end:
-            # Frozen / hidden / no end — keep a long placeholder so the box stays shut
-            if lock.get("isFrozen"):
-                return _MAX_DURATION
-            return None
-        end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
-        rem = int((end_dt - datetime.now(timezone.utc)).total_seconds())
-        return rem if rem > 0 else None
+        if end:
+            end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+            rem = int((end_dt - datetime.now(timezone.utc)).total_seconds())
+            if rem <= 0:
+                rem = None
+        elif frozen:
+            rem = _MAX_DURATION
+        return {
+            "status": status or "locked",
+            "remaining": rem,
+            "frozen": frozen,
+            "time_hidden": time_hidden,
+            "end_date": end,
+        }
     except Exception:  # noqa: BLE001
-        log.exception("Failed to read Chaster remaining time")
+        log.exception("Failed to read Chaster lock snapshot")
         return None
+
+
+async def chaster_remaining_seconds(chaster: ChasterClient | None) -> int | None:
+    snap = await chaster_lock_snapshot(chaster)
+    if not snap:
+        return None
+    return snap.get("remaining")
+
+
+def _target_duration_from_chaster(snap: dict[str, Any]) -> tuple[int | None, str]:
+    """
+    Map Chaster state → R+D duration.
+
+    R+D public API only supports duration (no freeze / hide flags), so:
+    - frozen: keep pushing real remaining (soft-freeze; timer gets rewound each sync)
+    - time hidden: park on a long dummy duration until revealed
+    - normal: real remaining
+    """
+    rem = snap.get("remaining")
+    frozen = bool(snap.get("frozen"))
+    hidden = bool(snap.get("time_hidden"))
+    if hidden:
+        # Don't leak the real countdown on the box display
+        return _HIDDEN_DURATION, "hidden-timer placeholder"
+    if rem is None:
+        if frozen:
+            return _MAX_DURATION, "frozen (no endDate)"
+        return None, "no remaining"
+    return _clamp_duration(int(rem)), "frozen soft-sync" if frozen else "chaster remaining"
 
 
 async def ensure_template_id(rad: RadLockboxClient) -> int | None:
@@ -132,7 +193,7 @@ async def sync_duration_from_chaster(
     reason: str = "time_sync",
     force: bool = False,
 ) -> dict[str, Any]:
-    """PATCH active R+D session duration to match Chaster remaining time."""
+    """PATCH active R+D session duration from Chaster (handles freeze + hidden timer)."""
     if not rad.configured:
         return _stamp(
             action="set_duration",
@@ -147,15 +208,28 @@ async def sync_duration_from_chaster(
             detail="R+D sync disabled",
             chaster_type=reason,
         )
-    rem = await chaster_remaining_seconds(chaster)
-    if rem is None:
+    snap = await chaster_lock_snapshot(chaster)
+    if not snap:
+        return _stamp(
+            action="set_duration",
+            ok=False,
+            detail="Could not read Chaster lock",
+            chaster_type=reason,
+        )
+    rem = snap.get("remaining")
+    frozen = bool(snap.get("frozen"))
+    hidden = bool(snap.get("time_hidden"))
+    duration, mode = _target_duration_from_chaster(snap)
+    if duration is None:
         return _stamp(
             action="set_duration",
             ok=False,
             detail="No Chaster remaining time available",
             chaster_type=reason,
+            chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
-    duration = _clamp_duration(rem)
     try:
         session = await rad.get_active_session()
         if not session or not session.get("isActive"):
@@ -165,6 +239,8 @@ async def sync_duration_from_chaster(
                 detail="No active R+D session to update",
                 chaster_type=reason,
                 chaster_remaining=rem,
+                chaster_frozen=frozen,
+                chaster_time_hidden=hidden,
             )
         state = str(session.get("lockState") or "").lower()
         if state != "locked":
@@ -174,29 +250,42 @@ async def sync_duration_from_chaster(
                 detail=f"R+D session state is {state or '?'}, not locked",
                 chaster_type=reason,
                 chaster_remaining=rem,
+                chaster_frozen=frozen,
+                chaster_time_hidden=hidden,
             )
         current = session.get("duration")
+        # Soft-freeze: always rewrite while frozen so the box timer can't run down.
+        # Hidden: keep parked on the placeholder.
+        skip_tol = 5 if (frozen or hidden) else 30
         try:
-            if current is not None and abs(int(current) - duration) < 30:
+            if current is not None and abs(int(current) - duration) < skip_tol:
                 return _stamp(
                     action="set_duration",
                     ok=True,
-                    detail=f"Already ≈ Chaster ({duration}s)",
+                    detail=f"Already synced ({mode}, {duration}s)",
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
         except (TypeError, ValueError):
             pass
         await rad.set_duration(duration)
-        log.info(
-            "R+D duration set to %ss from Chaster (%s)", duration, reason
-        )
+        bits = [mode, f"{duration}s"]
+        if frozen:
+            bits.append("Chaster FROZEN")
+        if hidden:
+            bits.append("Chaster timer HIDDEN")
+        detail = "Set R+D duration — " + ", ".join(bits)
+        log.info("R+D duration sync (%s): %s", reason, detail)
         return _stamp(
             action="set_duration",
             ok=True,
-            detail=f"Set R+D duration to {duration}s from Chaster",
+            detail=detail,
             chaster_type=reason,
             chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("R+D duration sync failed")
@@ -206,6 +295,8 @@ async def sync_duration_from_chaster(
             detail=str(exc),
             chaster_type=reason,
             chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
 
 
@@ -287,8 +378,14 @@ async def relock_from_chaster(
             chaster_type=reason,
         )
 
-    rem = await chaster_remaining_seconds(chaster)
-    duration = _clamp_duration(rem) if rem is not None else None
+    snap = await chaster_lock_snapshot(chaster)
+    rem = snap.get("remaining") if snap else None
+    frozen = bool(snap.get("frozen")) if snap else False
+    hidden = bool(snap.get("time_hidden")) if snap else False
+    duration: int | None = None
+    mode = "chaster remaining"
+    if snap:
+        duration, mode = _target_duration_from_chaster(snap)
 
     template_id = await ensure_template_id(rad)
     if template_id is None:
@@ -298,6 +395,8 @@ async def relock_from_chaster(
             detail="No R+D lock template available (API still needs one to start a session)",
             chaster_type=reason,
             chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
 
     try:
@@ -305,15 +404,17 @@ async def relock_from_chaster(
         if session and session.get("isActive"):
             state = str(session.get("lockState") or "").lower()
             if state == "locked":
-                # Already locked — just push Chaster time
+                # Already locked — just push Chaster time / freeze / hide mapping
                 if duration is not None:
                     await rad.set_duration(duration)
                     return _stamp(
                         action="lock",
                         ok=True,
-                        detail=f"Already locked — duration synced to {duration}s from Chaster",
+                        detail=f"Already locked — synced ({mode}, {duration}s)",
                         chaster_type=reason,
                         chaster_remaining=rem,
+                        chaster_frozen=frozen,
+                        chaster_time_hidden=hidden,
                     )
                 return _stamp(
                     action="lock",
@@ -321,6 +422,8 @@ async def relock_from_chaster(
                     detail="R+D already locked (no Chaster time to sync)",
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
             try:
                 await rad.unlock()
@@ -339,8 +442,10 @@ async def relock_from_chaster(
                     detail=f"Locked with template, but duration sync failed: {exc}",
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
-            detail = f"Re-locked; duration {duration}s from Chaster"
+            detail = f"Re-locked; {mode} → {duration}s"
         else:
             detail = (
                 "Re-locked with template duration "
@@ -353,6 +458,8 @@ async def relock_from_chaster(
             detail=detail,
             chaster_type=reason,
             chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
@@ -368,11 +475,13 @@ async def relock_from_chaster(
                     action="lock",
                     ok=True,
                     detail=(
-                        f"Session active after lock quirk; duration synced to "
-                        f"{duration}s from Chaster"
+                        f"Session active after lock quirk; synced "
+                        f"({mode}, {duration}s)"
                     ),
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
             except Exception as exc2:  # noqa: BLE001
                 msg = f"{msg} | duration sync: {exc2}"
@@ -382,9 +491,11 @@ async def relock_from_chaster(
                 return _stamp(
                     action="lock",
                     ok=True,
-                    detail=f"Active session kept; duration synced to {duration}s from Chaster",
+                    detail=f"Active session kept; synced ({mode}, {duration}s)",
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
             except Exception as exc2:  # noqa: BLE001
                 return _stamp(
@@ -396,6 +507,8 @@ async def relock_from_chaster(
                     ),
                     chaster_type=reason,
                     chaster_remaining=rem,
+                    chaster_frozen=frozen,
+                    chaster_time_hidden=hidden,
                 )
         log.exception("R+D re-lock after %s failed", reason)
         return _stamp(
@@ -404,6 +517,8 @@ async def relock_from_chaster(
             detail=msg,
             chaster_type=reason,
             chaster_remaining=rem,
+            chaster_frozen=frozen,
+            chaster_time_hidden=hidden,
         )
 
 
