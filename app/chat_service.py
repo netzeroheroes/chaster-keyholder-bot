@@ -13,6 +13,7 @@ from app.chaster import ChasterClient
 from app.chaster_actions import (
     ChasterIntent,
     extract_lock_commands,
+    fetch_live_status_block,
     format_capabilities_reply,
     format_group_lock_confirm,
     format_truth_reply,
@@ -309,6 +310,17 @@ async def handle_chat_turn(
         except Exception:  # noqa: BLE001
             log.exception("Chaster name sync failed")
 
+        # Always inject a fresh lock snapshot so the model cannot invent numbers
+        try:
+            live = await fetch_live_status_block(chaster, requested_by=speaker)
+            chaster_note = f"\n\n[{live}]"
+        except Exception:  # noqa: BLE001
+            log.exception("Live Chaster status fetch failed")
+            chaster_note = (
+                "\n\n[CHASTER LIVE STATUS unavailable this turn. "
+                "Do NOT invent remaining time, totals, or lock lengths.]"
+            )
+
         context_bits: list[str] = []
         for msg in history[-10:]:
             content = str(msg.get("content") or "")
@@ -534,6 +546,8 @@ async def handle_chat_turn(
             f"- Your name is '{bot_name}'. You are the AI Domme/keyholder — not her stand-in body.\n"
             "- Plan, scheme, encourage her meanness. Do not perform for the Sub here.\n"
             "- To speak to the Sub, emit [[[GROUP]]]…[[[/GROUP]]] (that posts to Group).\n"
+            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
+            "Never invent remaining time, 'new length', totals, or keypad codes.\n"
             "- Never claim lock changes unless confirmed by real lock facts this turn.\n"
             "- If YOU grant a lock change from private, emit [[[LOCK]]]…[[[/LOCK]]].\n"
             "- Never invent reminder schedules. Never repeat a previous bot message.\n"
@@ -546,10 +560,12 @@ async def handle_chat_turn(
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "never claim to be the human Domme or Sub.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
+            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
+            "Never invent remaining time, 'new length', day totals, or keypad codes.\n"
             "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
             "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
             "- Sub may BEG either Dominant for mercy. Never scold him for addressing Mistress.\n"
-            "- Sub may NOT give direct lock orders. Orders get refused (and may be punished).\n"
+            "- Sub may NOT give direct lock orders (e.g. 'add some time'). Refuse; he begs.\n"
             "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
             "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
             "- Never claim lock changes without LOCK tags or confirmed facts this turn.\n"

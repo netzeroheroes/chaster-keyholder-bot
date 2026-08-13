@@ -278,9 +278,14 @@ def parse_chaster_intent(
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))
 
-    # Bare "add time" / soft|hard — session min/max
-    if re.search(r"\b(lock|cage|chaster|him|timer)\b", low) and re.search(
-        r"\b(add|plus|\+)\b.*\btime\b|\bextend (him|the lock|his (lock|cage))\b",
+    # Bare "add time" / "add some time" / soft|hard — session min/max
+    # (lock/cage optional — Sub/Domme often just say "add some time")
+    if re.search(
+        r"\b(add|plus|\+)\b\s*"
+        r"(some|more|a\s+little|a\s+bit|extra|soft|hard|small|gentle|min(?:imum)?|max(?:imum)?)?\s*"
+        r"time\b"
+        r"|\bextend (him|the lock|his (lock|cage)|me)\b"
+        r"|\b(more|extra)\s+time\b",
         low,
     ):
         try:
@@ -289,7 +294,7 @@ def parse_chaster_intent(
             c = get_controls()
             lo = int(c.min_add_time_seconds or c.soft_add_time_seconds or 900)
             hi = int(c.max_add_time_seconds or c.hard_add_time_seconds or 86400)
-            if re.search(r"\b(soft|small|little|gentle|minimum|min)\b", low):
+            if re.search(r"\b(soft|small|little|gentle|minimum|min|bit)\b", low):
                 secs = lo
             else:
                 secs = hi
@@ -440,6 +445,24 @@ def _status_lines(label: str, summary: dict[str, Any]) -> str:
         f"- End (UTC): {summary.get('end_date')}\n"
         f"- Lock id: {summary.get('lock_id')}\n"
         f"- Test lock: {summary.get('is_test_lock')}"
+    )
+
+
+async def fetch_live_status_block(
+    chaster: ChasterClient, *, requested_by: str = "system"
+) -> str:
+    """Fresh lock snapshot for every chat turn — never invent numbers from memory."""
+    lock = await resolve_lock(chaster)
+    lock = await refresh_lock(chaster, lock)
+    current = summarize_lock(lock)
+    return (
+        "CHASTER LIVE STATUS (real API this turn — ONLY source of lock numbers):\n"
+        f"- Requested context by: {requested_by}\n"
+        f"{_status_lines('CURRENT', current)}\n"
+        "Quote remaining time EXACTLY as above. "
+        "Never invent days/hours, totals, keypad codes, or 'new length'. "
+        "If you change the lock, emit [[[LOCK]]] tags so the API runs — "
+        "do not narrate fake changes."
     )
 
 
@@ -687,15 +710,30 @@ async def run_chaster_intent(
             )
 
         if intent.kind == "add_time":
-            await chaster.update_time(lock_id, intent.seconds)
+            secs = int(intent.seconds or 0)
+            try:
+                from app.runtime_controls import get_controls
+
+                hi = int(get_controls().max_add_time_seconds or 86400)
+            except Exception:  # noqa: BLE001
+                hi = 86400
+            # Cap runaway LLM amounts to session maximum; never invent bigger adds
+            if secs > hi:
+                log.info("Clamped add_time %s → max %s", secs, hi)
+                secs = hi
+            if secs < -hi:
+                log.info("Clamped remove_time %s → -max %s", secs, hi)
+                secs = -hi
+            intent = ChasterIntent(kind="add_time", seconds=secs, reason=intent.reason)
+            await chaster.update_time(lock_id, secs)
             after = summarize_lock(await refresh_lock(chaster, lock))
-            sign = "+" if intent.seconds >= 0 else ""
+            sign = "+" if secs >= 0 else ""
             return ChasterActionResult(
                 ok=True,
                 facts=_facts_after(
                     action_line=(
-                        f"Changed timer by {sign}{format_duration(intent.seconds)} "
-                        f"({intent.seconds} seconds)."
+                        f"Changed timer by {sign}{format_duration(secs)} "
+                        f"({secs} seconds)."
                     ),
                     before=before,
                     after=after,

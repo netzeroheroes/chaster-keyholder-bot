@@ -89,7 +89,9 @@ _DIRECT_ORDER = re.compile(
     r"(do\s+it|just\s+do\s+it|you\s+(will|must|have\s+to))|"
     r"(unhide|show|reveal|remove|reduce|unfreeze|unlock)\s+(it|the\s+timer|my\s+timer|time)\s*(now|immediately)?|"
     r"(take|remove)\s+\d+\s*(min|minute|hour|hr|day)s?\s*(off|from)|"
-    r"add\s+-\d+|subtract\s+\d+"
+    r"add\s+-\d+|subtract\s+\d+|"
+    r"add\s+(some|more|a\s+little|a\s+bit|extra)?\s*time|"
+    r"(give|put)\s+(me\s+)?(some|more|extra)\s+time"
     r")\b",
     re.I,
 )
