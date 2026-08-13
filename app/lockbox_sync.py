@@ -150,27 +150,27 @@ async def chaster_remaining_seconds(chaster: ChasterClient | None) -> int | None
 
 def _target_duration_from_chaster(snap: dict[str, Any]) -> tuple[int | None, str]:
     """
-    Map Chaster state → R+D duration. Chaster remaining is source of truth.
+    Map Chaster state → R+D duration. Chaster remaining is source of truth
+    when the timer is visible and unfrozen.
 
     R+D public API only supports duration (no freeze / hide flags), so:
-    - frozen: push real Chaster remaining and rewrite often (soft-freeze)
-    - time hidden: park on a long dummy duration until revealed
+    - frozen OR time hidden: park on the same long placeholder until released
     - normal: real remaining
     """
     rem = snap.get("remaining")
     frozen = bool(snap.get("frozen"))
     hidden = bool(snap.get("time_hidden"))
-    if hidden:
-        # Don't leak the real countdown on the box display
-        return _HIDDEN_DURATION, "hidden-timer placeholder"
+    if frozen or hidden:
+        # Same effect: don't show/run the real countdown on the box
+        mode = (
+            "frozen+hidden placeholder"
+            if frozen and hidden
+            else ("frozen placeholder" if frozen else "hidden-timer placeholder")
+        )
+        return _HIDDEN_DURATION, mode
     if rem is None:
-        if frozen:
-            return _MAX_DURATION, "frozen (no endDate)"
         return None, "no remaining"
-    return (
-        _clamp_duration(int(rem)),
-        "frozen soft-sync" if frozen else "chaster remaining",
-    )
+    return _clamp_duration(int(rem)), "chaster remaining"
 
 
 async def ensure_template_id(rad: RadLockboxClient) -> int | None:
