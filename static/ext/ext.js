@@ -20,6 +20,7 @@
     input: document.getElementById("input"),
     sendBtn: document.getElementById("sendBtn"),
     status: document.getElementById("status"),
+    typingBubble: document.getElementById("typingBubble"),
   };
 
   const state = {
@@ -31,6 +32,9 @@
     stickToBottom: true,
     pendingNew: 0,
     pollTimer: null,
+    typingTimer: null,
+    typingLastSent: 0,
+    displayName: "",
   };
 
   function apiDetail(data, fallback) {
@@ -38,10 +42,19 @@
     if (typeof d === "string" && d.trim()) return d;
     if (Array.isArray(d)) {
       return d
-        .map((x) => (x && (x.msg || x.message)) || JSON.stringify(x))
+        .map((x) => {
+          if (!x) return "";
+          const loc = Array.isArray(x.loc) ? x.loc.slice(1).join(".") : "";
+          const msg = x.msg || x.message || JSON.stringify(x);
+          return loc ? `${loc}: ${msg}` : msg;
+        })
+        .filter(Boolean)
         .join("; ");
     }
     if (d && typeof d === "object") return JSON.stringify(d);
+    if (data && typeof data.message === "string" && data.message.trim()) {
+      return data.message;
+    }
     return fallback;
   }
 
@@ -148,6 +161,11 @@
     state.chasterRole = s.role;
     const handle =
       s.role === "keyholder" ? s.keyholder_username : s.wearer_username;
+    state.displayName = handle
+      ? String(handle)
+      : s.role === "keyholder"
+        ? "Keyholder"
+        : "Lockee";
     els.roleLabel.textContent =
       s.role === "keyholder"
         ? `Keyholder${handle ? " @" + handle : ""}`
@@ -213,6 +231,12 @@
     g("setWindowStart").value = cfg.autopilot_window_start || "18:00";
     g("setWindowEnd").value = cfg.autopilot_window_end || "23:00";
     g("setAutopilotTz").value = cfg.autopilot_timezone || "Europe/London";
+    if (g("setAutopilotMin")) {
+      g("setAutopilotMin").value = cfg.autopilot_min_minutes ?? 45;
+    }
+    if (g("setAutopilotMax")) {
+      g("setAutopilotMax").value = cfg.autopilot_max_minutes ?? 120;
+    }
     g("setAutopilotChaster").checked = !!cfg.autopilot_allow_chaster;
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
@@ -228,6 +252,13 @@
       minSec = maxSec;
       maxSec = tmp;
     }
+    let gapMin = Math.max(5, Number(g("setAutopilotMin")?.value) || 45);
+    let gapMax = Math.max(5, Number(g("setAutopilotMax")?.value) || 120);
+    if (gapMin > gapMax) {
+      const tmp = gapMin;
+      gapMin = gapMax;
+      gapMax = tmp;
+    }
     return {
       min_add_time_seconds: minSec,
       max_add_time_seconds: maxSec,
@@ -240,6 +271,8 @@
       autopilot_window_start: g("setWindowStart").value.trim() || "18:00",
       autopilot_window_end: g("setWindowEnd").value.trim() || "23:00",
       autopilot_timezone: g("setAutopilotTz").value.trim() || "Europe/London",
+      autopilot_min_minutes: gapMin,
+      autopilot_max_minutes: gapMax,
       autopilot_allow_chaster: g("setAutopilotChaster").checked,
       autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
       bot_name: g("setBotName").value.trim() || "Keyholder",
@@ -273,6 +306,58 @@
     els.settingsPanel.setAttribute("aria-hidden", "true");
   }
 
+  function renderTyping(typing) {
+    const el = els.typingBubble;
+    if (!el) return;
+    const who = el.querySelector(".typing-who");
+    const list = Array.isArray(typing) ? typing : [];
+    if (!list.length) {
+      el.classList.add("hidden");
+      if (who) who.textContent = "";
+      return;
+    }
+    const labels = list.map((t) => t.label || t.speaker || "Someone");
+    if (who) {
+      who.textContent =
+        labels.length === 1
+          ? `${labels[0]} is typing`
+          : `${labels.join(" & ")} are typing`;
+    }
+    el.classList.remove("hidden");
+  }
+
+  async function pingTyping(active) {
+    if (!state.mainToken) return;
+    try {
+      await fetch("/api/ext/typing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          main_token: state.mainToken,
+          room: state.room,
+          active: !!active,
+          label:
+            state.displayName ||
+            (state.role === "domme" ? "Keyholder" : "Lockee"),
+        }),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function scheduleTypingPing() {
+    const now = Date.now();
+    if (now - state.typingLastSent > 1500) {
+      state.typingLastSent = now;
+      pingTyping(true);
+    }
+    if (state.typingTimer) clearTimeout(state.typingTimer);
+    state.typingTimer = setTimeout(() => {
+      pingTyping(false);
+    }, 2800);
+  }
+
   async function loadHistory() {
     const res = await fetch("/api/ext/history", {
       method: "POST",
@@ -284,6 +369,7 @@
     });
     if (!res.ok) return;
     const data = await res.json();
+    renderTyping(data.typing || []);
     if ((data.messages || []).length !== state.lastCount) {
       renderMessages(data.messages || []);
     }
@@ -296,6 +382,8 @@
     setStatus("…");
     els.input.value = "";
     autosizeInput();
+    if (state.typingTimer) clearTimeout(state.typingTimer);
+    pingTyping(false);
     try {
       const res = await fetch("/api/ext/chat", {
         method: "POST",
@@ -363,19 +451,27 @@
   if (els.settingsForm) {
     els.settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      e.stopPropagation();
       els.settingsStatus.textContent = "Saving…";
       try {
+        const cfg = readSettings();
         const res = await fetch("/api/ext/settings/save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             main_token: state.mainToken,
-            config: readSettings(),
+            config: cfg,
           }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
-        els.settingsStatus.textContent = "Saved.";
+        if (data.chaster_sync === "failed") {
+          els.settingsStatus.textContent =
+            "Saved for the bot. Chaster sync note: " +
+            (data.chaster_sync_error || "could not update session config");
+        } else {
+          els.settingsStatus.textContent = "Saved.";
+        }
       } catch (err) {
         els.settingsStatus.textContent = String(err.message || err);
       }
@@ -399,7 +495,10 @@
     sendMessage(els.input.value);
   });
 
-  els.input.addEventListener("input", autosizeInput);
+  els.input.addEventListener("input", () => {
+    autosizeInput();
+    if ((els.input.value || "").trim()) scheduleTypingPing();
+  });
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

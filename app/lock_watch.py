@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.bot_actions import is_bot_extension_history_event
 from app.persist import save_sessions
 from app.roles import bot_label, session_id_for
 from app.sessions import DisplayMessage
@@ -72,18 +73,26 @@ def _is_our_duo_domme_action(event: dict[str, Any]) -> bool:
     )
 
 
+def _is_our_bot_action(event: dict[str, Any]) -> bool:
+    """Duo Domme session actions, or keyholder-token API edits we just made."""
+    if _is_our_duo_domme_action(event):
+        return True
+    return is_bot_extension_history_event(event)
+
+
 def _should_react(event: dict[str, Any]) -> bool:
     etype = str(event.get("type") or "")
+    # Our own edits are already narrated in chat — don't double-claim as Mistress.
+    if _is_our_bot_action(event):
+        return False
     if etype in _TIMER_TYPES:
-        # Mistress (or wearer) changed the lock outside chat — notice it.
-        # Our own Duo Domme edits — already narrated by chat.
-        return not _is_our_duo_domme_action(event)
+        return True
     if etype in _REACT_TYPES:
         return True
-    if etype.endswith("_changed") and not _is_our_duo_domme_action(event):
+    if etype.endswith("_changed"):
         return True
     # Unknown plugin events
-    return bool(event.get("extension")) and not _is_our_duo_domme_action(event)
+    return bool(event.get("extension"))
 
 
 def _load_state() -> dict[str, Any]:
@@ -105,7 +114,10 @@ def format_history_event(event: dict[str, Any]) -> str:
     etype = str(event.get("type") or "event")
     ext = str(event.get("extension") or "").strip()
     role = str(event.get("role") or "").strip().lower()
-    if role == "keyholder":
+    bot_edit = _is_our_bot_action(event)
+    if bot_edit:
+        who = "Duo Domme (bot)"
+    elif role == "keyholder":
         who = "Mistress (keyholder, manual on Chaster)"
     elif ext.lower() in _SELF_EXTENSIONS or role == "extension":
         who = "Duo Domme (bot)" if ext.lower() in _SELF_EXTENSIONS else (ext or "an extension")
@@ -118,7 +130,9 @@ def format_history_event(event: dict[str, Any]) -> str:
     bits = [title or etype]
     if desc:
         bits.append(desc)
-    if role == "keyholder":
+    if bot_edit:
+        bits.append("(bot via API — Chaster logs this as keyholder)")
+    elif role == "keyholder":
         bits.append("(manual keyholder action — not the bot)")
     elif ext:
         bits.append(f"(plugin: {ext})")
@@ -197,7 +211,8 @@ async def react_to_lock_events(
         etype = str(ev.get("type") or "")
         role = str(ev.get("role") or "").strip().lower()
         summary = format_history_event(ev)
-        manual = role == "keyholder"
+        # Only true manual Mistress clicks — not bot API edits logged as keyholder.
+        manual = role == "keyholder" and not _is_our_bot_action(ev)
         system = (
             f"You are {bot}, the AI Domme/keyholder in GROUP chat (18+).\n"
             f"ACTIVE CHANNEL: GROUP — Domme + Sub + you can all see this.\n"

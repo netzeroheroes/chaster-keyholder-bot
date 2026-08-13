@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css?v=6" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=10" />
 </head>
 <body>
   <div id="gate" class="gate">
@@ -38,6 +38,10 @@
         <button type="button" id="jumpLatest" class="jump-latest hidden">↓ New messages</button>
       </div>
       <div class="composer-dock">
+        <div id="typingBubble" class="typing-bubble hidden" aria-live="polite">
+          <span class="typing-who"></span>
+          <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
         <form id="chatForm" class="composer">
           <textarea id="input" rows="1" placeholder="Message…"></textarea>
           <button type="submit" class="btn" id="sendBtn">Send</button>
@@ -59,15 +63,15 @@
       <p class="meta settings-lede">
         Default sizes for lock time tweaks, auto-punish, and autopilot. Saved on this session.
       </p>
-      <form id="settingsForm" class="cfg">
+      <form id="settingsForm" class="cfg" novalidate>
         <p class="title">Time adjustments</p>
         <p class="meta">Soft / "a little" uses the minimum. Default, hard, and escalated auto-punish are capped by the maximum.</p>
         <label class="field duration-field">
           <span>Minimum add</span>
           <div class="duration-row">
-            <input id="minAddValue" type="number" min="1" step="1" />
+            <input id="minAddValue" type="number" min="1" step="1" value="15" />
             <select id="minAddUnit" aria-label="Minimum unit">
-              <option value="minutes">minutes</option>
+              <option value="minutes" selected>minutes</option>
               <option value="hours">hours</option>
               <option value="days">days</option>
             </select>
@@ -76,7 +80,7 @@
         <label class="field duration-field">
           <span>Maximum add</span>
           <div class="duration-row">
-            <input id="maxAddValue" type="number" min="1" step="1" />
+            <input id="maxAddValue" type="number" min="1" step="1" value="24" />
             <select id="maxAddUnit" aria-label="Maximum unit">
               <option value="minutes">minutes</option>
               <option value="hours" selected>hours</option>
@@ -87,21 +91,25 @@
 
         <p class="title">Auto-punish</p>
         <label class="check"><input type="checkbox" id="setAutoPunishEnabled" /> Auto-punish rule breaks</label>
-        <label class="field"><span>Base seconds (escalates to Maximum add; may harden share links / assign tasks / pillory)</span><input id="setAutoPunishSeconds" type="number" min="60" step="60" /></label>
+        <label class="field"><span>Base seconds (escalates to Maximum add; may harden share links / assign tasks / pillory)</span><input id="setAutoPunishSeconds" type="number" min="60" step="60" value="600" /></label>
 
         <p class="title">Autopilot</p>
         <label class="check"><input type="checkbox" id="setAutopilotEnabled" /> Autopilot teases</label>
         <div class="row">
-          <label class="field"><span>Window start</span><input id="setWindowStart" type="text" placeholder="18:00" /></label>
-          <label class="field"><span>Window end</span><input id="setWindowEnd" type="text" placeholder="23:00" /></label>
+          <label class="field"><span>Window start</span><input id="setWindowStart" type="text" placeholder="18:00" value="18:00" /></label>
+          <label class="field"><span>Window end</span><input id="setWindowEnd" type="text" placeholder="23:00" value="23:00" /></label>
         </div>
-        <label class="field"><span>Timezone</span><input id="setAutopilotTz" type="text" placeholder="Europe/London" /></label>
+        <label class="field"><span>Timezone</span><input id="setAutopilotTz" type="text" placeholder="Europe/London" value="Europe/London" /></label>
+        <div class="row">
+          <label class="field"><span>Min gap (min)</span><input id="setAutopilotMin" type="number" min="5" step="1" value="45" /></label>
+          <label class="field"><span>Max gap (min)</span><input id="setAutopilotMax" type="number" min="5" step="1" value="120" /></label>
+        </div>
         <label class="check"><input type="checkbox" id="setAutopilotChaster" /> Autopilot may nudge Chaster</label>
-        <label class="field"><span>Autopilot add-time (sec)</span><input id="setAutopilotPunish" type="number" min="60" step="60" /></label>
+        <label class="field"><span>Autopilot add-time (sec)</span><input id="setAutopilotPunish" type="number" min="60" step="60" value="600" /></label>
 
         <div class="row">
-          <label class="field"><span>Bot name</span><input id="setBotName" type="text" /></label>
-          <label class="field"><span>Domme title</span><input id="setDommeTitle" type="text" /></label>
+          <label class="field"><span>Bot name</span><input id="setBotName" type="text" value="Keyholder" /></label>
+          <label class="field"><span>Domme title</span><input id="setDommeTitle" type="text" value="Mistress" /></label>
         </div>
         <div class="settings-actions">
           <button type="submit" class="btn" id="settingsSave">Save settings</button>
@@ -111,6 +119,6 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=6"></script>
+  <script src="/static/ext/ext.js?v=10"></script>
 </body>
 </html>

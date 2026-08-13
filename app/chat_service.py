@@ -714,7 +714,7 @@ async def handle_chat_turn(
                             applied.append("hide_time")
                     # Extension punishments (share links, tasks, pillory, verification)
                     if br.use_extensions:
-                        share_add = share_remove = 0
+                        share_add = share_remove = share_visits = 0
                         try:
                             for ext in await chaster.list_lock_extensions():
                                 if str(ext.get("slug") or "") != "link":
@@ -722,6 +722,7 @@ async def handle_chat_turn(
                                 cfg = ext.get("config") or {}
                                 share_add = int(cfg.get("timeToAdd") or 0)
                                 share_remove = int(cfg.get("timeToRemove") or 0)
+                                share_visits = int(cfg.get("nbVisits") or 0)
                                 break
                         except Exception:  # noqa: BLE001
                             log.debug(
@@ -733,7 +734,8 @@ async def handle_chat_turn(
                             reason=br.reason,
                             share_add=share_add,
                             share_remove=share_remove,
-                        )[:4]:
+                            share_visits=share_visits,
+                        )[:5]:
                             try:
                                 rx = await run_chaster_intent(
                                     chaster,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,7 @@ from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
 from app.sessions import SessionStore
+from app.typing_presence import clear_typing, list_typing, set_typing
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 EXT_DIR = STATIC_DIR / "ext"
@@ -63,6 +66,13 @@ class ExtChatBody(BaseModel):
 class ExtSessionBody(BaseModel):
     main_token: str = Field(min_length=8)
     room: Room = "group"
+
+
+class ExtTypingBody(BaseModel):
+    main_token: str = Field(min_length=8)
+    room: Room = "group"
+    active: bool = True
+    label: str = ""
 
 
 class ExtConfigGetBody(BaseModel):
@@ -154,7 +164,16 @@ def register_extension_routes(
             response.headers["Referrer-Policy"] = "no-referrer"
             # Discourage indexing of extension surfaces
             response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        # Keep extension UI assets from sticking on old ?v= bundles inside Chaster.
+        if path.startswith("/static/ext/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
         return response
+
+    def _no_store_html(path: Path) -> FileResponse:
+        resp = FileResponse(path)
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
 
     @api.get("/ext")
     @api.get("/ext/")
@@ -162,7 +181,7 @@ def register_extension_routes(
         path = EXT_DIR / "index.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Extension UI missing")
-        return FileResponse(path)
+        return _no_store_html(path)
 
     @api.get("/ext/config")
     @api.get("/ext/config/")
@@ -170,7 +189,7 @@ def register_extension_routes(
         path = EXT_DIR / "config.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Config UI missing")
-        return FileResponse(path)
+        return _no_store_html(path)
 
     @api.post("/api/ext/session")
     async def ext_session(body: ExtSessionBody) -> dict:
@@ -191,11 +210,35 @@ def register_extension_routes(
                 status_code=403,
                 detail="Only the Chaster keyholder can open private chat.",
             )
+        speaker = "Domme" if sess.app_role == "domme" else "Sub"
         return {
             "room": room,
             "role": sess.app_role,
             "chaster_role": sess.role,
             "messages": store.get_display(room),
+            "typing": list_typing(room, exclude=speaker),
+        }
+
+    @api.post("/api/ext/typing")
+    async def ext_typing(body: ExtTypingBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        room: Room = body.room
+        if not can_access(sess.app_role, room):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the Chaster keyholder can use private chat.",
+            )
+        speaker = "Domme" if sess.app_role == "domme" else "Sub"
+        label = (
+            (body.label or sess.speaker_username or speaker).strip()[:40]
+        )
+        if body.active:
+            set_typing(room, speaker, label)
+        else:
+            clear_typing(room, speaker)
+        return {
+            "ok": True,
+            "typing": list_typing(room, exclude=speaker),
         }
 
     @api.post("/api/ext/chat")
@@ -207,6 +250,7 @@ def register_extension_routes(
                 status_code=403,
                 detail="Only the Chaster keyholder can use private chat.",
             )
+        clear_typing(room, "Domme" if sess.app_role == "domme" else "Sub")
         try:
             result = await handle_chat_turn(
                 agent=agent,
@@ -282,20 +326,38 @@ def register_extension_routes(
         return {"ok": True, "config": clean}
 
     def _merged_settings(session_cfg: dict[str, Any]) -> dict[str, Any]:
-        cfg = dict(session_cfg or {})
+        """Full config object for Chaster PATCH (replaces whole config)."""
         live = controls.snapshot()
+        src = dict(session_cfg or {})
+        cfg: dict[str, Any] = {}
         for key in _CONFIG_KEYS:
-            if key not in cfg and key in live:
+            if key in src:
+                cfg[key] = src[key]
+            elif key in live:
                 cfg[key] = live[key]
-        if "bot_name" not in cfg:
+        if "bot_name" not in cfg or not cfg.get("bot_name"):
             cfg["bot_name"] = memory.bot_name or "Keyholder"
         if "domme_title" not in cfg:
             cfg["domme_title"] = memory.domme_title or ""
+        # Sensible defaults if still missing (avoids Chaster "Field required")
+        cfg.setdefault("auto_punish_enabled", False)
+        cfg.setdefault("auto_punish_seconds", 600)
+        cfg.setdefault("autopilot_enabled", False)
+        cfg.setdefault("autopilot_timezone", "Europe/London")
+        cfg.setdefault("autopilot_window_start", "18:00")
+        cfg.setdefault("autopilot_window_end", "23:00")
+        cfg.setdefault("autopilot_min_minutes", 45)
+        cfg.setdefault("autopilot_max_minutes", 120)
+        cfg.setdefault("autopilot_allow_chaster", False)
+        cfg.setdefault("autopilot_chaster_chance", 0.35)
+        cfg.setdefault("autopilot_punish_seconds", 600)
+        cfg.setdefault("min_add_time_seconds", 900)
+        cfg.setdefault("max_add_time_seconds", 86400)
+        cfg.setdefault("soft_add_time_seconds", cfg["min_add_time_seconds"])
+        cfg.setdefault("hard_add_time_seconds", cfg["max_add_time_seconds"])
+        cfg.setdefault("default_add_time_seconds", cfg["max_add_time_seconds"])
+        cfg.setdefault("default_remove_time_seconds", 1800)
         return cfg
-
-    class ExtSettingsSaveBody(BaseModel):
-        main_token: str = Field(min_length=8)
-        config: dict[str, Any]
 
     def _require_keyholder(sess: ExtSession, main_token: str) -> None:
         if sess.role == "keyholder":
@@ -319,18 +381,43 @@ def register_extension_routes(
         }
 
     @api.post("/api/ext/settings/save")
-    async def ext_settings_save(body: ExtSettingsSaveBody) -> dict:
-        sess = await _require_session(chaster, cache, settings, body.main_token)
-        _require_keyholder(sess, body.main_token)
-        clean = {k: body.config[k] for k in _CONFIG_KEYS if k in body.config}
-        if sess.session_id and sess.session_id != "dev":
-            try:
-                await chaster.patch_extension_session(sess.session_id, config=clean)
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Could not save session config: {_api_detail(exc)}",
-                ) from exc
+    async def ext_settings_save(request: Request) -> dict:
+        """
+        Accept raw JSON so we never 422 on Pydantic 'Field required'.
+        Supports main_token / mainToken and a missing/partial config object.
+        """
+        try:
+            raw = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=400, detail="Body must be JSON"
+            ) from exc
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="Body must be a JSON object")
+        main_token = str(
+            raw.get("main_token") or raw.get("mainToken") or ""
+        ).strip()
+        if len(main_token) < 8:
+            raise HTTPException(
+                status_code=400,
+                detail="main_token missing — reopen the extension from Chaster.",
+            )
+        cfg_in = raw.get("config")
+        if cfg_in is None:
+            cfg_in = {}
+        if not isinstance(cfg_in, dict):
+            raise HTTPException(status_code=400, detail="config must be an object")
+
+        sess = await _require_session(chaster, cache, settings, main_token)
+        _require_keyholder(sess, main_token)
+        incoming = {k: cfg_in[k] for k in _CONFIG_KEYS if k in cfg_in}
+        # Chaster PATCH replaces the WHOLE config object — merge with current
+        # session + live controls so required keys are never dropped.
+        clean = _merged_settings(sess.config)
+        clean.update(incoming)
+
+        # Always persist locally first so the bot uses the new timings even if
+        # Chaster session sync fails.
         ctrl_updates = {k: v for k, v in clean.items() if k in controls.snapshot()}
         if ctrl_updates:
             controls.update(**ctrl_updates)
@@ -352,11 +439,41 @@ def register_extension_routes(
                 lock_id=sess.lock_id,
                 wearer_username=sess.wearer_username,
                 keyholder_username=sess.keyholder_username,
-                config={**sess.config, **clean},
+                config=clean,
                 fetched_at=_time.time(),
             )
         )
-        return {"ok": True, "config": clean}
+
+        chaster_sync = "skipped"
+        sync_error = ""
+        sid = (sess.session_id or "").strip()
+        # Lock-extension Mongo _id is 24 hex — partner sessionId looks like "_rV6…".
+        # Older code cached the wrong id; recover before PATCH.
+        if sid and sid != "dev" and re.fullmatch(r"[a-fA-F0-9]{24}", sid):
+            try:
+                if sess.lock_id:
+                    sid = await chaster.resolve_session_id(sess.lock_id)
+            except Exception:  # noqa: BLE001
+                pass
+        if sid and sid != "dev":
+            try:
+                await chaster.patch_extension_session(sid, config=clean)
+                chaster_sync = "ok"
+            except Exception as exc:  # noqa: BLE001
+                chaster_sync = "failed"
+                sync_error = _api_detail(exc)
+                logging.getLogger(__name__).warning(
+                    "Settings saved locally; Chaster session sync failed sid=%s: %s",
+                    sid,
+                    sync_error,
+                )
+
+        return {
+            "ok": True,
+            "config": clean,
+            "chaster_sync": chaster_sync,
+            "chaster_sync_error": sync_error,
+        }
 
     # Denied probe — opening APIs without token
     @api.get("/api/ext/ping")

@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.bot_actions import note_bot_extension_change, note_bot_extension_changes
 from app.config import Settings
 
 log = logging.getLogger(__name__)
@@ -164,6 +165,10 @@ class ChasterClient:
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+        # Required by several partner-extension endpoints (auth/session).
+        client_id = (self.settings.chaster_client_id or "").strip()
+        if client_id:
+            headers["X-Chaster-Client-Id"] = client_id
         async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.request(
                 method, url, headers=headers, json=json_body
@@ -471,6 +476,8 @@ class ChasterClient:
                 f"Extension `{want}` is not on the lock — activate it first."
             )
         await self.replace_lock_extensions(lid, body)
+        # Chaster history attributes this as role=keyholder — mark as bot.
+        note_bot_extension_change(want, action="updated")
         return await self.list_lock_extensions(lid)
 
     async def exchange_main_token(self, main_token: str) -> dict[str, Any]:
@@ -817,6 +824,11 @@ class ChasterClient:
                 f"Failed to put `{want}` on the lock after edit "
                 f"(still: {[e.get('slug') for e in after]})."
             )
+        # History logs these as keyholder — mark bot so lock-watch does not
+        # claim Mistress did it manually.
+        note_bot_extension_change(want, action="enabled")
+        for p in parked:
+            note_bot_extension_change(str(p.get("slug") or ""), action="disabled")
         return {"extensions": after, "parked": parked, "already": False}
 
     async def restore_parked_extensions(self, lock_id: str) -> dict[str, Any]:
@@ -857,6 +869,7 @@ class ChasterClient:
             restored.append(slug)
         if restored:
             await self.replace_lock_extensions(lid, body)
+            note_bot_extension_changes(restored, action="enabled")
             remaining = [
                 p for p in parked if str(p.get("slug") or "") not in set(restored)
             ]

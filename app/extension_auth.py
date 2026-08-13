@@ -97,11 +97,16 @@ async def resolve_main_token(
     # Some payloads nest role under session; accept either
     if role == "unknown":
         role = parse_ext_role(str(session.get("role") or ""))
+    # Partner API calls need sessionId (e.g. "_rV6…"), NOT lock-extension _id.
+    sid = str(session.get("sessionId") or data.get("sessionId") or "").strip()
+    if not sid:
+        # Legacy payloads only — never prefer bare _id when sessionId exists.
+        sid = str(session.get("_id") or "").strip()
     sess = ExtSession(
         main_token=token,
         role=role,
         user_id=str(data.get("userId") or ""),
-        session_id=str(session.get("_id") or session.get("sessionId") or ""),
+        session_id=sid,
         lock_id=str(lock.get("_id") or lock.get("id") or ""),
         wearer_username=str(user.get("username") or ""),
         keyholder_username=str(kh.get("username") or ""),

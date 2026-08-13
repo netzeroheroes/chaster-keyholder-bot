@@ -9,6 +9,8 @@ const state = {
   sending: false,
   stickToBottom: true,
   pendingNew: 0,
+  typingTimer: null,
+  typingLastSent: 0,
 };
 
 const els = {
@@ -38,6 +40,7 @@ const els = {
   form: document.getElementById("chatForm"),
   input: document.getElementById("input"),
   sendBtn: document.getElementById("sendBtn"),
+  typingBubble: document.getElementById("typingBubble"),
   speakReplies: document.getElementById("speakReplies"),
   handsFree: document.getElementById("handsFree"),
   micBtn: document.getElementById("micBtn"),
@@ -282,12 +285,64 @@ async function loadChaster() {
   }
 }
 
+function renderTyping(typing) {
+  const el = els.typingBubble;
+  if (!el) return;
+  const who = el.querySelector(".typing-who");
+  const list = Array.isArray(typing) ? typing : [];
+  if (!list.length) {
+    el.classList.add("hidden");
+    if (who) who.textContent = "";
+    return;
+  }
+  const labels = list.map((t) => t.label || t.speaker || "Someone");
+  if (who) {
+    who.textContent =
+      labels.length === 1
+        ? `${labels[0]} is typing`
+        : `${labels.join(" & ")} are typing`;
+  }
+  el.classList.remove("hidden");
+}
+
+async function pingTyping(active) {
+  if (!state.role || !state.pin) return;
+  try {
+    await fetch("/api/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: state.role,
+        room: state.room,
+        pin: state.pin,
+        label: state.role === "domme" ? "Keyholder" : "Lockee",
+        active: !!active,
+      }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function scheduleTypingPing() {
+  const now = Date.now();
+  if (now - state.typingLastSent > 1500) {
+    state.typingLastSent = now;
+    pingTyping(true);
+  }
+  if (state.typingTimer) clearTimeout(state.typingTimer);
+  state.typingTimer = setTimeout(() => {
+    pingTyping(false);
+  }, 2800);
+}
+
 async function loadHistory({ speakNewestBot = false, forceScroll = false } = {}) {
   const res = await fetch(`/api/history/${state.room}?role=${state.role}`, {
     headers: { "X-Role-Pin": state.pin },
   });
   if (!res.ok) return;
   const data = await res.json();
+  renderTyping(data.typing || []);
   const fp = messageFingerprint(data.messages || []);
   if (fp === state.lastFingerprint && !forceScroll) return;
   const grew = (data.messages || []).length > state.lastCount;
@@ -366,6 +421,8 @@ async function sendMessage(message) {
   els.input.value = "";
   els.sendBtn.disabled = true;
   setStatus("Thinking…");
+  if (state.typingTimer) clearTimeout(state.typingTimer);
+  pingTyping(false);
   Voice.stopListening();
 
   try {
@@ -672,6 +729,10 @@ els.input.addEventListener("keydown", (e) => {
     e.preventDefault();
     els.form.requestSubmit();
   }
+});
+
+els.input.addEventListener("input", () => {
+  if ((els.input.value || "").trim()) scheduleTypingPing();
 });
 
 els.chasterRefresh.addEventListener("click", () => loadChaster());

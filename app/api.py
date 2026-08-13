@@ -26,6 +26,7 @@ from app.persist import save_scene, save_sessions
 from app.roles import Room, Role, can_access
 from app.scene import SceneState
 from app.sessions import DisplayMessage, SessionStore
+from app.typing_presence import clear_typing, list_typing, set_typing
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -35,6 +36,14 @@ class ChatRequest(BaseModel):
     role: Role
     room: Room = "group"
     pin: str = ""
+
+
+class TypingRequest(BaseModel):
+    role: Role
+    room: Room = "group"
+    pin: str = ""
+    label: str = ""
+    active: bool = True
 
 
 class ChatResponse(BaseModel):
@@ -121,7 +130,18 @@ class ChasterPilloryRequest(BaseModel):
     role: Role = "domme"
     pin: str = ""
     lock_id: str = ""
-    seconds: int = Field(default=300, ge=300, le=86400)
+    seconds: int = Field(
+        default=300,
+        ge=300,
+        le=86400,
+        description="Public pillory voting window (seconds)",
+    )
+    time_to_add: int = Field(
+        default=600,
+        ge=60,
+        le=86400,
+        description="Seconds added per community vote (pillory timeToAdd)",
+    )
     reason: str = "AI Domme punishment"
 
 
@@ -372,15 +392,29 @@ def create_api(
         lock_id = body.lock_id or settings.chaster_lock_id
         if not lock_id:
             raise HTTPException(status_code=400, detail="lock_id required (or set CHASTER_LOCK_ID)")
+        from app.chaster_actions import ChasterIntent, run_chaster_intent
+
+        intent = ChasterIntent(
+            kind="pillory",
+            seconds=body.seconds,
+            time_to_add=body.time_to_add,
+            reason=body.reason,
+        )
         try:
-            await chaster.pillory(lock_id, duration_seconds=body.seconds, reason=body.reason)
+            result = await run_chaster_intent(
+                chaster, intent, requested_by="Domme (API)"
+            )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if not result.ok:
+            raise HTTPException(status_code=502, detail=result.error or result.facts)
         return {
-            "status": "ok",
+            "status": "ok" if not result.blocked else "blocked",
             "lock_id": lock_id,
             "seconds": body.seconds,
+            "time_to_add": body.time_to_add,
             "reason": body.reason,
+            "facts": result.facts,
         }
 
     @api.post("/api/chaster/display-time")
@@ -496,7 +530,28 @@ def create_api(
         _check_pin(role, x_role_pin)
         if not can_access(role, room):
             raise HTTPException(status_code=403, detail="Sub cannot access Domme private chat")
-        return {"room": room, "messages": store.get_display(room)}
+        speaker = "Domme" if role == "domme" else "Sub"
+        return {
+            "room": room,
+            "messages": store.get_display(room),
+            "typing": list_typing(room, exclude=speaker),
+        }
+
+    @api.post("/api/typing")
+    async def typing_heartbeat(body: TypingRequest) -> dict:
+        _check_pin(body.role, body.pin)
+        if not can_access(body.role, body.room):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        speaker = "Domme" if body.role == "domme" else "Sub"
+        label = (body.label or speaker).strip()[:40]
+        if body.active:
+            set_typing(body.room, speaker, label)
+        else:
+            clear_typing(body.room, speaker)
+        return {
+            "ok": True,
+            "typing": list_typing(body.room, exclude=speaker),
+        }
 
     @api.post("/api/group/say")
     async def group_say(body: GroupSayRequest) -> dict:
@@ -512,6 +567,7 @@ def create_api(
         _check_pin(body.role, body.pin)
         if not can_access(body.role, body.room):
             raise HTTPException(status_code=403, detail="Sub cannot access Domme private chat")
+        clear_typing(body.room, "Domme" if body.role == "domme" else "Sub")
         try:
             result = await handle_chat_turn(
                 agent=agent,

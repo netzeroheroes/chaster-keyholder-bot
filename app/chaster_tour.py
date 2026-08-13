@@ -22,7 +22,14 @@ DEFAULT_STEPS: list[dict[str, Any]] = [
     {"id": "toggle_freeze", "label": "Toggle freeze", "kind": "toggle_freeze"},
     {"id": "hide_timer", "label": "Hide timer", "kind": "hide_time"},
     {"id": "show_timer", "label": "Show timer", "kind": "show_time"},
-    {"id": "pillory", "label": "Pillory", "kind": "pillory", "seconds": 300, "reason": "Mistress's tour"},
+    {
+        "id": "pillory",
+        "label": "Pillory",
+        "kind": "pillory",
+        "seconds": 600,
+        "time_to_add": 600,
+        "reason": "Mistress's tour",
+    },
 ]
 
 

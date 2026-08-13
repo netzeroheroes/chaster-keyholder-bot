@@ -164,6 +164,10 @@
         <div id="messages" class="messages"></div>
         <button type="button" id="jumpLatest" class="jump-latest hidden" aria-label="Jump to latest message">↓ New message</button>
       </div>
+      <div id="typingBubble" class="typing-bubble hidden" aria-live="polite">
+        <span class="typing-who"></span>
+        <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
       <form id="chatForm" class="composer">
         <button type="button" id="micTap" class="btn ghost mic-tap" title="Tap to talk">Mic</button>
         <textarea id="input" rows="2" placeholder="Type or use mic…" autofocus></textarea>

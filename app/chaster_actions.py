@@ -30,6 +30,7 @@ ActionKind = Literal[
     "activate_extension",
     "configure_share_links",
     "configure_hygiene",
+    "configure_extension",
     "hygiene_open",
     "request_verification",
     "assign_task",
@@ -52,6 +53,7 @@ MUTATING = frozenset(
         "activate_extension",
         "configure_share_links",
         "configure_hygiene",
+        "configure_extension",
         "hygiene_open",
         "request_verification",
         "assign_task",
@@ -99,6 +101,9 @@ ACTIVATABLE_SLUGS = {
     "verification-picture": "verification-picture",
     "random events": "random-events",
     "random-events": "random-events",
+    "guess timer": "guess-timer",
+    "guess-timer": "guess-timer",
+    "guesstimer": "guess-timer",
 }
 
 
@@ -108,6 +113,11 @@ class ChasterIntent:
     seconds: int = 0
     reason: str = ""
     title: str = ""
+    # Pillory: seconds added per community vote (extension config timeToAdd).
+    # Share links: also used as timeToAdd when encoding configs.
+    time_to_add: int = 0
+    # Share links only: minimum visits (nbVisits) before unlock — real Chaster field.
+    votes: int = 0
 
 
 @dataclass
@@ -274,9 +284,9 @@ def parse_chaster_intent(
     if task_m:
         return ChasterIntent(kind="assign_task", reason=task_m.group(1).strip()[:500])
 
-    # Configure share links (+N / -N per visit)
+    # Configure share links (+N / -N per visit, min visits, random)
     if re.search(r"\b(share\s*links?|link extension)\b", low) and re.search(
-        r"\b(set|config(?:ure)?|change|update|make)\b",
+        r"\b(set|config(?:ure)?|change|update|make|harden)\b",
         low,
     ):
         add_m = re.search(
@@ -290,10 +300,100 @@ def parse_chaster_intent(
             extras.append(f"add:{_to_seconds(add_m.group(1), add_m.group(2))}")
         if rem_m:
             extras.append(f"remove:{_to_seconds(rem_m.group(1), rem_m.group(2))}")
+        visits = _parse_share_min_visits(low)
+        if visits is not None:
+            extras.append(f"visits:{visits}")
+        if re.search(r"\b(enable|with)\s+random\b|\brandom\s+on\b", low):
+            extras.append("random:1")
+        elif re.search(r"\b(disable|no)\s+random\b|\brandom\s+off\b", low):
+            extras.append("random:0")
+        if re.search(r"\b(anyone|public|anonymous)\b", low):
+            extras.append("logged:0")
+        elif re.search(r"\blogged[- ]?in only\b|\bmembers only\b", low):
+            extras.append("logged:1")
         return ChasterIntent(
             kind="configure_share_links",
             reason="|".join(extras),
+            votes=visits or 0,
         )
+
+    # Configure other plugins creatively (dice / wheel / random-events / tasks…)
+    cfg_ext = re.search(
+        r"\b(?:set|config(?:ure)?|harden|torment)\b\s+"
+        r"(?:the\s+)?"
+        r"(dice|wheel(?:\s+of\s+fortune)?|random events?|tasks?|jigsaw(?:\s+puzzle)?|"
+        r"guess[- ]?timer|pillory)\b",
+        low,
+    )
+    if cfg_ext:
+        slug = ACTIVATABLE_SLUGS.get(cfg_ext.group(1).strip(), "")
+        if not slug and "random" in cfg_ext.group(1):
+            slug = "random-events"
+        if slug == "pillory":
+            # Pillory config is applied when starting; still allow explicit set.
+            per = _parse_pillory_time_to_add(low)
+            return ChasterIntent(
+                kind="configure_extension",
+                title="pillory",
+                reason=_encode_config_parts(
+                    {
+                        "timeToAdd": per,
+                        "limitToLoggedUsers": False,
+                    }
+                ),
+                time_to_add=per,
+            )
+        if slug == "dice":
+            mult = DEFAULT_PILLORY_TIME_TO_ADD
+            dm = re.search(
+                rf"(?:multiplier|stakes?|per\s+pip)\s*"
+                rf"(?:to\s+|=\s*|:\s*)?(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+                low,
+            ) or re.search(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low)
+            if dm:
+                mult = max(60, _to_seconds(dm.group(1), dm.group(2)))
+            return ChasterIntent(
+                kind="configure_extension",
+                title="dice",
+                reason=_encode_config_parts({"multiplier": mult}),
+            )
+        if slug == "random-events":
+            diff = "hard"
+            if re.search(r"\bexpert\b", low):
+                diff = "expert"
+            elif re.search(r"\bnormal\b", low):
+                diff = "normal"
+            elif re.search(r"\beasy\b", low):
+                diff = "easy"
+            return ChasterIntent(
+                kind="configure_extension",
+                title="random-events",
+                reason=_encode_config_parts({"difficulty": diff}),
+            )
+        if slug == "wheel-of-fortune":
+            return ChasterIntent(
+                kind="configure_extension",
+                title="wheel-of-fortune",
+                reason="torment:1",
+            )
+        if slug == "tasks":
+            return ChasterIntent(
+                kind="configure_extension",
+                title="tasks",
+                reason="torment:1",
+            )
+        if slug == "jigsaw-puzzle":
+            return ChasterIntent(
+                kind="configure_extension",
+                title="jigsaw-puzzle",
+                reason="torment:1",
+            )
+        if slug == "guess-timer":
+            return ChasterIntent(
+                kind="configure_extension",
+                title="guess-timer",
+                reason="torment:1",
+            )
 
     if re.search(
         r"\b((lock\s+)?history|recent (lock )?actions?|what happened on (his |the )?lock|"
@@ -403,10 +503,18 @@ def parse_chaster_intent(
         return ChasterIntent(kind="set_note", reason=note_m.group(1).strip(" '\"")[:10000])
 
     if re.search(r"\bpillory\b", low):
-        dur = re.search(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low)
+        # Prefer explicit window: "for 10 minutes" (not the per-vote duration).
+        dur = re.search(
+            rf"(?:for|window|duration)\s+(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        ) or re.search(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low)
         secs = 300
         if dur:
-            secs = max(300, _to_seconds(dur.group(1), dur.group(2)))
+            # If the only duration is clearly "per vote", keep default window.
+            span = low[dur.start() : dur.end() + 12]
+            if not re.search(r"\bper\s+vote\b|\beach\s+vote\b", span):
+                secs = max(300, _to_seconds(dur.group(1), dur.group(2)))
+        per_vote = _parse_pillory_time_to_add(low)
         reason = "AI Domme punishment"
         reason_m = re.search(r"\b(?:because|reason:?)\s+(.+)$", low)
         if reason_m:
@@ -414,11 +522,21 @@ def parse_chaster_intent(
         else:
             cleaned = re.sub(r"\bpillory\b", " ", low)
             cleaned = re.sub(rf"\d+(?:\.\d+)?\s*{_TIME_UNIT}", " ", cleaned)
-            cleaned = re.sub(r"\b(him|boy|for|to|the|a|an)\b", " ", cleaned)
+            cleaned = re.sub(
+                r"\b(?:per|each|a)\s+vote\b|\bvotes?\b|\btime\s*to\s*add\b",
+                " ",
+                cleaned,
+            )
+            cleaned = re.sub(r"\b(him|boy|for|to|the|a|an|with|window|duration)\b", " ", cleaned)
             cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!")
             if cleaned:
                 reason = cleaned
-        return ChasterIntent(kind="pillory", seconds=secs, reason=reason)
+        return ChasterIntent(
+            kind="pillory",
+            seconds=secs,
+            reason=reason,
+            time_to_add=per_vote,
+        )
 
     add = re.search(
         rf"\b(?:add|plus|\+|apply|put)\s+(?:that\s+|the\s+|this\s+|his\s+)?"
@@ -606,6 +724,177 @@ def format_duration(seconds: int | None) -> str:
         parts.append(f"{secs}s")
     out = " ".join(parts)
     return f"-{out}" if neg else out
+
+
+# Pillory extension: time added per community vote (catalog default is 1h).
+# Start small at 10 minutes so a pile-on still hurts without nuking the lock.
+DEFAULT_PILLORY_TIME_TO_ADD = 600
+# Share links: minimum visits before unlock (real nbVisits field).
+DEFAULT_SHARE_MIN_VISITS = 10
+
+
+def _parse_pillory_time_to_add(low: str) -> int:
+    """Parse per-vote add: '10 minutes per vote', 'vote add 10m', 'timeToAdd 600'."""
+    m = re.search(
+        rf"(?:per\s+vote|each\s+vote|vote\s+adds?|time\s*to\s*add|timetoadd)"
+        rf"\s*(?:of\s+|is\s+|to\s+|=\s*|:\s*)?"
+        rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})"
+        rf"|(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\s*(?:per|each|a)\s+vote",
+        low,
+    )
+    if not m:
+        return DEFAULT_PILLORY_TIME_TO_ADD
+    if m.group(1) and m.group(2):
+        secs = _to_seconds(m.group(1), m.group(2))
+    else:
+        secs = _to_seconds(m.group(3), m.group(4))
+    return max(60, min(86400, int(secs)))
+
+
+def _parse_share_min_visits(low: str) -> int | None:
+    """Parse share-link minimum visits/votes required (nbVisits)."""
+    m = re.search(
+        r"\b(?:with\s+|need(?:ing)?\s+|require(?:s|d)?\s+|min(?:imum)?\s+)?"
+        r"(\d{1,3})\s*(?:visits?|votes?)(?:\s+required)?\b"
+        r"|\b(?:visits?|votes?|nbvisits?)\s*(?:required\s*)?[=:]?\s*(\d{1,3})\b",
+        low,
+    )
+    if not m:
+        return None
+    raw = m.group(1) or m.group(2)
+    return max(0, min(100, int(raw)))
+
+
+def _encode_config_parts(parts: dict[str, Any]) -> str:
+    out: list[str] = []
+    for k, v in parts.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            out.append(f"{k}:{'1' if v else '0'}")
+        else:
+            out.append(f"{k}:{v}")
+    return "|".join(out)
+
+
+def _decode_config_parts(reason: str) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    for part in (reason or "").split("|"):
+        if ":" not in part:
+            continue
+        key, raw = part.split(":", 1)
+        key = key.strip()
+        raw = raw.strip()
+        if not key:
+            continue
+        if raw in ("1", "true", "yes"):
+            updates[key] = True
+        elif raw in ("0", "false", "no"):
+            updates[key] = False
+        else:
+            try:
+                updates[key] = int(raw)
+            except ValueError:
+                updates[key] = raw
+    return updates
+
+
+def json_dumps_safe(obj: Any) -> str:
+    import json
+
+    try:
+        return json.dumps(obj, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        return str(obj)
+
+
+def _torment_wheel_segments() -> list[dict[str, Any]]:
+    """Harsh wheel: mostly add/freeze/pillory, tiny remove, cruel text."""
+    return [
+        {"type": "add-time", "text": "More cage time", "duration": 7200},
+        {"type": "add-time", "text": "Stack another hour", "duration": 3600},
+        {"type": "freeze", "text": "Frozen for Dommes", "duration": 3600},
+        {"type": "pillory", "text": "Public shame", "duration": 900},
+        {"type": "text", "text": "Edge twice. No release. Report when done.", "duration": 0},
+        {"type": "remove-time", "text": "Tiny mercy", "duration": 300},
+    ]
+
+
+def _torment_config_for(
+    slug: str, reason: str, intent: ChasterIntent
+) -> dict[str, Any]:
+    """Build real extension config updates from catalog-backed fields only."""
+    s = (slug or "").strip()
+    parts = _decode_config_parts(reason)
+    if s == "pillory":
+        return {
+            "timeToAdd": int(
+                parts.get("timeToAdd")
+                or intent.time_to_add
+                or DEFAULT_PILLORY_TIME_TO_ADD
+            ),
+            "limitToLoggedUsers": bool(parts.get("limitToLoggedUsers", False)),
+        }
+    if s == "dice":
+        return {
+            "multiplier": int(parts.get("multiplier") or 7200),
+            "nbSides": int(parts.get("nbSides") or 6),
+        }
+    if s == "random-events":
+        diff = str(parts.get("difficulty") or "hard")
+        if diff not in ("easy", "normal", "hard", "expert"):
+            diff = "hard"
+        return {"difficulty": diff}
+    if s == "wheel-of-fortune":
+        return {"segments": _torment_wheel_segments()}
+    if s == "tasks":
+        # Deny wearer self-edits; Domme/AI keep assign path via Tasks API.
+        return {
+            "allowWearerToEditTasks": False,
+            "allowWearerToConfigureTasks": False,
+            "preventWearerFromAssigningTasks": True,
+            "allowWearerToChooseTasks": False,
+            "voteEnabled": True,
+            "voteDuration": 21600,
+        }
+    if s == "jigsaw-puzzle":
+        return {
+            "pieces": 120,
+            "timeLimit": 900,
+            "timeLimitActive": True,
+            "freezeWhenAvailable": True,
+            "preventUnlockingWhenAvailable": True,
+            "randomOrder": True,
+            "punishments": [{"action": "ADD_TIME", "data": 30}],
+        }
+    if s == "guess-timer":
+        return {"minRandomTime": 21600, "maxRandomTime": 86400}
+    if s == "temporary-opening":
+        return {
+            "openingTime": int(parts.get("openingTime") or 300),
+            "penaltyTime": int(parts.get("penaltyTime") or 86400),
+            "freezeLockWhileOpen": True,
+            "requireVerificationPictureAfter": True,
+            "allowOnlyKeyholderToOpen": False,
+        }
+    if s == "verification-picture":
+        return {"visibility": "all", "triggerInitialVerification": False}
+    # Fall through: apply decoded parts if they look like config keys
+    known = {
+        k: v
+        for k, v in parts.items()
+        if k
+        not in (
+            "torment",
+            "add",
+            "remove",
+            "visits",
+            "random",
+            "logged",
+            "visible",
+        )
+    }
+    return known
 
 
 def remaining_seconds(lock: dict[str, Any]) -> int | None:
@@ -1182,14 +1471,40 @@ async def run_chaster_intent(
 
         if intent.kind == "configure_share_links":
             lock_id = str(before.get("lock_id") or "")
+            raw = _decode_config_parts(intent.reason or "")
             updates: dict[str, Any] = {}
-            for part in (intent.reason or "").split("|"):
-                if part.startswith("add:"):
-                    updates["timeToAdd"] = int(part.split(":", 1)[1])
-                elif part.startswith("remove:"):
-                    updates["timeToRemove"] = int(part.split(":", 1)[1])
+            if "add" in raw:
+                updates["timeToAdd"] = int(raw["add"])
+            if "remove" in raw:
+                updates["timeToRemove"] = int(raw["remove"])
+            if "timeToAdd" in raw:
+                updates["timeToAdd"] = int(raw["timeToAdd"])
+            if "timeToRemove" in raw:
+                updates["timeToRemove"] = int(raw["timeToRemove"])
+            if "visits" in raw or "nbVisits" in raw:
+                updates["nbVisits"] = int(raw.get("visits", raw.get("nbVisits")))
+            elif intent.votes:
+                updates["nbVisits"] = int(intent.votes)
+            if "random" in raw or "enableRandom" in raw:
+                updates["enableRandom"] = bool(
+                    raw.get("random", raw.get("enableRandom"))
+                )
+            if "logged" in raw or "limitToLoggedUsers" in raw:
+                updates["limitToLoggedUsers"] = bool(
+                    raw.get("logged", raw.get("limitToLoggedUsers"))
+                )
+            if "visible" in raw or "visibleOnProfile" in raw:
+                updates["visibleOnProfile"] = bool(
+                    raw.get("visible", raw.get("visibleOnProfile"))
+                )
             if not updates:
-                updates = {"timeToAdd": 3600, "timeToRemove": 3600}
+                updates = {
+                    "timeToAdd": 3600,
+                    "timeToRemove": 300,
+                    "nbVisits": DEFAULT_SHARE_MIN_VISITS,
+                    "enableRandom": True,
+                    "limitToLoggedUsers": False,
+                }
             try:
                 before_exts = await chaster.list_lock_extensions(lock_id)
             except Exception as exc:  # noqa: BLE001
@@ -1246,15 +1561,23 @@ async def run_chaster_intent(
             )
             cfg = dict(link.get("config") or {}) if isinstance(link, dict) else {}
 
-            def _cfg_int(d: dict[str, Any], key: str) -> int:
-                try:
-                    return int(d.get(key) or 0)
-                except (TypeError, ValueError):
-                    return 0
+            def _cfg_val(d: dict[str, Any], key: str) -> Any:
+                return d.get(key)
 
-            applied_ok = all(_cfg_int(cfg, k) == int(v) for k, v in updates.items())
+            def _same(a: Any, b: Any) -> bool:
+                if isinstance(a, bool) or isinstance(b, bool):
+                    return bool(a) == bool(b)
+                try:
+                    return int(a or 0) == int(b or 0)
+                except (TypeError, ValueError):
+                    return a == b
+
+            applied_ok = all(
+                _same(_cfg_val(cfg, k), v) for k, v in updates.items()
+            )
             changed = any(
-                _cfg_int(before_cfg, k) != _cfg_int(cfg, k) for k in updates
+                not _same(_cfg_val(before_cfg, k), _cfg_val(cfg, k))
+                for k in updates
             )
             after = summarize_lock(await refresh_lock(chaster, lock))
             if not applied_ok:
@@ -1266,7 +1589,8 @@ async def run_chaster_intent(
                     facts=(
                         "Share links config did NOT take on Chaster "
                         f"(wanted {updates}, still "
-                        f"+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s). "
+                        f"+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s, "
+                        f"nbVisits={cfg.get('nbVisits')}). "
                         "Lock may block extension edits, or values were rejected."
                     ),
                 )
@@ -1278,8 +1602,8 @@ async def run_chaster_intent(
                     lock=after,
                     facts=(
                         "Share links already at that config "
-                        f"(+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s) - "
-                        "nothing to update."
+                        f"(+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s, "
+                        f"nbVisits={cfg.get('nbVisits')}) - nothing to update."
                     ),
                 )
             return ChasterActionResult(
@@ -1288,12 +1612,90 @@ async def run_chaster_intent(
                     f"CHASTER ACTION DONE (share links config):\n"
                     f"- Requested by: {requested_by}\n"
                     f"- Before: +{before_cfg.get('timeToAdd')}s / "
-                    f"-{before_cfg.get('timeToRemove')}s\n"
+                    f"-{before_cfg.get('timeToRemove')}s · "
+                    f"nbVisits={before_cfg.get('nbVisits')}\n"
                     f"- After: +{cfg.get('timeToAdd')}s / "
                     f"-{cfg.get('timeToRemove')}s · "
                     f"enableRandom={cfg.get('enableRandom')} · "
-                    f"visits={cfg.get('nbVisits')}\n"
-                    "Share URL stays in the Chaster UI — bot only changes +/- per visit.\n"
+                    f"nbVisits={cfg.get('nbVisits')} "
+                    f"(minimum visits before unlock) · "
+                    f"loggedOnly={cfg.get('limitToLoggedUsers')}\n"
+                    "Share URL stays in the Chaster UI — bot changes +/- and visit gate.\n"
+                    f"{_status_lines('AFTER', after)}"
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "configure_extension":
+            lock_id = str(before.get("lock_id") or "")
+            slug = (intent.title or "").strip()
+            if not slug:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts="No extension slug for configure_extension.",
+                )
+            updates = _torment_config_for(slug, intent.reason or "", intent)
+            if not updates:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=f"No config updates computed for `{slug}`.",
+                )
+            try:
+                before_exts = await chaster.list_lock_extensions(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not read extensions: {exc}",
+                )
+            if not any(str(e.get("slug") or "") == slug for e in before_exts):
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"`{slug}` is not on the lock. "
+                        f'Say: "activate {slug}" first (free tier max 3).'
+                    ),
+                )
+            try:
+                after_exts = await chaster.update_extension_config(
+                    lock_id, slug, updates
+                )
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=f"Could not configure `{slug}`: {exc}",
+                )
+            after_cfg = next(
+                (
+                    dict(e.get("config") or {})
+                    for e in after_exts
+                    if str(e.get("slug") or "") == slug
+                ),
+                {},
+            )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=(
+                    f"CHASTER ACTION DONE (`{slug}` config torment):\n"
+                    f"- Requested by: {requested_by}\n"
+                    f"- Applied: {json_dumps_safe(updates)}\n"
+                    f"- Live now: {json_dumps_safe(after_cfg)[:500]}\n"
                     f"{_status_lines('AFTER', after)}"
                 ),
                 lock=after,
@@ -1428,12 +1830,28 @@ async def run_chaster_intent(
             )
 
         if intent.kind == "pillory":
-            secs = max(300, int(intent.seconds or 300))
+            # Real levers: duration = public voting window; timeToAdd = per community vote.
+            secs = max(300, min(86400, int(intent.seconds or 300)))
             reason = (intent.reason or "AI Domme punishment").strip()[:500]
+            time_to_add = max(
+                60,
+                min(
+                    86400,
+                    int(intent.time_to_add or DEFAULT_PILLORY_TIME_TO_ADD),
+                ),
+            )
+            pillory_cfg = {
+                "timeToAdd": time_to_add,
+                # Anyone can pile on — more torment than logged-in-only default.
+                "limitToLoggedUsers": False,
+            }
             parked_note = ""
             try:
                 ensured = await chaster.ensure_extension(
-                    lock_id, "pillory", park_if_needed=True
+                    lock_id,
+                    "pillory",
+                    config=pillory_cfg,
+                    park_if_needed=True,
                 )
                 parked = list(ensured.get("parked") or [])
                 if parked:
@@ -1445,6 +1863,12 @@ async def run_chaster_intent(
                         f"(free tier max 3 extensions; duo-domme kept). "
                         'Say "restore parked extensions" later.'
                     )
+                try:
+                    await chaster.update_extension_config(
+                        lock_id, "pillory", pillory_cfg
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception as exc:  # noqa: BLE001
                 return ChasterActionResult(
                     ok=True,
@@ -1468,7 +1892,11 @@ async def run_chaster_intent(
                     lock=before,
                     facts=f"Could not verify extensions after pillory enable: {exc}",
                 )
-            if not any(str(e.get("slug") or "") == "pillory" for e in exts):
+            live_pillory = next(
+                (e for e in exts if str(e.get("slug") or "") == "pillory"),
+                None,
+            )
+            if not live_pillory:
                 return ChasterActionResult(
                     ok=True,
                     blocked=True,
@@ -1479,6 +1907,7 @@ async def run_chaster_intent(
                         "not claiming a pillory. Check extension slots / Plus."
                     ),
                 )
+            live_tta = int((live_pillory.get("config") or {}).get("timeToAdd") or 0)
             try:
                 await chaster.pillory(
                     lock_id,
@@ -1502,7 +1931,11 @@ async def run_chaster_intent(
                 facts=_facts_after(
                     action_line=(
                         f"Pilloried for {format_duration(secs)} "
-                        f"(reason: {reason}).{parked_note}"
+                        f"(public Activity feed window). "
+                        f"Each community vote adds "
+                        f"{format_duration(live_tta or time_to_add)} "
+                        f"(pillory timeToAdd; anyone may vote). "
+                        f"Reason shown: {reason}.{parked_note}"
                     ),
                     before=before,
                     after=after,
@@ -1673,9 +2106,25 @@ def _activation_followup(slug: str) -> str:
     s = (slug or "").lower()
     tips = {
         "link": (
-            "Share links are now on the lock. Configure amounts with "
-            '"set share links add 2 hours remove 30 minutes". '
+            "Share links are now on the lock. Configure with "
+            '"set share links add 2 hours remove 5 minutes with 10 visits". '
             "The wearer shares the Chaster link UI — this bot cannot mint a new URL."
+        ),
+        "pillory": (
+            "Pillory is on the lock. Start with "
+            '"pillory him for 15 minutes, 10 minutes per vote because brat". '
+            "timeToAdd = seconds each community vote adds; duration = voting window."
+        ),
+        "dice": (
+            'Dice is ready. Harden with "configure dice stakes 2 hours", '
+            "then order him to roll in Chaster."
+        ),
+        "wheel-of-fortune": (
+            'Wheel is ready. Say "harden the wheel" to load cruel segments, '
+            "then order spins in Chaster."
+        ),
+        "random-events": (
+            'Random events ready. Say "configure random events hard".'
         ),
         "temporary-opening": (
             'Hygiene opening is ready. Set window: "set hygiene to 10 minutes". '
@@ -1708,24 +2157,26 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
         )
         lines.append(
             'Say: "add 2 hours", "hide the timer", "freeze him", '
-            '"message him: stay denied", "pillory him for 5 minutes".'
+            '"message him: stay denied", '
+            '"pillory him for 15 minutes, 10 minutes per vote".'
         )
         return lines
     if s == "link":
         lines.append(
             "CONTROL (Share links): CONFIG via this bot — timeToAdd / timeToRemove / "
-            "random / visit limits. NO API to mint/copy the public share URL "
-            "(that stays in the Chaster UI)."
+            "enableRandom / nbVisits (minimum visits before unlock) / "
+            "limitToLoggedUsers / visibleOnProfile. "
+            "NO API to mint the public share URL (Chaster UI only)."
         )
         lines.append(
             f"Live config: +{config.get('timeToAdd')}s / -{config.get('timeToRemove')}s "
             f"per visit, enableRandom={config.get('enableRandom')}, "
-            f"visits={config.get('nbVisits')}, "
+            f"nbVisits={config.get('nbVisits')} (min visits gate), "
             f"limitToLoggedUsers={config.get('limitToLoggedUsers')}."
         )
         lines.append(
-            'Say: "set share links add 2 hours remove 30 minutes". '
-            "Others use his share link in Chaster; history shows visits."
+            'Say: "set share links add 2 hours remove 5 minutes with 10 visits". '
+            "Order him to post the link; community clicks stack time."
         )
         return lines
     if s == "temporary-opening":
@@ -1790,31 +2241,57 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
             "I react. I do not move pieces."
         )
         return lines
-    if s in ("wheel-of-fortune", "dice"):
+    if s == "dice":
         lines.append(
-            "CONTROL: ACTIVATE/CONFIG via extensions edit. "
-            "Gameplay actions are wearer-driven in Chaster "
-            "(hasActions=true, but no partner remote-spin API like Duo Domme)."
+            "CONTROL: CONFIG multiplier/nbSides via this bot; he rolls in Chaster UI "
+            "(no remote-roll API). Higher multiplier = nastier pip swings."
         )
         lines.append(
-            "I watch history for spins/rolls and react. "
-            f'Domme: "activate {s}".'
+            f"Live config: multiplier={config.get('multiplier')}s per pip, "
+            f"sides={config.get('nbSides')}."
         )
+        lines.append('Say: "configure dice stakes 2 hours" then order him to roll.')
+        return lines
+    if s == "wheel-of-fortune":
+        segs = config.get("segments") or []
+        lines.append(
+            "CONTROL: CONFIG segments via this bot (add/remove/freeze/pillory/text). "
+            "He spins in Chaster — no remote-spin API."
+        )
+        lines.append(f"Live segments: {len(segs)} configured.")
+        lines.append('Say: "harden the wheel" / "configure wheel of fortune".')
         return lines
     if s == "pillory":
         lines.append(
-            "CONTROL: Duo Domme can start pillory via session action `pillory`. "
-            "Public votes use /extensions/pillory/{lockId}/vote."
+            "CONTROL: CONFIG timeToAdd (seconds EACH community vote adds) + "
+            "limitToLoggedUsers; START via Duo Domme with duration (voting window) "
+            "+ public reason. There is no votes-required field on pillory — "
+            "share links nbVisits is the min-visits gate."
         )
         lines.append(
-            f"Live config: timeToAdd={config.get('timeToAdd')}, "
+            f"Live config: timeToAdd={config.get('timeToAdd')}s per vote, "
             f"limitToLoggedUsers={config.get('limitToLoggedUsers')}."
+        )
+        lines.append(
+            'Say: "pillory him for 15 minutes, 10 minutes per vote because brat".'
         )
         return lines
     if s == "random-events":
         lines.append(
-            "CONTROL: ACTIVATE/CONFIG only (hasActions=false). "
+            "CONTROL: CONFIG difficulty (easy/normal/hard/expert). "
             "Events fire inside Chaster; I react from history."
+        )
+        lines.append(f"Live config: difficulty={config.get('difficulty')}.")
+        lines.append('Say: "configure random events hard".')
+        return lines
+    if s == "guess-timer":
+        lines.append(
+            "CONTROL: CONFIG min/max random penalty on wrong guess; "
+            "pair with hide timer from Duo Domme."
+        )
+        lines.append(
+            f"Live config: minRandomTime={config.get('minRandomTime')}, "
+            f"maxRandomTime={config.get('maxRandomTime')}."
         )
         return lines
     lines.append(
@@ -1854,16 +2331,16 @@ def format_extensions_facts(
             "- Hygiene opening: open/status when `temporary-opening` is on the lock.",
             "- Verification picture: request when `verification-picture` is on the lock.",
             "- Tasks: assign/start-timer/complete when `tasks` is on the lock.",
-            "- Share links (`link`): configure timeToAdd/timeToRemove; "
-            "NO API to mint the public URL (UI only).",
-            "- Pillory: must be ON the lock, then Duo Domme starts it. "
-            "Free tier max 3 extensions — bot may temporarily park another plugin "
-            '(never duo-domme) to enable it; "restore parked extensions" later.',
-            "- Jigsaw / Wheel / Dice: activate/config; gameplay is in Chaster UI "
-            "(jigsaw remote actions unavailable).",
-            '- Activate missing ones: "activate share links", "activate hygiene", '
-            '"activate tasks", "activate verification picture", "activate pillory", '
-            '"activate jigsaw".',
+            "- Share links (`link`): configure timeToAdd/timeToRemove/nbVisits/"
+            "enableRandom; NO API to mint the public URL (UI only).",
+            "- Pillory: CONFIG timeToAdd (+ per community vote) + limitToLoggedUsers; "
+            "START via Duo Domme (duration window + reason). No votes-required field.",
+            "- Dice/Wheel/Random-events/Jigsaw/Guess-timer: CONFIG via bot; "
+            "gameplay is wearer-driven in Chaster (no remote spin/roll).",
+            "- Free tier max 3 extensions — bot may park another plugin "
+            '(never duo-domme) to enable one; "restore parked extensions" later.',
+            '- Activate: "activate share links/hygiene/tasks/verification/pillory/'
+            'dice/wheel/random events/jigsaw".',
             "- Never invent controls that are not listed above.",
         ]
     )
@@ -1885,7 +2362,7 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '• Hide the timer from him — say: "hide the timer"',
             '• Show the timer again — say: "show the timer"',
             '• Pillory him (only if Pillory is on the lock) — say: '
-            '"pillory him for 5 minutes because teasing"',
+            '"pillory him for 15 minutes, 10 minutes per vote because teasing"',
             '• Message / push via lock history — say: '
             '"message him: Be good tonight" or '
             '"send him a lock message: Tease | Edge twice and wait"',
@@ -1893,7 +2370,7 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '• Extensions on the lock — say: "what extensions are on his lock"',
             '• Activate plugins — "activate share links", "activate hygiene", '
             '"activate tasks", "activate verification picture", "activate jigsaw"',
-            '• Share links config — "set share links add 2 hours remove 30 minutes"',
+            '• Share links config — "set share links add 2 hours remove 5 minutes with 10 visits"',
             '• Hygiene opening — "set hygiene to 10 minutes" / "open hygiene"',
             '• Verification picture — "request verification picture"',
             '• Tasks — "assign task: edge twice" (needs tasks)',
@@ -2087,6 +2564,11 @@ async def run_tour_step(
             kind="pillory",
             seconds=int(step.get("seconds") or 300),
             reason=str(step.get("reason") or "Mistress's order"),
+            time_to_add=int(
+                step.get("time_to_add")
+                or step.get("timeToAdd")
+                or DEFAULT_PILLORY_TIME_TO_ADD
+            ),
         )
     elif kind in (
         "hide_time",
@@ -2274,7 +2756,12 @@ def parse_lock_tag_body(body: str) -> ChasterIntent | None:
             secs = max(300, _to_seconds(m3.group(1), m3.group(2) or "s"))
         else:
             secs = 300
-        return ChasterIntent(kind="pillory", seconds=secs, reason="AI Domme decision")
+        return ChasterIntent(
+            kind="pillory",
+            seconds=secs,
+            reason="AI Domme decision",
+            time_to_add=_parse_pillory_time_to_add(low),
+        )
     # Fall back to normal intent parser on the body alone
     return parse_chaster_intent(text)
 
