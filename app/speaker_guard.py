@@ -87,23 +87,21 @@ def addressing_block(
             f"This message is from {speaker} — the HUMAN DOMME / Chaster KEYHOLDER.\n"
             f"She is NOT locked. She is NOT the wearer. Do NOT give HER hygiene unlocks, "
             f"orders to kneel, or talk about 'your cage' as hers.\n"
-            f"Address her as {title} (her name — not generic Mistress). "
-            f"Confirm orders TO her. "
-            f"The lockee is {sub} — refer to him as he/him/BOY.\n"
+            "UI already shows who spoke — do NOT write [Keyholder: Domme] or her username.\n"
+            "If you address her, say 'keyholder'. The wearer is 'lockee' (or boy) — not usernames.\n"
+            f"Confirm orders TO her. The lockee is {sub} — he/him.\n"
             f"You ({bot_name}) are her co-Domme peer / AI keyholder — Dominant, having fun. "
             f"Never obedient, never a slave.\n"
         )
     return (
         "\n\n[WHO IS SPEAKING — CRITICAL]\n"
         f"This message is from {speaker} — the HUMAN SUB / Chaster WEARER (lockee).\n"
-        f"Speak to him as the locked boy. {title} is the human Domme (separate person).\n"
-        f"You ({bot_name}) are AI Domme/keyholder — Dominant, here to have fun. "
-        f"Never confuse him with {title}. Never speak as if YOU are obedient or a slave.\n"
-        f"NEVER write lines as [Domme …] or speak in {title}'s voice. "
-        f"Only you ({bot_name}) reply.\n"
-        f"Use {title}'s NAME — not generic 'Mistress'.\n"
-        f"If he insults you or {title} (slut/whore/hores/etc.), punish — "
-        f"do not play along.\n"
+        "UI already shows who spoke — do NOT write [Keyholder: Domme] or open with his username.\n"
+        "If you address someone: 'lockee' for him, 'keyholder' for the human Domme. No usernames.\n"
+        f"You ({bot_name}) are AI Domme/keyholder — Dominant, here to have fun.\n"
+        "NEVER forge Domme/Sub speaker lines. Only you reply under your own name.\n"
+        "Never demand he beg to be unlocked. He may beg to ease/stop punishments.\n"
+        "If he insults Dommes, punish — do not lecture-loop or play along.\n"
     )
 
 
@@ -139,7 +137,7 @@ def repair_bot_submissive(
     )
 
 
-# Bot must never speak as the human Domme or Sub
+# Bot must never speak as the human Domme or Sub, or invent chat labels
 _IMPERSONATE = re.compile(
     r"("
     r"\[?\s*Domme\s*(\(@[^)\]]+\))?\s*\]\s*:|"
@@ -151,6 +149,23 @@ _IMPERSONATE = re.compile(
     r"@TheBosses\s*\]\s*:"
     r")",
     re.I | re.M,
+)
+
+# Fake UI chrome the model invents: [Keyholder: Domme] Name,
+_CHAT_CHROME = re.compile(
+    r"^\[?\s*Keyholder\s*(:\s*Domme)?\s*\]\s*:?\s*",
+    re.I,
+)
+_LEADING_USERNAME = re.compile(
+    r"^@?[A-Za-z0-9_\-]{3,32}\s*,\s*",
+)
+_BEG_UNLOCK = re.compile(
+    r"\bbeg\s+(me\s+)?to\s+unlock(\s+you)?\b|"
+    r"\bbeg\s+(for\s+)?(an?\s+)?unlock\b|"
+    r"\bstart\s+begging(\s+me)?(\s+to)?(\s+unlock)?\b|"
+    r"\bbeg\s+me\s+to\s+(let\s+you\s+out|release\s+you)\b|"
+    r"\b(now\s+)?beg\s+me\s+to\s+unlock\s+you\s+or\b",
+    re.I,
 )
 
 
@@ -190,12 +205,92 @@ def repair_impersonation(
 
 
 def rewrite_generic_mistress(reply: str, domme_name: str) -> str:
-    """Replace generic 'Mistress' with the Domme's real name when we have one."""
-    name = (domme_name or "").strip()
+    """Legacy helper: Mistress → keyholder (roles beat honorifics in spoken lines)."""
     text = reply or ""
-    if not name or not text:
+    if not text:
         return text
-    # Don't rewrite if her name already appears as Mistress Name
-    if re.search(rf"\bMistress\s+{re.escape(name)}\b", text, re.I):
-        text = re.sub(rf"\bMistress\s+{re.escape(name)}\b", name, text, flags=re.I)
-    return re.sub(r"\bMistress\b", name, text)
+    return re.sub(r"\bMistress\b", "keyholder", text)
+
+
+def strip_chat_chrome(
+    reply: str,
+    *,
+    sub_name: str = "",
+    domme_name: str = "",
+) -> str:
+    """Remove invented speaker tags and leading usernames — UI already shows who spoke."""
+    text = (reply or "").strip()
+    if not text:
+        return text
+    lines = text.splitlines()
+    cleaned_lines: list[str] = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s:
+            cleaned_lines.append("")
+            continue
+        s = _CHAT_CHROME.sub("", s).strip()
+        s = _IMPERSONATE.sub("", s).strip()
+        # Strip username openers on the first few lines
+        if i < 3:
+            for uname in (sub_name, domme_name):
+                u = (uname or "").strip().lstrip("@")
+                if u and re.match(rf"^@?{re.escape(u)}\s*,\s*", s, re.I):
+                    s = re.sub(rf"^@?{re.escape(u)}\s*,\s*", "", s, flags=re.I)
+                    break
+            else:
+                s = _LEADING_USERNAME.sub("", s)
+        if s:
+            cleaned_lines.append(s)
+        else:
+            cleaned_lines.append("")
+    out = "\n".join(cleaned_lines).strip()
+    # In spoken body, prefer role words over usernames
+    for uname, role_word in (
+        (sub_name, "lockee"),
+        (domme_name, "keyholder"),
+    ):
+        u = (uname or "").strip().lstrip("@")
+        if u and len(u) >= 3:
+            out = re.sub(rf"\b{re.escape(u)}\b", role_word, out, flags=re.I)
+    out = re.sub(r"\bMistress\b", "keyholder", out)
+    return out
+
+
+def has_chat_chrome(reply: str) -> bool:
+    text = reply or ""
+    return bool(_CHAT_CHROME.search(text) or _IMPERSONATE.search(text))
+
+
+def demands_beg_unlock(reply: str) -> bool:
+    return bool(_BEG_UNLOCK.search(reply or ""))
+
+
+def rewrite_beg_unlock(reply: str) -> str:
+    """Begging is for easing punishments — never for unlock."""
+    text = reply or ""
+    text = re.sub(
+        r"\b(now\s+)?beg\s+me\s+to\s+unlock(\s+you)?\s+or\b",
+        "beg me to ease up on the punishments, or",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\bbeg\s+(me\s+)?to\s+unlock(\s+you)?\b",
+        "beg me to ease up on the punishments",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\bstart\s+begging(\s+me)?(\s+to\s+unlock)?\b",
+        "start begging for mercy on the punishments",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\bbeg\s+me\s+to\s+(let\s+you\s+out|release\s+you)\b",
+        "beg me to ease up on the punishments",
+        text,
+        flags=re.I,
+    )
+    return text

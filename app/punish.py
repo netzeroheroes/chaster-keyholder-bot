@@ -80,6 +80,16 @@ _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
         ),
         RuleBreak(reason="demanded mercy / entitlement", seconds=600, hide_timer=True),
     ),
+    # Short dismissive brat — punish once, don't lecture-loop
+    (
+        re.compile(
+            r"^(whatever|yeah\s*yeah|sure\s*whatever|nah|meh|k+|lol|"
+            r"ok\s*whatever|nope|as\s+if)\s*[.!]?\s*$"
+            r"|^no\s*[.!]?\s*$",
+            re.I,
+        ),
+        RuleBreak(reason="dismissive brat attitude", seconds=900, hide_timer=True),
+    ),
 ]
 
 # Pleas are allowed — Sub may beg for mercy (timer/time), not issue orders
@@ -101,7 +111,11 @@ _MERCY_TOPIC = re.compile(
     r"take\s+(some\s+|a\s+little\s+)?time\s+off|remove\s+(some\s+|a\s+little\s+)?time|"
     r"reduce\s+(the\s+|my\s+)?time|less\s+time|shorter|"
     r"ease\s+up|go\s+easier|give\s+me\s+a\s+break|"
-    r"unfreeze|thaw|let\s+(the\s+)?(clock|time)\s+(run|move)"
+    r"unfreeze|thaw|let\s+(the\s+)?(clock|time)\s+(run|move)|"
+    r"stop\s+(the\s+)?punish(?:ment|ing)|stop\s+punishing|"
+    r"ease\s+(the\s+|up\s+on\s+)?punish(?:ment|ments|ing)|"
+    r"no\s+more\s+(extra\s+)?time|forgive\s+me|"
+    r"stop\s+adding\s+time|go\s+easy"
     r")\b",
     re.I,
 )

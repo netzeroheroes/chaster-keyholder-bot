@@ -108,11 +108,10 @@ def format_user_line(
             "The wearer is a different person — use he/him for the Sub.]"
         )
     else:
-        her = domme_address(memory)
         address = (
-            f"[ADDRESS: Reply TO the Sub/wearer. The human Domme is a separate person "
-            f"({her}). Do not speak as if this wearer is the Domme. "
-            f"Address her by name ({her}), not as generic 'Mistress'.]"
+            "[ADDRESS: Reply TO the lockee. The human Domme is a separate person "
+            "(keyholder). Do not speak as if this wearer is the Domme. "
+            "No fake [Keyholder: Domme] labels. No usernames — say keyholder / lockee.]"
         )
     return (
         f"[{label}]: {message}\n"

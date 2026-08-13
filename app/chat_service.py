@@ -24,13 +24,17 @@ from app.chaster_actions import (
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
     addressing_block,
+    demands_beg_unlock,
+    has_chat_chrome,
     impersonates_human,
     mistreats_domme_as_sub,
     repair_bot_submissive,
     repair_domme_misaddress,
     repair_impersonation,
+    rewrite_beg_unlock,
     rewrite_generic_mistress,
     sounds_like_bot_submissive,
+    strip_chat_chrome,
     strip_impersonation,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
@@ -737,9 +741,12 @@ async def handle_chat_turn(
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "Dominant, here to have fun. Never claim to be the human Domme or Sub. "
             "Never speak as if YOU are obedient, a slave, or 'serving her needs'.\n"
-            f"- Address the human Domme as {title} — never generic 'Mistress'.\n"
-            f"- NEVER write as [Domme …], [Sub …], or forge {title}'s voice. "
-            "Only you reply under your own name.\n"
+            "- NO FAKE LABELS: never write [Keyholder: Domme], [Domme], [Sub], or open with usernames. "
+            "UI already shows who spoke. If you address someone, say 'keyholder' or 'lockee'.\n"
+            "- NEVER tell the lockee to beg to be unlocked. Unlock is not a beg-goal. "
+            "He may beg to ease/stop punishments, unhide timer, or reduce added time.\n"
+            "- No lecture escalation: short dismissals get a real consequence once, then a new beat — "
+            "not the same 'beg or else' threat every turn.\n"
             "- Femdom/matriarchal: female Dominants hold power; the locked Sub serves.\n"
             "- If Sub insults Dommes (slut/whore/hores/etc.), PUNISH with ADD time. "
             "Never remove time, never tease-reward, never play along with the slur.\n"
@@ -747,8 +754,8 @@ async def handle_chat_turn(
             "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
             "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
             "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
-            f"- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
-            f"- Sub may BEG either Dominant for mercy. Never scold him for addressing {title}.\n"
+            "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
+            "- Sub may BEG either Dominant for mercy on punishments. Never scold him for that.\n"
             "- Sub may NOT give direct lock orders (e.g. 'add some time'). Refuse; he begs.\n"
             "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
             "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
@@ -921,24 +928,45 @@ async def handle_chat_turn(
                 {"role": "assistant", "content": reply},
             ]
 
-        # Prefer keyholder name over generic Mistress in visible replies
-        rewritten = rewrite_generic_mistress(reply, memory.domme_name or "")
-        if rewritten != reply:
-            reply = rewritten
-            messages = list(history) + [
-                {"role": "user", "content": user_line},
-                {"role": "assistant", "content": reply},
-            ]
+        # Prefer role words over Mistress; strip fake UI chrome / usernames in group
+        if room == "group":
+            cleaned = strip_chat_chrome(
+                reply,
+                sub_name=memory.sub_name or handle or "",
+                domme_name=memory.domme_name or "",
+            )
+            if demands_beg_unlock(cleaned):
+                cleaned = rewrite_beg_unlock(cleaned)
+            if cleaned != reply:
+                log.info("Stripped chat chrome / beg-unlock from group reply")
+                reply = cleaned
+                messages = list(history) + [
+                    {"role": "user", "content": user_line},
+                    {"role": "assistant", "content": reply},
+                ]
+        else:
+            rewritten = rewrite_generic_mistress(reply, memory.domme_name or "")
+            if rewritten != reply:
+                reply = rewritten
+                messages = list(history) + [
+                    {"role": "user", "content": user_line},
+                    {"role": "assistant", "content": reply},
+                ]
 
         # Strict: never let the model forge Domme/Sub speaker lines
-        if impersonates_human(reply):
+        if impersonates_human(reply) or has_chat_chrome(reply):
             log.warning("Stripped human impersonation from %s reply", room)
             cleaned = strip_impersonation(reply)
+            cleaned = strip_chat_chrome(
+                cleaned,
+                sub_name=memory.sub_name or handle or "",
+                domme_name=memory.domme_name or "",
+            )
             if not cleaned or len(cleaned) < 20:
                 cleaned = repair_impersonation(
                     bot_name=bot_name,
-                    domme_title=domme_address(memory),
-                    sub_name=memory.sub_name or "BOY",
+                    domme_title="keyholder",
+                    sub_name="lockee",
                 )
             reply = cleaned
             messages = list(history) + [
