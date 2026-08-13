@@ -8,10 +8,6 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Cap escalated add-time at 24h per strike
-_MAX_PUNISH_SECONDS = 86400
-
-
 @dataclass
 class RuleBreak:
     reason: str
@@ -19,6 +15,8 @@ class RuleBreak:
     freeze: bool = False
     hide_timer: bool = False
     strike: int = 1  # disobedience streak after this offense
+    # Extension levers to try (share links, tasks, pillory, verification)
+    use_extensions: bool = True
 
 
 _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
@@ -248,15 +246,25 @@ def cool_disobey_streak(memory: Any, *, reset: bool = False) -> int:
     return nxt
 
 
-def escalate_rule_break(br: RuleBreak, strike: int) -> RuleBreak:
-    """Scale time + extras as disobedience continues (strike is 1-based)."""
+def escalate_rule_break(
+    br: RuleBreak,
+    strike: int,
+    *,
+    min_seconds: int | None = None,
+    max_seconds: int | None = None,
+) -> RuleBreak:
+    """Scale time + extras as disobedience continues (strike is 1-based).
+
+    Cap / floor come from Domme session settings (min/max add time), not a hardcode.
+    """
     n = max(1, int(strike or 1))
-    # 1→base, 2→1.5x, 3→2.25x, 4→~3.4x … cap 24h
+    lo = max(60, int(min_seconds or 60))
+    hi = max(lo, int(max_seconds or 86400))
+    # 1→base, 2→1.5x, 3→2.25x … until session max
     mult = min(6.0, 1.5 ** (n - 1))
-    seconds = max(60, min(_MAX_PUNISH_SECONDS, int(br.seconds * mult)))
+    seconds = max(lo, min(hi, int(br.seconds * mult)))
     freeze = br.freeze or n >= 2
     hide = br.hide_timer or n >= 1
-    # Keep stacking severity in the reason label for the reply
     reason = br.reason
     if n >= 2:
         reason = f"{br.reason} (strike {n} - escalating)"
@@ -266,6 +274,7 @@ def escalate_rule_break(br: RuleBreak, strike: int) -> RuleBreak:
         freeze=freeze,
         hide_timer=hide,
         strike=n,
+        use_extensions=br.use_extensions,
     )
 
 
@@ -291,6 +300,14 @@ def format_auto_punish_reply(
         bits.append("frozen you so the clock stops")
     if "hide_time" in applied:
         bits.append("hidden the timer from you")
+    if "configure_share_links" in applied:
+        bits.append("hardened your share links (bigger add, smaller remove)")
+    if "assign_task" in applied:
+        bits.append("assigned you a Chaster task")
+    if "pillory" in applied:
+        bits.append("put you in the pillory")
+    if "request_verification" in applied:
+        bits.append("demanded a verification picture")
     if not bits:
         bits.append("I've punished you on the lock")
 

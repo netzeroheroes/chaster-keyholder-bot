@@ -19,7 +19,7 @@
     <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
 
     <p class="title" style="font-size:1rem">Time adjustments</p>
-    <p class="meta">Soft uses minimum. Default / hard uses maximum.</p>
+    <p class="meta">Soft uses minimum. Default / hard / escalated auto-punish use maximum as the cap.</p>
     <label class="field duration-field">
       <span>Minimum add</span>
       <div class="duration-row">
@@ -44,7 +44,7 @@
     </label>
 
     <label class="check"><input type="checkbox" id="autoPunishEnabled" /> Auto-punish rule breaks on lock</label>
-    <label class="field"><span>Auto-punish seconds</span><input id="autoPunishSeconds" type="number" min="60" step="60" /></label>
+    <label class="field"><span>Auto-punish base seconds (escalates up to Maximum add; also uses share links / tasks / pillory)</span><input id="autoPunishSeconds" type="number" min="60" step="60" /></label>
 
     <label class="check"><input type="checkbox" id="autopilotEnabled" /> Autopilot (unprompted teases)</label>
     <div class="row">

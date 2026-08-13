@@ -38,7 +38,9 @@ from app.speaker_guard import (
     strip_impersonation,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
+from app.extension_games import extension_punish_intents, games_prompt_block
 from app.punish import (
+    RuleBreak,
     bump_disobey_streak,
     cool_disobey_streak,
     detect_rule_break,
@@ -648,18 +650,31 @@ async def handle_chat_turn(
             if punish_on and chaster.configured:
                 br = detect_rule_break(message, role=role)
                 if br:
-                    strike = bump_disobey_streak(memory)
-                    br = escalate_rule_break(br, strike)
-                    # Prefer live Domme floor; escalated pattern severity wins if higher
-                    punish_secs = int(default_secs or br.seconds or 600)
-                    if br.seconds > punish_secs:
-                        punish_secs = br.seconds
-                    # Also scale Domme default by strike when pattern base was lower
-                    if strike >= 2 and int(default_secs or 0) >= punish_secs:
-                        punish_secs = min(
-                            86400,
-                            int(int(default_secs) * (1.5 ** (strike - 1))),
+                    try:
+                        ctrl = get_controls()
+                        min_add = int(ctrl.min_add_time_seconds or 60)
+                        max_add = int(ctrl.max_add_time_seconds or 86400)
+                    except RuntimeError:
+                        min_add = 60
+                        max_add = int(
+                            getattr(chaster.settings, "max_add_time_seconds", 0) or 86400
                         )
+                    strike = bump_disobey_streak(memory)
+                    # Floor at Domme auto_punish / min session; cap at max session add
+                    base = max(int(default_secs or br.seconds or 600), br.seconds, min_add)
+                    br = escalate_rule_break(
+                        RuleBreak(
+                            reason=br.reason,
+                            seconds=base,
+                            freeze=br.freeze,
+                            hide_timer=br.hide_timer,
+                            use_extensions=br.use_extensions,
+                        ),
+                        strike,
+                        min_seconds=min_add,
+                        max_seconds=max_add,
+                    )
+                    punish_secs = max(min_add, min(max_add, int(br.seconds)))
                     results = []
                     applied: list[str] = []
                     r1 = await run_chaster_intent(
@@ -688,6 +703,23 @@ async def handle_chat_turn(
                         results.append(rh)
                         if rh.ok and not rh.blocked:
                             applied.append("hide_time")
+                    # Extension punishments (share links, tasks, pillory, verification)
+                    if br.use_extensions:
+                        for lint in extension_punish_intents(
+                            strike, reason=br.reason
+                        )[:4]:
+                            try:
+                                rx = await run_chaster_intent(
+                                    chaster,
+                                    lint,
+                                    requested_by=f"{bot_name} (auto-punish)",
+                                )
+                            except Exception:  # noqa: BLE001
+                                log.exception("Extension punish %s failed", lint.kind)
+                                continue
+                            results.append(rx)
+                            if rx.ok and not rx.blocked:
+                                applied.append(lint.kind)
                     truth = format_auto_punish_reply(
                         bot_name=bot_name,
                         reason=br.reason,
@@ -772,9 +804,11 @@ async def handle_chat_turn(
             "UI already shows who spoke. If you address someone, say 'keyholder' or 'lockee'.\n"
             "- NEVER tell the lockee to beg to be unlocked. Unlock is not a beg-goal. "
             "He may beg to ease/stop punishments, unhide timer, or reduce added time.\n"
-            "- Disobedience escalates: each continued brat/insult strike adds more time "
-            "(and freeze on later strikes). Do not empty-threat lecture — the lock hits harder.\n"
+            "- Disobedience escalates within YOUR session min/max add-time settings. "
+            "Later strikes also use extensions (harden share links, assign tasks, pillory, "
+            "verification) when those plugins are on the lock.\n"
             "- Short dismissals get a real consequence; keep stacking if he continues.\n"
+            f"{games_prompt_block()}\n"
             "- Femdom/matriarchal: female Dominants hold power; the locked Sub serves.\n"
             "- If Sub insults Dommes (slut/whore/hores/etc.), PUNISH with ADD time. "
             "Never remove time, never tease-reward, never play along with the slur.\n"

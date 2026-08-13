@@ -61,7 +61,7 @@
       </p>
       <form id="settingsForm" class="cfg">
         <p class="title">Time adjustments</p>
-        <p class="meta">Soft / “a little” uses the minimum. Default and hard adds use the maximum.</p>
+        <p class="meta">Soft / "a little" uses the minimum. Default, hard, and escalated auto-punish are capped by the maximum.</p>
         <label class="field duration-field">
           <span>Minimum add</span>
           <div class="duration-row">
@@ -87,7 +87,7 @@
 
         <p class="title">Auto-punish</p>
         <label class="check"><input type="checkbox" id="setAutoPunishEnabled" /> Auto-punish rule breaks</label>
-        <label class="field"><span>Auto-punish seconds</span><input id="setAutoPunishSeconds" type="number" min="60" step="60" /></label>
+        <label class="field"><span>Base seconds (escalates to Maximum add; may harden share links / assign tasks / pillory)</span><input id="setAutoPunishSeconds" type="number" min="60" step="60" /></label>
 
         <p class="title">Autopilot</p>
         <label class="check"><input type="checkbox" id="setAutopilotEnabled" /> Autopilot teases</label>
