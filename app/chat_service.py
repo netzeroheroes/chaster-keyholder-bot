@@ -22,6 +22,11 @@ from app.chaster_actions import (
     run_tour_step,
 )
 from app.lock_guard import scrub_lock_hallucinations
+from app.speaker_guard import (
+    addressing_block,
+    mistreats_domme_as_sub,
+    repair_domme_misaddress,
+)
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.punish import (
     detect_rule_break,
@@ -227,6 +232,15 @@ async def handle_chat_turn(
         chaster_role=chaster_role,
         chaster_username=handle or None,
         room=room,
+    )
+    user_line += addressing_block(
+        role=role,
+        speaker=speaker,
+        domme_title=memory.domme_title or "Mistress",
+        sub_name=memory.sub_name
+        or (handle if role == "sub" else "")
+        or "the Sub",
+        bot_name=bot_label(memory),
     )
     hands_off = role == "domme" and _domme_hands_off(message)
     if role == "domme" and _domme_wants_decision(message) and not hands_off:
@@ -619,11 +633,15 @@ async def handle_chat_turn(
         user_line += chaster_note
 
     recent = _recent_assistant_texts(history)
+    title = memory.domme_title or "Mistress"
+    sub_nm = (memory.sub_name or "").strip() or "the Sub"
     if room == "private":
         anti_loop = (
             "\n\nHARD RULES THIS TURN (PRIVATE CHANNEL):\n"
-            f"- You are ONLY talking to {speaker} (human Domme). The Sub cannot see this.\n"
+            f"- You are ONLY talking to {speaker} (human Domme / keyholder). "
+            f"Address her as {title}. The Sub ({sub_nm}) cannot see this.\n"
             f"- Your name is '{bot_name}'. You are the AI Domme/keyholder — not her stand-in body.\n"
+            f"- NEVER treat {title} as locked. NEVER give her hygiene unlocks or cage orders.\n"
             "- Plan, scheme, encourage her meanness. Do not perform for the Sub here.\n"
             "- To speak to the Sub, emit [[[GROUP]]]…[[[/GROUP]]] (that posts to Group).\n"
             "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
@@ -635,9 +653,24 @@ async def handle_chat_turn(
             "- MEMORY: use stored facts/timeline/lock_log when relevant; do not invent memories.\n"
         )
     else:
+        if role == "domme":
+            who_rules = (
+                f"- SPEAKER THIS TURN: {speaker} = HUMAN DOMME / KEYHOLDER. "
+                f"Answer HER as {title}.\n"
+                f"- The lockee is {sub_nm} (he/him). Do NOT speak to {title} as if she wears the cage.\n"
+                f"- Forbidden toward Domme: 'your chastity', 'hygiene unlock for you', "
+                f"'use that time wisely' aimed at her, 'be grateful' as lockee talk.\n"
+                f"- When she orders hygiene/time/settings, confirm the API result TO her, "
+                f"then you may tease {sub_nm} in third person or briefly.\n"
+            )
+        else:
+            who_rules = (
+                f"- SPEAKER THIS TURN: {speaker} = HUMAN SUB / WEARER. Speak to him.\n"
+                f"- {title} is the human Domme (separate). You are '{bot_name}'.\n"
+            )
         anti_loop = (
             "\n\nHARD RULES THIS TURN (GROUP CHANNEL):\n"
-            f"- The human speaking this turn is: {speaker}. Address them correctly.\n"
+            f"{who_rules}"
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "never claim to be the human Domme or Sub.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
@@ -788,6 +821,19 @@ async def handle_chat_turn(
         if scrubbed:
             log.warning("Scrubbed lock hallucination in %s reply", room)
             reply = scrubbed
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
+        # Strict: Domme must never be addressed as the locked Sub
+        if role == "domme" and mistreats_domme_as_sub(reply):
+            log.warning("Repaired Domme-as-Sub misaddress in %s", room)
+            reply = repair_domme_misaddress(
+                domme_title=memory.domme_title or "Mistress",
+                sub_name=memory.sub_name or "him",
+                original_topic=message[:120],
+            )
             messages = list(history) + [
                 {"role": "user", "content": user_line},
                 {"role": "assistant", "content": reply},

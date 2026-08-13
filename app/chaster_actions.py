@@ -432,7 +432,8 @@ def parse_chaster_intent(
         # If recent chat was about hygiene opening, set openingTime — not lock add
         if re.search(
             r"\b(hygiene|temporary opening|opening time|unlock time|"
-            r"clean(?:ing)? (?:time|window)|how long .{0,20}hygiene)\b",
+            r"clean(?:ing)? (?:time|window)|how long .{0,20}hygiene|"
+            r"hygiene unlock)\b",
             ctx_low,
         ):
             return ChasterIntent(kind="configure_hygiene", reason=f"opening:{secs}")

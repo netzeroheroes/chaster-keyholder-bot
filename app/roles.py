@@ -83,10 +83,22 @@ def format_user_line(
         )
     else:
         channel = ""
+    if role == "domme":
+        address = (
+            "[ADDRESS: Reply TO the Domme/keyholder as your partner. "
+            "Never treat her as the locked Sub. Never say she has a cage/hygiene unlock. "
+            "The wearer is a different person — use he/him for the Sub.]"
+        )
+    else:
+        address = (
+            "[ADDRESS: Reply TO the Sub/wearer. The human Domme is a separate person "
+            "(Mistress). Do not speak as if this wearer is the Domme.]"
+        )
     return (
         f"[{label}]: {message}\n"
         f"[IDENTITY: This message is from the {who}.{chaster_bit} "
         f"You are the AI Domme/keyholder — a separate person. "
-        f"Never confuse yourself with {SPEAKER[role]} or speak as if you are them.]"
+        f"Never confuse yourself with {SPEAKER[role]} or speak as if you are them.]\n"
+        f"{address}"
         + (f"\n{channel}" if channel else "")
     )
