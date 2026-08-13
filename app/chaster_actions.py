@@ -28,6 +28,10 @@ ActionKind = Literal[
     "list_history",
     "list_extensions",
     "activate_extension",
+    "configure_share_links",
+    "hygiene_open",
+    "request_verification",
+    "assign_task",
     "unsupported_reminders",
     "unsupported_notifications",
 ]
@@ -44,6 +48,10 @@ MUTATING = frozenset(
         "set_note",
         "history_message",
         "activate_extension",
+        "configure_share_links",
+        "hygiene_open",
+        "request_verification",
+        "assign_task",
     }
 )
 
@@ -74,10 +82,19 @@ ACTIVATABLE_SLUGS = {
     "dice": "dice",
     "pillory": "pillory",
     "hygiene": "temporary-opening",
+    "hygiene opening": "temporary-opening",
     "temporary opening": "temporary-opening",
-    "share link": "temporary-opening",
+    "temporary-opening": "temporary-opening",
+    "share link": "link",
+    "share links": "link",
+    "sharelinks": "link",
+    "link": "link",
+    "links": "link",
     "verification": "verification-picture",
     "verification picture": "verification-picture",
+    "verification-picture": "verification-picture",
+    "random events": "random-events",
+    "random-events": "random-events",
 }
 
 
@@ -163,7 +180,8 @@ def parse_chaster_intent(
         r"\b(?:activate|enable|add|install|turn on)\b\s+"
         r"(?:the\s+|his\s+|a\s+)?"
         r"(jigsaws?|puzzles?|jigsaw(?:\s+puzzle)?|wheel(?:\s+of\s+fortune)?|"
-        r"tasks?|dice|pillory|hygiene|temporary opening|verification(?:\s+picture)?)\b",
+        r"tasks?|dice|pillory|hygiene(?:\s+opening)?|temporary opening|"
+        r"share\s*links?|links?|verification(?:\s+picture)?|random events)\b",
         low,
     )
     if act:
@@ -173,6 +191,56 @@ def parse_chaster_intent(
         )
         if slug:
             return ChasterIntent(kind="activate_extension", reason=slug)
+
+    # Hygiene opening (temporary unlock)
+    if re.search(
+        r"\b(hygiene|temporary opening|temp(?:orary)? unlock|open (him |the lock )?for (cleaning|hygiene))\b",
+        low,
+    ) and re.search(r"\b(open|start|allow|grant|give)\b", low):
+        return ChasterIntent(kind="hygiene_open")
+
+    # Verification picture request
+    if re.search(
+        r"\b(request|demand|ask for|send)\b.*\b(verification|verify)\b.*\b(pic|picture|photo)\b"
+        r"|\bverification (picture|photo) (request|now)\b"
+        r"|\bmake him (verify|send (a )?verification)\b",
+        low,
+    ):
+        return ChasterIntent(kind="request_verification")
+
+    # Assign task via Tasks extension
+    task_m = re.search(
+        r"\b(?:assign|give|send)\b(?:\s+him)?\s+(?:a\s+)?task\b(?:\s*[:\-]\s*|\s+)(.+)$",
+        message.strip(),
+        re.I,
+    ) or re.search(
+        r"\btask him (?:to |with )?(.+)$",
+        message.strip(),
+        re.I,
+    )
+    if task_m:
+        return ChasterIntent(kind="assign_task", reason=task_m.group(1).strip()[:500])
+
+    # Configure share links (+N / -N per visit)
+    if re.search(r"\b(share\s*links?|link extension)\b", low) and re.search(
+        r"\b(set|config(?:ure)?|change|update|make)\b",
+        low,
+    ):
+        add_m = re.search(
+            rf"\b(?:add|plus|\+)\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\b", low
+        )
+        rem_m = re.search(
+            rf"\b(?:remove|minus|-)\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\b", low
+        )
+        extras: list[str] = []
+        if add_m:
+            extras.append(f"add:{_to_seconds(add_m.group(1), add_m.group(2))}")
+        if rem_m:
+            extras.append(f"remove:{_to_seconds(rem_m.group(1), rem_m.group(2))}")
+        return ChasterIntent(
+            kind="configure_share_links",
+            reason="|".join(extras),
+        )
 
     if re.search(
         r"\b((lock\s+)?history|recent (lock )?actions?|what happened on (his |the )?lock|"
@@ -731,8 +799,8 @@ async def run_chaster_intent(
                     before=before,
                     lock=before,
                     facts=(
-                        "No extension slug given. Try: activate jigsaw / add wheel of fortune / "
-                        "enable tasks."
+                        "No extension slug given. Try: activate jigsaw / add share links / "
+                        "enable hygiene / enable tasks / enable verification picture."
                     ),
                 )
             try:
@@ -755,14 +823,203 @@ async def run_chaster_intent(
                 f"- Action: activated / ensured `{slug}` on the lock\n"
                 f"- Extensions now: {names}\n"
                 f"{_status_lines('AFTER', after_lock)}\n"
-                "Note: gameplay for jigsaw/wheel/tasks is still done by the wearer in Chaster. "
-                "Duo Domme still controls time/freeze/timer. "
-                "I do NOT remotely move jigsaw pieces."
+                + _activation_followup(slug)
             )
             return ChasterActionResult(
                 ok=True,
                 facts=facts,
                 lock=after_lock,
+                before=before,
+            )
+
+        if intent.kind == "hygiene_open":
+            lock_id = str(before.get("lock_id") or "")
+            try:
+                status = await chaster.get_temporary_opening_status(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        "Hygiene opening is not on this lock (or unavailable). "
+                        'Mistress can say: "activate hygiene". '
+                        f"({exc})"
+                    ),
+                )
+            if status.get("openedAt"):
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts="Hygiene opening is already in progress — nothing new started.",
+                )
+            try:
+                await chaster.open_temporary_opening(lock_id, actor="keyholder")
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not open hygiene: {exc}",
+                )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Started Hygiene opening (temporary unlock).",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "request_verification":
+            lock_id = str(before.get("lock_id") or "")
+            try:
+                await chaster.request_verification_picture(
+                    lock_id, actor="keyholder"
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "not found" in msg.lower():
+                    return ChasterActionResult(
+                        ok=True,
+                        blocked=True,
+                        before=before,
+                        lock=before,
+                        facts=(
+                            "Verification picture extension is not on the lock. "
+                            'Say: "activate verification picture".'
+                        ),
+                    )
+                if "already pending" in msg.lower():
+                    return ChasterActionResult(
+                        ok=True,
+                        blocked=True,
+                        before=before,
+                        lock=before,
+                        facts="A verification picture request is already pending.",
+                    )
+                return ChasterActionResult(
+                    ok=False,
+                    error=msg,
+                    before=before,
+                    lock=before,
+                    facts=f"Could not request verification: {msg}",
+                )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Requested a verification picture from the wearer.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "assign_task":
+            lock_id = str(before.get("lock_id") or "")
+            task_text = (intent.reason or "").strip() or "Obey Mistress"
+            try:
+                await chaster.assign_task(
+                    lock_id, task=task_text, points=1, actor="keyholder"
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "not found" in msg.lower():
+                    return ChasterActionResult(
+                        ok=True,
+                        blocked=True,
+                        before=before,
+                        lock=before,
+                        facts=(
+                            "Tasks extension is not on the lock. "
+                            'Say: "activate tasks" first, then assign a task.'
+                        ),
+                    )
+                return ChasterActionResult(
+                    ok=False,
+                    error=msg,
+                    before=before,
+                    lock=before,
+                    facts=f"Could not assign task: {msg}",
+                )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line=f"Assigned Tasks extension task: {task_text}",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "configure_share_links":
+            lock_id = str(before.get("lock_id") or "")
+            updates: dict[str, Any] = {}
+            for part in (intent.reason or "").split("|"):
+                if part.startswith("add:"):
+                    updates["timeToAdd"] = int(part.split(":", 1)[1])
+                elif part.startswith("remove:"):
+                    updates["timeToRemove"] = int(part.split(":", 1)[1])
+            if not updates:
+                updates = {"timeToAdd": 3600, "timeToRemove": 3600}
+            try:
+                after_exts = await chaster.update_extension_config(
+                    lock_id, "link", updates
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "not on the lock" in msg.lower() or "activate" in msg.lower():
+                    return ChasterActionResult(
+                        ok=True,
+                        blocked=True,
+                        before=before,
+                        lock=before,
+                        facts=(
+                            "Share links (`link`) is not on the lock. "
+                            'Say: "activate share links" first.'
+                        ),
+                    )
+                return ChasterActionResult(
+                    ok=False,
+                    error=msg,
+                    before=before,
+                    lock=before,
+                    facts=f"Could not configure share links: {msg}",
+                )
+            link = next(
+                (e for e in after_exts if e.get("slug") == "link"),
+                {},
+            )
+            cfg = link.get("config") if isinstance(link, dict) else {}
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=(
+                    f"CHASTER ACTION DONE (share links config):\n"
+                    f"- Requested by: {requested_by}\n"
+                    f"- timeToAdd: {cfg.get('timeToAdd')}s · "
+                    f"timeToRemove: {cfg.get('timeToRemove')}s · "
+                    f"enableRandom: {cfg.get('enableRandom')} · "
+                    f"visits: {cfg.get('nbVisits')}\n"
+                    "Share links themselves are used in the Chaster UI / his profile — "
+                    "there is no API to mint a new public URL from this bot.\n"
+                    f"{_status_lines('AFTER', after)}"
+                ),
+                lock=after,
                 before=before,
             )
 
@@ -1073,8 +1330,35 @@ def _domme_lock_snapshot(summary: dict[str, Any]) -> str:
     )
 
 
+def _activation_followup(slug: str) -> str:
+    s = (slug or "").lower()
+    tips = {
+        "link": (
+            "Share links are now on the lock. Configure amounts with "
+            '"set share links add 2 hours remove 30 minutes". '
+            "The wearer shares the Chaster link UI — this bot cannot mint a new URL."
+        ),
+        "temporary-opening": (
+            'Hygiene opening is ready. Domme can say: "open hygiene" / '
+            '"grant hygiene opening".'
+        ),
+        "verification-picture": (
+            'Verification picture is ready. Domme can say: '
+            '"request verification picture".'
+        ),
+        "tasks": (
+            'Tasks is ready. Domme can say: "assign task: edge for 5 minutes".'
+        ),
+        "jigsaw-puzzle": (
+            "Jigsaw is on the lock. He plays puzzles in Chaster; "
+            "we do not remotely move pieces."
+        ),
+    }
+    return tips.get(s, "Duo Domme still controls time/freeze/timer.")
+
+
 def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
-    """Honest remote-control matrix for a plugin currently on the lock."""
+    """Honest remote-control matrix for a plugin currently on the lock (from API)."""
     s = (slug or "").lower()
     lines: list[str] = []
     if s == "duo-domme":
@@ -1084,14 +1368,67 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
             + "; plus lock history / push messages."
         )
         lines.append(
-            'Say in chat: "add 2 hours", "hide the timer", "freeze him", '
-            '"message him: stay denied".'
+            'Say: "add 2 hours", "hide the timer", "freeze him", '
+            '"message him: stay denied", "pillory him for 5 minutes".'
         )
+        return lines
+    if s == "link":
+        lines.append(
+            "CONTROL (Share links): CONFIG via this bot — timeToAdd / timeToRemove / "
+            "random / visit limits. NO API to mint/copy the public share URL "
+            "(that stays in the Chaster UI)."
+        )
+        lines.append(
+            f"Live config: +{config.get('timeToAdd')}s / -{config.get('timeToRemove')}s "
+            f"per visit, enableRandom={config.get('enableRandom')}, "
+            f"visits={config.get('nbVisits')}, "
+            f"limitToLoggedUsers={config.get('limitToLoggedUsers')}."
+        )
+        lines.append(
+            'Say: "set share links add 2 hours remove 30 minutes". '
+            "Others use his share link in Chaster; history shows visits."
+        )
+        return lines
+    if s == "temporary-opening":
+        lines.append(
+            "CONTROL (Hygiene opening): YES via API — "
+            "open temporary unlock (partner session). "
+            "Also GET status / combination / resume endpoints exist."
+        )
+        lines.append(
+            f"Live config: openingTime={config.get('openingTime')}s, "
+            f"penaltyTime={config.get('penaltyTime')}s, "
+            f"keyholderOnly={config.get('allowOnlyKeyholderToOpen')}, "
+            f"verifyBefore={config.get('requireVerificationPictureBefore')}."
+        )
+        lines.append('Say: "open hygiene" / "grant hygiene opening".')
+        return lines
+    if s == "verification-picture":
+        lines.append(
+            "CONTROL: YES via API — request a verification picture "
+            "(partner session + keyholder endpoint)."
+        )
+        lines.append(
+            f"Live config: visibility={config.get('visibility')}, "
+            f"peerVerification={config.get('peerVerification')}."
+        )
+        lines.append('Say: "request verification picture".')
+        return lines
+    if s == "tasks":
+        lines.append(
+            "CONTROL: YES via API when Tasks is on the lock — "
+            "assign / start-timer / complete (partner session)."
+        )
+        lines.append(
+            f"Live config: voteEnabled={config.get('voteEnabled')}, "
+            f"enablePoints={config.get('enablePoints')}, "
+            f"pointsRequired={config.get('pointsRequired')}."
+        )
+        lines.append('Say: "assign task: edge twice and wait".')
         return lines
     if s in ("jigsaw-puzzle", "jigsaw", "jigsaw-puzzles"):
         pieces = config.get("pieces")
         punish = config.get("punishments") or []
-        rewards = config.get("rewards") or []
         puzzles = config.get("puzzles") or []
         open_n = sum(
             1
@@ -1099,43 +1436,48 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
             if isinstance(p, dict) and not p.get("completed")
         )
         lines.append(
-            "CONTROL: NOT remotely playable by this bot. "
-            "The wearer solves puzzles in the Chaster app/UI."
+            "CONTROL: ACTIVATE/CONFIG only. NOT remotely playable — "
+            "extension action API returns Plugin not found for jigsaw."
         )
         lines.append(
             f"Live config: pieces={pieces}, open puzzles~{open_n}, "
-            f"punishments={punish or 'none'}, rewards={rewards or 'none'}, "
-            f"preventUnlockingWhenAvailable={config.get('preventUnlockingWhenAvailable')}, "
-            f"freezeWhenAvailable={config.get('freezeWhenAvailable')}."
+            f"punishments={punish or 'none'}."
         )
         lines.append(
-            "What we CAN do: Domme can activate/configure jigsaw in Chaster; "
-            'say "activate jigsaw" if it is missing. '
-            "When he completes/fails, history fires and I react in group. "
-            "Time penalties from failed puzzles apply through Chaster — "
-            "I do not move pieces or invent puzzle messages."
+            "He solves puzzles in Chaster; failures/completions hit history; "
+            "I react. I do not move pieces."
         )
         return lines
-    if s in ("wheel-of-fortune", "dice", "tasks", "pillory"):
+    if s in ("wheel-of-fortune", "dice"):
         lines.append(
-            "CONTROL: Wearer/keyholder plays this in Chaster. "
-            "This bot does not spin wheels / roll dice / assign official Tasks remotely "
-            "(except Duo Domme time/freeze/timer/pillory session actions)."
+            "CONTROL: ACTIVATE/CONFIG via extensions edit. "
+            "Gameplay actions are wearer-driven in Chaster "
+            "(hasActions=true, but no partner remote-spin API like Duo Domme)."
         )
         lines.append(
-            "I watch lock history for spins/tasks/pillory events and react in group. "
-            f'Domme can ensure it is on the lock: "activate {s}".'
+            "I watch history for spins/rolls and react. "
+            f'Domme: "activate {s}".'
         )
         return lines
-    if s in ("temporary-opening",):
+    if s == "pillory":
         lines.append(
-            "CONTROL: Hygiene / share-link opening — wearer uses Chaster share flow. "
-            "I react when share/open events hit history."
+            "CONTROL: Duo Domme can start pillory via session action `pillory`. "
+            "Public votes use /extensions/pillory/{lockId}/vote."
+        )
+        lines.append(
+            f"Live config: timeToAdd={config.get('timeToAdd')}, "
+            f"limitToLoggedUsers={config.get('limitToLoggedUsers')}."
+        )
+        return lines
+    if s == "random-events":
+        lines.append(
+            "CONTROL: ACTIVATE/CONFIG only (hasActions=false). "
+            "Events fire inside Chaster; I react from history."
         )
         return lines
     lines.append(
-        "CONTROL: Third-party/plugin — no Duo Domme remote buttons for this slug. "
-        "Wearer uses it in Chaster; I react to history events when they fire."
+        "CONTROL: Partner/third-party plugin — activate/config if trusted; "
+        "no guaranteed remote actions. History reactions only unless documented."
     )
     return lines
 
@@ -1165,13 +1507,19 @@ def format_extensions_facts(
     lines.extend(
         [
             "",
-            "STRICT TRUTH:",
-            f"- Remotely controllable through this bot (Duo Domme): {', '.join(DUO_DOMME_ACTIONS)}.",
-            "- Jigsaw / Wheel / Tasks / Dice: wearer plays in Chaster; we do NOT "
-            "remotely adjust puzzle pieces or invent gameplay.",
-            '- Domme can activate missing plugins: "activate jigsaw", '
-            '"add wheel of fortune", "enable tasks".',
-            "- Never claim you changed a jigsaw unless an extensions ACTION DONE block says so.",
+            "API CAPABILITY MATRIX (verified against Chaster OpenAPI + live probes):",
+            f"- Duo Domme session actions: {', '.join(DUO_DOMME_ACTIONS)} + custom history messages.",
+            "- Hygiene opening: open/status when `temporary-opening` is on the lock.",
+            "- Verification picture: request when `verification-picture` is on the lock.",
+            "- Tasks: assign/start-timer/complete when `tasks` is on the lock.",
+            "- Share links (`link`): configure timeToAdd/timeToRemove; "
+            "NO API to mint the public URL (UI only).",
+            "- Pillory: start via Duo Domme; community votes via pillory vote endpoint.",
+            "- Jigsaw / Wheel / Dice: activate/config; gameplay is in Chaster UI "
+            "(jigsaw remote actions unavailable).",
+            '- Activate missing ones: "activate share links", "activate hygiene", '
+            '"activate tasks", "activate verification picture", "activate jigsaw".',
+            "- Never invent controls that are not listed above.",
         ]
     )
     return "\n".join(lines)
@@ -1197,12 +1545,16 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '"message him: Be good tonight" or '
             '"send him a lock message: Tease | Edge twice and wait"',
             '• Recent history — say: "show lock history"',
-            '• Extensions on the lock — say: "what extensions are on his lock" / '
-            '"what can you do to my jigsaws"',
-            '• Activate a plugin — say: "activate jigsaw" / "add wheel of fortune"',
+            '• Extensions on the lock — say: "what extensions are on his lock"',
+            '• Activate plugins — "activate share links", "activate hygiene", '
+            '"activate tasks", "activate verification picture", "activate jigsaw"',
+            '• Share links config — "set share links add 2 hours remove 30 minutes"',
+            '• Hygiene opening — "open hygiene" (needs temporary-opening)',
+            '• Verification picture — "request verification picture"',
+            '• Tasks — "assign task: edge twice" (needs tasks)',
             "",
-            "Jigsaw/Wheel/Tasks: he plays those in Chaster. We configure/activate and "
-            "react to history — we do not remotely move puzzle pieces.",
+            "Jigsaw/Wheel/Dice: activate/config + history reactions — no remote puzzle play. "
+            "Share link URLs are minted in the Chaster UI only.",
             "",
             "Just give the order in those words and I'll carry it out for real.",
         ]

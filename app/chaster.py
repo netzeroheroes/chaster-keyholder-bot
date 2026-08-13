@@ -337,6 +337,94 @@ class ChasterClient:
             params["reason"] = reason[:500]
         await self.session_action("pillory", params, lock_id=lock_id)
 
+    async def get_temporary_opening_status(self, lock_id: str) -> dict[str, Any]:
+        lid = (lock_id or "").strip()
+        data = await self._request("GET", f"/extensions/temporary-opening/{lid}")
+        return data if isinstance(data, dict) else {}
+
+    async def open_temporary_opening(
+        self, lock_id: str, *, actor: str = "keyholder"
+    ) -> None:
+        """Hygiene opening — requires temporary-opening on the lock."""
+        sid = await self.resolve_session_id(lock_id)
+        role = actor if actor in ("wearer", "keyholder", "extension") else "keyholder"
+        await self._request(
+            "POST",
+            f"/api/extensions/sessions/{sid}/temporary-opening/open",
+            json_body={"actor": role},
+        )
+
+    async def request_verification_picture(
+        self, lock_id: str, *, actor: str = "keyholder"
+    ) -> None:
+        """Request verification picture — requires verification-picture on the lock."""
+        sid = await self.resolve_session_id(lock_id)
+        role = actor if actor in ("wearer", "keyholder", "extension") else "keyholder"
+        await self._request(
+            "POST",
+            f"/api/extensions/sessions/{sid}/verification-picture/request",
+            json_body={"actor": role},
+        )
+
+    async def assign_task(
+        self,
+        lock_id: str,
+        *,
+        task: str,
+        points: int = 1,
+        verification_required: bool = False,
+        duration: int = 0,
+        actor: str = "keyholder",
+    ) -> None:
+        """Assign a Tasks-extension task — requires tasks on the lock."""
+        sid = await self.resolve_session_id(lock_id)
+        role = actor if actor in ("wearer", "keyholder", "extension") else "keyholder"
+        item: dict[str, Any] = {
+            "task": (task or "").strip()[:500],
+            "points": max(0, int(points)),
+        }
+        if verification_required:
+            item["verificationRequired"] = True
+        if duration and int(duration) >= 60:
+            item["duration"] = int(duration)
+        await self._request(
+            "POST",
+            f"/api/extensions/sessions/{sid}/tasks/assign",
+            json_body={"task": item, "actor": role},
+        )
+
+    async def update_extension_config(
+        self,
+        lock_id: str,
+        slug: str,
+        config_updates: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Merge config updates into one extension; keep all others (incl. duo-domme)."""
+        lid = (lock_id or "").strip()
+        want = (slug or "").strip()
+        current = await self.list_lock_extensions(lid)
+        body: list[dict[str, Any]] = []
+        found = False
+        for e in current:
+            cfg = dict(e.get("config") or {})
+            if str(e.get("slug") or "") == want:
+                cfg.update(config_updates)
+                found = True
+            body.append(
+                {
+                    "slug": e.get("slug"),
+                    "config": cfg,
+                    "mode": e.get("mode") or "unlimited",
+                    "regularity": e.get("regularity") or 3600,
+                }
+            )
+        if not found:
+            raise RuntimeError(
+                f"Extension `{want}` is not on the lock — activate it first."
+            )
+        await self.replace_lock_extensions(lid, body)
+        return await self.list_lock_extensions(lid)
+
     async def exchange_main_token(self, main_token: str) -> dict[str, Any]:
         """Validate iframe mainToken → role + session (partner extension)."""
         token = (main_token or "").strip()
