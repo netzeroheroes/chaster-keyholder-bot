@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Keyholder chat</title>
+  <link rel="stylesheet" href="/static/ext/ext.css" />
+</head>
+<body>
+  <div id="gate" class="gate">
+    <p class="title">Chaster only</p>
+    <p id="gateMsg">Open this from your lock / keyholder extension tab in Chaster.</p>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="top">
+      <div>
+        <p class="eyebrow" id="roleLabel">—</p>
+        <h1 id="heading">Chat</h1>
+      </div>
+      <p class="meta" id="sessionMeta"></p>
+    </header>
+    <div id="messages" class="messages"></div>
+    <form id="chatForm" class="composer">
+      <textarea id="input" rows="2" placeholder="Message…"></textarea>
+      <button type="submit" class="btn" id="sendBtn">Send</button>
+    </form>
+    <p id="status" class="status"></p>
+  </div>
+
+  <script src="/static/ext/ext.js"></script>
+</body>
+</html>

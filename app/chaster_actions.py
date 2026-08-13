@@ -1,0 +1,1258 @@
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Literal
+
+from app.chaster import ChasterClient
+
+log = logging.getLogger(__name__)
+
+ActionKind = Literal[
+    "status",
+    "add_time",
+    "freeze",
+    "unfreeze",
+    "toggle_freeze",
+    "pillory",
+    "hide_time",
+    "show_time",
+    "set_note",
+    "history_message",
+    "apply_planned",
+    "tour_step",
+    "list_capabilities",
+    "list_kinks",
+    "unsupported_reminders",
+    "unsupported_notifications",
+]
+
+MUTATING = frozenset(
+    {
+        "add_time",
+        "freeze",
+        "unfreeze",
+        "toggle_freeze",
+        "pillory",
+        "hide_time",
+        "show_time",
+        "set_note",
+        "history_message",
+    }
+)
+
+
+@dataclass
+class ChasterIntent:
+    kind: ActionKind
+    seconds: int = 0
+    reason: str = ""
+    title: str = ""
+
+
+@dataclass
+class ChasterActionResult:
+    ok: bool
+    facts: str
+    error: str = ""
+    lock: dict[str, Any] | None = None
+    before: dict[str, Any] | None = None
+    blocked: bool = False
+
+
+_TIME_UNIT = r"(?:seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)"
+
+
+def extract_duration_seconds(text: str) -> int | None:
+    """Find the most relevant duration mention in recent chat text."""
+    if not text:
+        return None
+    low = text.lower()
+    # Prefer "add/extend/by X hours" style mentions (last match wins)
+    patterned = list(
+        re.finditer(
+            rf"(?:add|added|adding|extend|extended|extending|by|plus|\+)\s+"
+            rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        )
+    )
+    if patterned:
+        m = patterned[-1]
+        return _to_seconds(m.group(1), m.group(2))
+    # Fallback: last bare duration in the text
+    bare = list(re.finditer(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low))
+    if bare:
+        m = bare[-1]
+        return _to_seconds(m.group(1), m.group(2))
+    return None
+
+
+def parse_chaster_intent(
+    message: str,
+    *,
+    context: str = "",
+) -> ChasterIntent | None:
+    text = (message or "").strip()
+    if not text:
+        return None
+    low = text.lower()
+
+    # Capability catalog (real lock controls — Domme menu)
+    if re.search(
+        r"\b(what can (we|you|i) do|"
+        r"what (features|actions|controls)|"
+        r"(list|show) (the )?(chaster )?(features|actions|controls)|"
+        r"chaster (features|capabilities|actions)|"
+        r"what (do we|can we) control|"
+        r"options (for|on) (his |the )?lock)\b",
+        low,
+    ) and re.search(r"\b(lock|cage|chaster|timer|time)\b", low):
+        return ChasterIntent(kind="list_capabilities")
+
+    # Catalog only — "pick N toys / create a scene" is handled by scene_builder
+    if (
+        re.search(
+            r"\b(kinks?|toys?|fetish|fetishes|his profile|kink profile)\b",
+            low,
+        )
+        and re.search(
+            r"\b(what|list|show|his|boy|sub|profile|available)\b",
+            low,
+        )
+        and not re.search(
+            r"\b(pick|create|build|scene|use\s+\d+)\b",
+            low,
+        )
+    ):
+        return ChasterIntent(kind="list_kinks")
+
+    # Tour / stepwise — handled in chat_service via chaster_tour
+    if re.search(
+        r"\b((?:try|do|test|run)\s+(?:these\s+)?features?\b|"
+        r"(?:one|1)\s*by\s*(?:one|1)|in\s+turn|each\s+one|"
+        r"one\s+at\s+a\s+time|step\s+by\s+step)\b",
+        low,
+    ) or re.fullmatch(
+        r"\s*(next|continue|go\s+on|and\s+the\s+next|do\s+the\s+next(?:\s+one)?)\s*[.!]?\s*",
+        low,
+    ):
+        return ChasterIntent(kind="tour_step", reason=context or text)
+
+    if re.search(
+        r"\b((?:do|apply|run)\s+(?:them|those|these|each|it)|"
+        r"start\s+with\s+(?:the\s+)?visibility|"
+        r"apply\s+(?:the\s+)?(?:plan|changes|settings))\b",
+        low,
+    ):
+        return ChasterIntent(kind="apply_planned", reason=context or text)
+
+    if re.search(r"\b(reminder|reminders)\b", low) and re.search(
+        r"\b(set|enable|change|notification|notif)\b", low
+    ):
+        return ChasterIntent(kind="unsupported_reminders")
+
+    # History message → lock history (push-notifies lockee via custom log)
+    history = _parse_history_message(text)
+    if history:
+        return history
+
+    # Legacy "custom notification" wording → try as history message if body present
+    if re.search(r"\b(custom\s+)?notification(s)?\b", low) and re.search(
+        r"\b(set|enable|change|custom|message|send|push)\b", low
+    ):
+        body = re.sub(
+            r".*?\b(?:notification|message|push)\b[:\s]*",
+            "",
+            text,
+            count=1,
+            flags=re.I,
+        ).strip(" '\"")
+        if body and len(body) > 2:
+            return ChasterIntent(
+                kind="history_message",
+                title="Message from your keyholders",
+                reason=body[:2000],
+            )
+        return ChasterIntent(kind="unsupported_notifications")
+
+    if re.search(r"\b(toggle\s+freeze|freeze\s+toggle)\b", low):
+        return ChasterIntent(kind="toggle_freeze")
+    if re.search(r"\bunfreeze\b", low):
+        return ChasterIntent(kind="unfreeze")
+    if re.search(r"\bfreeze\b", low):
+        return ChasterIntent(kind="freeze")
+
+    if re.search(
+        r"\b(hide|conceal|hidden|invisible|visibility)\b",
+        low,
+    ) and re.search(r"\b(time|timer|lock|cage)\b", low):
+        if re.search(r"\b(show|reveal|unhide|visible)\b", low) and not re.search(
+            r"\b(hide|hidden|invisible)\b", low
+        ):
+            return ChasterIntent(kind="show_time")
+        return ChasterIntent(kind="hide_time")
+    if re.search(r"\b(show|reveal|unhide)\b.*\b(time|timer)\b", low) or re.search(
+        r"\b(time|timer)\b.*\b(show|visible)\b", low
+    ):
+        return ChasterIntent(kind="show_time")
+
+    note_m = re.search(
+        r"\b(?:add|set|write)\s+(?:a\s+)?(?:keyholder\s+)?note\b(?:\s*[:=]\s*|\s+)(.+)$",
+        text,
+        re.I,
+    )
+    if note_m:
+        return ChasterIntent(kind="set_note", reason=note_m.group(1).strip(" '\"")[:10000])
+
+    if re.search(r"\bpillory\b", low):
+        dur = re.search(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low)
+        secs = 300
+        if dur:
+            secs = max(300, _to_seconds(dur.group(1), dur.group(2)))
+        reason = "AI Domme punishment"
+        reason_m = re.search(r"\b(?:because|reason:?)\s+(.+)$", low)
+        if reason_m:
+            reason = reason_m.group(1).strip()
+        else:
+            cleaned = re.sub(r"\bpillory\b", " ", low)
+            cleaned = re.sub(rf"\d+(?:\.\d+)?\s*{_TIME_UNIT}", " ", cleaned)
+            cleaned = re.sub(r"\b(him|boy|for|to|the|a|an)\b", " ", cleaned)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!")
+            if cleaned:
+                reason = cleaned
+        return ChasterIntent(kind="pillory", seconds=secs, reason=reason)
+
+    add = re.search(
+        rf"\b(?:add|plus|\+|apply|put)\s+(?:that\s+|the\s+|this\s+|his\s+)?"
+        rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\b",
+        low,
+    ) or re.search(
+        rf"\b(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\s*(?:to|onto|on)\s+(?:his|the)?\s*lock\b",
+        low,
+    )
+    if add:
+        return ChasterIntent(kind="add_time", seconds=_to_seconds(add.group(1), add.group(2)))
+
+    # "add that time" / "add the time for him" — resolve duration from recent chat
+    if re.search(
+        r"\b(?:add|apply|put)\s+(?:that|the|this)\s+time\b"
+        r"|\badd\s+it\b"
+        r"|\bdo\s+(?:the\s+)?(?:time|add(?:ition)?)\b",
+        low,
+    ):
+        secs = extract_duration_seconds(message) or extract_duration_seconds(context)
+        if secs and secs > 0:
+            return ChasterIntent(kind="add_time", seconds=secs)
+        return None
+
+    remove = re.search(
+        rf"\b(?:remove|subtract|minus|-)\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\b",
+        low,
+    )
+    if remove and re.search(r"\b(lock|cage|chaster|time)\b", low):
+        return ChasterIntent(
+            kind="add_time",
+            seconds=-_to_seconds(remove.group(1), remove.group(2)),
+        )
+
+    if re.search(
+        r"\b(how much|how long|remaining|left on|time (?:on|left)|lock time|"
+        r"what(?:'s| is) (?:his |the )?lock|check (?:his |the )?lock)\b",
+        low,
+    ) and re.search(r"\b(lock|cage|chaster|time|timer)\b", low):
+        return ChasterIntent(kind="status")
+
+    return None
+
+
+def _parse_history_message(text: str) -> ChasterIntent | None:
+    """Domme/AI: post a message onto his lock history (custom log / push)."""
+    patterns = [
+        r"\b(?:send|post|leave|write)\s+(?:him\s+)?(?:a\s+)?(?:lock\s+)?(?:history\s+)?message\b",
+        r"\b(?:message|notify|ping)\s+(?:him|the\s+(?:lock|boy|sub|wearer))\b",
+        r"\b(?:push\s+(?:notify|notification)|history\s+message|lock\s+message)\b",
+        r"\b(?:tell|message)\s+(?:his|the)\s+lock\b",
+        r"\bpost\s+to\s+(?:his|the)\s+history\b",
+    ]
+    if not any(re.search(p, text, re.I) for p in patterns):
+        return None
+
+    default_title = "Message from your keyholders"
+    payload = ""
+
+    # Prefer explicit separator after the command phrase
+    for pat in (
+        r"\b(?:send|post|leave|write)\s+(?:him\s+)?(?:a\s+)?"
+        r"(?:lock\s+)?(?:history\s+)?message\s*[:\-]\s*(.+)$",
+        r"\b(?:message|notify|ping)\s+(?:him|the\s+(?:lock|boy|sub|wearer))"
+        r"(?:\s+that|\s+to)?\s*[:\-]?\s*(.+)$",
+        r"\b(?:push\s+(?:notify|notification)|history\s+message|lock\s+message)"
+        r"\s*[:\-]\s*(.+)$",
+        r"\b(?:tell|message)\s+(?:his|the)\s+lock\s*[:\-]\s*(.+)$",
+        r"\bpost\s+to\s+(?:his|the)\s+history\s*[:\-]\s*(.+)$",
+    ):
+        m = re.search(pat, text, re.I | re.S)
+        if m:
+            payload = m.group(1).strip().strip(" '\"")
+            break
+
+    if not payload:
+        return ChasterIntent(kind="history_message", title="", reason="")
+
+    title = default_title
+    body = payload
+    # Only | splits title/body (colon is common in "message him: text")
+    if "|" in payload:
+        left, right = payload.split("|", 1)
+        if left.strip() and right.strip():
+            title, body = left.strip()[:200], right.strip()
+
+    return ChasterIntent(kind="history_message", title=title, reason=body[:2000])
+
+
+def _to_seconds(amount: str, unit: str) -> int:
+    n = float(amount)
+    u = unit.lower()
+    if u.startswith("d"):
+        return int(n * 86400)
+    if u.startswith("h"):
+        return int(n * 3600)
+    if u.startswith("m"):
+        return int(n * 60)
+    return int(n)
+
+
+def format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "unknown"
+    neg = seconds < 0
+    s = abs(int(seconds))
+    days, rem = divmod(s, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    if secs and not days and not hours:
+        parts.append(f"{secs}s")
+    out = " ".join(parts)
+    return f"-{out}" if neg else out
+
+
+def remaining_seconds(lock: dict[str, Any]) -> int | None:
+    end = lock.get("endDate")
+    if not end:
+        return None
+    end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+    return int((end_dt - datetime.now(timezone.utc)).total_seconds())
+
+
+def summarize_lock(lock: dict[str, Any]) -> dict[str, Any]:
+    user = lock.get("user") or {}
+    rem = remaining_seconds(lock)
+    status = str(lock.get("status") or "unknown")
+    display = bool(lock.get("displayRemainingTime", True))
+    if rem is None and not display:
+        remaining_label = "hidden"
+    else:
+        remaining_label = format_duration(rem)
+    return {
+        "lock_id": lock.get("_id") or lock.get("id"),
+        "status": status,
+        "is_frozen": bool(lock.get("isFrozen")),
+        "is_test_lock": bool(lock.get("isTestLock")),
+        "display_remaining_time": display,
+        "username": user.get("username"),
+        "end_date": lock.get("endDate"),
+        "remaining_seconds": rem,
+        "remaining": remaining_label,
+        "timer_ended": bool(rem is not None and rem <= 0),
+        "actionable": status == "locked",
+    }
+
+
+def _status_lines(label: str, summary: dict[str, Any]) -> str:
+    return (
+        f"{label}:\n"
+        f"- Wearer: {summary.get('username') or '?'}\n"
+        f"- Status: {summary.get('status')}\n"
+        f"- Remaining: {summary.get('remaining')} "
+        f"({summary.get('remaining_seconds')} seconds)\n"
+        f"- Frozen: {summary.get('is_frozen')}\n"
+        f"- Timer visible: {summary.get('display_remaining_time')}\n"
+        f"- Timer ended: {summary.get('timer_ended')}\n"
+        f"- End (UTC): {summary.get('end_date')}\n"
+        f"- Lock id: {summary.get('lock_id')}\n"
+        f"- Test lock: {summary.get('is_test_lock')}"
+    )
+
+
+def _facts_after(
+    *,
+    action_line: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    requested_by: str,
+) -> str:
+    return (
+        f"CHASTER ACTION DONE (Duo Domme extension API):\n"
+        f"- Requested by: {requested_by}\n"
+        f"- Action: {action_line}\n"
+        f"{_status_lines('BEFORE', before)}\n"
+        f"{_status_lines('AFTER', after)}\n"
+        "Use ONLY these numbers. Do not invent durations. "
+        "Acknowledge who requested the action."
+    )
+
+
+async def resolve_lock(chaster: ChasterClient) -> dict[str, Any]:
+    preferred = (chaster.settings.chaster_lock_id or "").strip()
+    if preferred:
+        lock = await chaster.get_lock(preferred)
+        if lock:
+            return lock
+
+    sessions = await chaster.search_extension_sessions()
+    for session in sessions:
+        lock = session.get("lock")
+        if isinstance(lock, dict) and lock.get("_id"):
+            # Refresh from lock endpoint so status is current
+            fresh = await chaster.get_lock(str(lock["_id"]))
+            return fresh or lock
+
+    own = await chaster.list_own_locks()
+    for lock in own:
+        if lock.get("status") == "locked":
+            return lock
+    if own:
+        return own[0]
+
+    wearers = await chaster.search_wearers(status="locked", limit=20)
+    locks = (wearers or {}).get("locks") or []
+    if locks:
+        return locks[0]
+    raise RuntimeError("No Chaster lock found for this token")
+
+
+async def refresh_lock(chaster: ChasterClient, lock: dict[str, Any]) -> dict[str, Any]:
+    lock_id = str(lock.get("_id") or lock.get("id") or "")
+    if not lock_id:
+        return lock
+    fresh = await chaster.get_lock(lock_id)
+    return fresh or lock
+
+
+def preflight_block_reason(intent: ChasterIntent, before: dict[str, Any]) -> str | None:
+    """Return a reason to refuse a mutating action, or None if OK to proceed."""
+    if intent.kind not in MUTATING:
+        return None
+    status = str(before.get("status") or "")
+    if status != "locked":
+        return (
+            f"Lock status is '{status or 'unknown'}' (not locked). "
+            "Refusing the action until there is an active locked session."
+        )
+    if intent.kind == "freeze" and before.get("is_frozen"):
+        return "Lock is already frozen — no change needed."
+    if intent.kind == "unfreeze" and not before.get("is_frozen"):
+        return "Lock is already unfrozen — no change needed."
+    if intent.kind == "hide_time" and not before.get("display_remaining_time"):
+        return "Timer is already hidden — no change needed."
+    if intent.kind == "show_time" and before.get("display_remaining_time"):
+        return "Timer is already visible — no change needed."
+    return None
+
+
+async def run_chaster_intent(
+    chaster: ChasterClient,
+    intent: ChasterIntent,
+    *,
+    requested_by: str = "Domme",
+) -> ChasterActionResult:
+    try:
+        lock = await resolve_lock(chaster)
+        lock = await refresh_lock(chaster, lock)
+        before = summarize_lock(lock)
+        lock_id = str(before["lock_id"])
+
+        log.info(
+            "Chaster preflight by=%s intent=%s status=%s remaining=%s frozen=%s",
+            requested_by,
+            intent.kind,
+            before["status"],
+            before["remaining"],
+            before["is_frozen"],
+        )
+
+        if intent.kind == "status":
+            facts = (
+                f"CHASTER LIVE STATUS (real API — do not invent):\n"
+                f"- Requested by: {requested_by}\n"
+                f"{_status_lines('CURRENT', before)}\n"
+                "Answer with this remaining time accurately. "
+                "Acknowledge who asked."
+            )
+            return ChasterActionResult(ok=True, facts=facts, lock=before, before=before)
+
+        if intent.kind == "list_capabilities":
+            return ChasterActionResult(
+                ok=True,
+                facts=capabilities_text(before, requested_by=requested_by),
+                lock=before,
+                before=before,
+            )
+
+        if intent.kind == "list_kinks":
+            username = str(before.get("username") or "").strip()
+            if not username:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts="Mistress — I couldn't find his profile name on the lock.",
+                )
+            try:
+                profile = await chaster.get_user_kink_profile(username)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"Mistress — I couldn't open {username}'s kink profile. "
+                        f"({exc})"
+                    ),
+                )
+            return ChasterActionResult(
+                ok=True,
+                facts=format_kink_profile(username, profile),
+                lock=before,
+                before=before,
+            )
+
+        block = preflight_block_reason(intent, before)
+        if block:
+            facts = (
+                f"CHASTER ACTION BLOCKED:\n"
+                f"- Requested by: {requested_by}\n"
+                f"- Requested action: {intent.kind}\n"
+                f"- Reason: {block}\n"
+                f"{_status_lines('CURRENT LOCK STATUS', before)}\n"
+                "Tell the requester what the current status is and that nothing was changed."
+            )
+            return ChasterActionResult(
+                ok=True,
+                facts=facts,
+                lock=before,
+                before=before,
+                blocked=True,
+            )
+
+        if intent.kind == "add_time":
+            await chaster.update_time(lock_id, intent.seconds)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            sign = "+" if intent.seconds >= 0 else ""
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line=(
+                        f"Changed timer by {sign}{format_duration(intent.seconds)} "
+                        f"({intent.seconds} seconds)."
+                    ),
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "freeze":
+            await chaster.set_freeze(lock_id, True)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Froze the lock.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "unfreeze":
+            await chaster.set_freeze(lock_id, False)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Unfroze the lock.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "toggle_freeze":
+            await chaster.session_action("toggle_freeze", lock_id=lock_id)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Toggled freeze.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "hide_time":
+            await chaster.set_display_remaining_time(lock_id, False)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Hid remaining time from wearer.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "show_time":
+            await chaster.set_display_remaining_time(lock_id, True)
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line="Showed remaining time to wearer.",
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "pillory":
+            await chaster.pillory(
+                lock_id,
+                duration_seconds=intent.seconds or 300,
+                reason=intent.reason or "AI Domme punishment",
+            )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line=(
+                        f"Pilloried for {format_duration(intent.seconds or 300)} "
+                        f"(reason: {intent.reason or 'AI Domme punishment'}). "
+                        "Note: pillory needs the Pillory extension on the lock to show publicly."
+                    ),
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "set_note":
+            content = (intent.reason or "").strip()
+            if not content:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"CHASTER ACTION BLOCKED:\n- Requested by: {requested_by}\n"
+                        "- Reason: note text missing.\n"
+                        "Ask Domme for the exact note text."
+                    ),
+                )
+            try:
+                await chaster.set_keyholder_note(lock_id, content)
+                after = summarize_lock(await refresh_lock(chaster, lock))
+                return ChasterActionResult(
+                    ok=True,
+                    facts=_facts_after(
+                        action_line=f"Set keyholder note: {content[:200]}",
+                        before=before,
+                        after=after,
+                        requested_by=requested_by,
+                    ),
+                    lock=after,
+                    before=before,
+                )
+            except Exception as note_exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"CHASTER ACTION BLOCKED:\n- Requested by: {requested_by}\n"
+                        f"- Tried to set keyholder note but failed: {note_exc}\n"
+                        "(Notes need Chaster Plus on the keyholder account.)\n"
+                        f"{_status_lines('CURRENT LOCK STATUS', before)}\n"
+                        "Do NOT claim the note was saved."
+                    ),
+                )
+
+        if intent.kind == "history_message":
+            body = (intent.reason or "").strip()
+            title = (intent.title or "").strip() or "Message from your keyholders"
+            if not body:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"CHASTER ACTION BLOCKED:\n- Requested by: {requested_by}\n"
+                        "- Reason: message text missing.\n"
+                        'Say: message him: Title | your text  '
+                        'or: send him a lock message: be good tonight'
+                    ),
+                )
+            await chaster.post_custom_log(
+                title=title,
+                description=body,
+                role="keyholder",
+                lock_id=lock_id,
+            )
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            return ChasterActionResult(
+                ok=True,
+                facts=_facts_after(
+                    action_line=(
+                        f"Posted lock history message (push): [{title}] {body[:240]}"
+                    ),
+                    before=before,
+                    after=after,
+                    requested_by=requested_by,
+                ),
+                lock=after,
+                before=before,
+            )
+
+        if intent.kind == "apply_planned":
+            return await _run_apply_planned(
+                chaster,
+                lock=lock,
+                before=before,
+                lock_id=lock_id,
+                context=intent.reason or "",
+                requested_by=requested_by,
+            )
+
+        if intent.kind in ("unsupported_reminders", "unsupported_notifications"):
+            label = (
+                "reminder notifications"
+                if intent.kind == "unsupported_reminders"
+                else "custom notification messages"
+            )
+            return ChasterActionResult(
+                ok=True,
+                blocked=True,
+                before=before,
+                lock=before,
+                facts=(
+                    f"CHASTER ACTION BLOCKED (API source of truth):\n"
+                    f"- Requested by: {requested_by}\n"
+                    f"- Feature: {label}\n"
+                    "- Result: NOT AVAILABLE. Chaster's public API cannot set "
+                    "wearer reminder schedule or custom push notification text.\n"
+                    f"{_status_lines('CURRENT LOCK STATUS', before)}\n"
+                    "Tell Domme this honestly. Do NOT claim it was changed."
+                ),
+            )
+
+        if intent.kind == "tour_step":
+            return ChasterActionResult(
+                ok=False,
+                facts="",
+                error="tour_step must be run via run_tour_step()",
+                before=before,
+            )
+
+        return ChasterActionResult(
+            ok=False,
+            facts="",
+            error=f"Unhandled intent: {intent.kind}",
+            before=before,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Chaster action failed")
+        return ChasterActionResult(ok=False, facts="", error=str(exc))
+
+
+def _extract_quoted_note(context: str) -> str:
+    for pattern in (
+        r"[\"']([^\"']{8,500})[\"']",
+        r"note[:\s]+[\"']?(.+?)(?:[\"']\s*$|$)",
+        r"custom notification message[.\s]+[\"']?(.+?)(?:[\"']|$)",
+    ):
+        m = re.search(pattern, context or "", re.I | re.M)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _domme_lock_snapshot(summary: dict[str, Any]) -> str:
+    rem = summary.get("remaining") or "?"
+    frozen = "frozen" if summary.get("is_frozen") else "not frozen"
+    visible = (
+        "timer visible to him"
+        if summary.get("display_remaining_time")
+        else "timer hidden from him"
+    )
+    wearer = summary.get("username") or "him"
+    return (
+        f"Right now on {wearer}: {rem} left, {frozen}, {visible}."
+    )
+
+
+def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
+    """Domme-facing menu of real lock controls only."""
+    return "\n".join(
+        [
+            _domme_lock_snapshot(summary),
+            "",
+            "Here's what we can do to him on the lock, Mistress:",
+            '• Add time — say: "add 2 hours to his lock" / "add that time"',
+            '• Remove time — say: "remove 30 minutes from his lock"',
+            '• Freeze — say: "freeze his lock"',
+            '• Unfreeze — say: "unfreeze him"',
+            '• Toggle freeze — say: "toggle freeze"',
+            '• Hide the timer from him — say: "hide the timer"',
+            '• Show the timer again — say: "show the timer"',
+            '• Pillory him (only if Pillory is on the lock) — say: '
+            '"pillory him for 5 minutes because teasing"',
+            '• Message / push via lock history — say: '
+            '"message him: Be good tonight" or '
+            '"send him a lock message: Tease | Edge twice and wait"',
+            "",
+            "Just give the order in those words and I'll carry it out for real.",
+        ]
+    )
+
+
+def format_capabilities_reply(result: ChasterActionResult) -> str:
+    return "Mistress —\n\n" + (result.facts or "")
+
+
+def format_kink_profile(username: str, profile: dict[str, Any]) -> str:
+    kinks = list(profile.get("kinks") or [])
+    toys = list(profile.get("toys") or [])
+    bio = str(profile.get("bio") or "").strip()
+
+    love = [k for k in kinks if str(k.get("rating") or "").lower() == "love"]
+    like = [k for k in kinks if str(k.get("rating") or "").lower() == "like"]
+    curious = [k for k in kinks if str(k.get("rating") or "").lower() == "curious"]
+
+    def _names(items: list[dict[str, Any]], limit: int = 20) -> str:
+        names = [str(i.get("name") or "").strip() for i in items if i.get("name")]
+        names = [n for n in names if n]
+        if not names:
+            return "(none listed)"
+        shown = names[:limit]
+        extra = len(names) - len(shown)
+        text = ", ".join(shown)
+        if extra > 0:
+            text += f" … +{extra} more"
+        return text
+
+    lines = [
+        f"Mistress — here's what {username} has on his profile:",
+    ]
+    if bio:
+        lines.append(f"Bio: {bio}")
+    lines.append(f"Loves: {_names(love)}")
+    lines.append(f"Likes: {_names(like)}")
+    if curious:
+        lines.append(f"Curious about: {_names(curious, 12)}")
+    lines.append(f"Toys listed: {_names(toys, 24)}")
+    lines.append(
+        f"({len(kinks)} kinks, {len(toys)} toys on file — ask if you want a category sliced thinner.)"
+    )
+    return "\n".join(lines)
+
+
+def format_truth_reply(
+    *,
+    requested_by: str,
+    step_label: str,
+    step_num: int,
+    step_total: int,
+    result: ChasterActionResult,
+    more_remaining: bool,
+) -> str:
+    """In-character Domme-speak grounded only in verified lock changes."""
+    after = result.lock or result.before or {}
+    snap = _domme_lock_snapshot(after) if after else ""
+
+    if not result.ok:
+        return (
+            f"Mistress, that didn't take. {step_label} failed. "
+            "Nothing changed on him. Want me to try again?"
+        )
+
+    if result.blocked:
+        # Soft refusal — still Domme-speak, no tech jargon
+        reason = ""
+        facts = result.facts or ""
+        if "already frozen" in facts.lower():
+            reason = "He's already frozen."
+        elif "already unfrozen" in facts.lower():
+            reason = "He's already unfrozen."
+        elif "already hidden" in facts.lower():
+            reason = "His timer is already hidden."
+        elif "already visible" in facts.lower():
+            reason = "His timer is already showing."
+        elif "not locked" in facts.lower():
+            reason = "There's no active lock to touch."
+        elif "plus" in facts.lower() or "note" in facts.lower():
+            reason = "I couldn't save a keyholder note on this account."
+        elif "reminder" in facts.lower() or "notification" in facts.lower():
+            reason = "I can't set reminder or custom notification texts on his lock."
+        else:
+            reason = "I couldn't make that change."
+        out = f"Mistress — {reason} {snap}".strip()
+        if more_remaining:
+            out += ' Say "next" if you want the next one.'
+        return out
+
+    # Success — map step labels / kinds into cruel-playful confirmation
+    label = (step_label or "").lower()
+    if "hide" in label:
+        action = "I've hidden the timer from him."
+    elif "show" in label:
+        action = "I've shown him the timer again."
+    elif "unfreeze" in label:
+        action = "I've unfrozen him — time is moving again."
+    elif "toggle" in label and "freeze" in label:
+        action = "I've toggled his freeze."
+    elif "freeze" in label:
+        action = "I've frozen him — the clock stops for him."
+    elif "pillory" in label:
+        action = "I've put him in the pillory."
+    elif "history" in label or "message" in label or "push" in label:
+        action = "I've posted a message to his lock history — he should get a push."
+    elif "add" in label or "time" in label:
+        action = "I've changed his lock time."
+    elif "note" in label:
+        action = "I've left a note on him."
+    else:
+        action = f"Done — {step_label}."
+
+    # Prefer BEFORE/AFTER remaining if present in facts
+    before_rem = after_rem = None
+    before_frozen = after_frozen = None
+    section = None
+    for line in (result.facts or "").splitlines():
+        if line.startswith("BEFORE"):
+            section = "b"
+        elif line.startswith("AFTER"):
+            section = "a"
+        elif line.startswith("- Remaining:"):
+            val = line.split(":", 1)[-1].strip()
+            if section == "b":
+                before_rem = val
+            elif section == "a":
+                after_rem = val
+        elif line.startswith("- Frozen:"):
+            val = line.split(":", 1)[-1].strip().lower() == "true"
+            if section == "b":
+                before_frozen = val
+            elif section == "a":
+                after_frozen = val
+
+    detail_bits: list[str] = []
+    if before_rem and after_rem and before_rem != after_rem:
+        detail_bits.append(f"Time went from {before_rem.split('(')[0].strip()} to {after_rem.split('(')[0].strip()}.")
+    if before_frozen is not None and after_frozen is not None and before_frozen != after_frozen:
+        detail_bits.append("Frozen." if after_frozen else "Unfrozen.")
+
+    lines = [f"Mistress — {action}"]
+    if detail_bits:
+        lines.append(" ".join(detail_bits))
+    if snap:
+        lines.append(snap)
+    if more_remaining:
+        lines.append('Say "next" for the next one.')
+    elif step_total > 1:
+        lines.append("That's all of them for now.")
+    return "\n".join(lines)
+
+
+async def run_tour_step(
+    chaster: ChasterClient,
+    step: dict[str, Any],
+    *,
+    requested_by: str,
+) -> ChasterActionResult:
+    kind = str(step.get("kind") or "")
+    if kind == "set_note":
+        intent = ChasterIntent(kind="set_note", reason=str(step.get("note") or ""))
+    elif kind == "pillory":
+        intent = ChasterIntent(
+            kind="pillory",
+            seconds=int(step.get("seconds") or 300),
+            reason=str(step.get("reason") or "Mistress's order"),
+        )
+    elif kind in (
+        "hide_time",
+        "show_time",
+        "freeze",
+        "unfreeze",
+        "toggle_freeze",
+        "status",
+        "unsupported_reminders",
+        "unsupported_notifications",
+    ):
+        intent = ChasterIntent(kind=kind)  # type: ignore[arg-type]
+    elif kind == "add_time":
+        intent = ChasterIntent(kind="add_time", seconds=int(step.get("seconds") or 0))
+    else:
+        return ChasterActionResult(
+            ok=True,
+            blocked=True,
+            facts=(
+                f"CHASTER ACTION BLOCKED:\n- Unknown tour step kind '{kind}'.\n"
+                "Do NOT claim anything changed."
+            ),
+        )
+    return await run_chaster_intent(chaster, intent, requested_by=requested_by)
+
+
+async def _run_apply_planned(
+    chaster: ChasterClient,
+    *,
+    lock: dict[str, Any],
+    before: dict[str, Any],
+    lock_id: str,
+    context: str,
+    requested_by: str,
+) -> ChasterActionResult:
+    """Apply supported planned tweaks; honestly report unsupported ones."""
+    ctx = (context or "").lower()
+    lines = [
+        "CHASTER APPLY-PLAN RESULT (real API — do not invent):",
+        f"- Requested by: {requested_by}",
+        _status_lines("BEFORE", before),
+        "ACTIONS:",
+    ]
+    did_any = False
+
+    wants_hide = bool(
+        re.search(r"\b(visibility|hide|hidden|invisible|display.?remaining)\b", ctx)
+    )
+    wants_show = bool(re.search(r"\b(show|reveal|unhide)\b.*\b(time|timer|visibility)\b", ctx))
+    wants_note = bool(re.search(r"\bnote\b", ctx))
+    wants_notif = bool(
+        re.search(r"\b(notif|reminder|notify|notification)\b", ctx)
+    )
+
+    if wants_hide and not wants_show:
+        try:
+            block = preflight_block_reason(ChasterIntent(kind="hide_time"), before)
+            if block:
+                lines.append(f"- hide timer: skipped ({block})")
+            else:
+                await chaster.set_display_remaining_time(lock_id, False)
+                did_any = True
+                lines.append("- hide timer: DONE (displayRemainingTime=false)")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"- hide timer: FAILED ({exc})")
+
+    if wants_note:
+        note = _extract_quoted_note(context)
+        if not note:
+            lines.append(
+                "- keyholder note: NOT DONE (no note text found in recent plan). "
+                "Ask Domme for the exact note."
+            )
+        else:
+            try:
+                await chaster.set_keyholder_note(lock_id, note)
+                did_any = True
+                lines.append(f"- keyholder note: DONE ({note[:120]})")
+            except Exception as exc:  # noqa: BLE001
+                lines.append(
+                    f"- keyholder note: NOT AVAILABLE ({exc}). "
+                    "Requires Chaster Plus on the keyholder account. Do NOT claim it was saved."
+                )
+
+    if wants_notif:
+        lines.append(
+            "- reminders / custom notifications: NOT AVAILABLE via Chaster public API. "
+            "Do NOT claim notifications were changed."
+        )
+
+    if not (wants_hide or wants_show or wants_note or wants_notif):
+        # Still try hide if Domme said "in turn" after a visibility plan with little context
+        lines.append(
+            "- No recognizable Chaster tweaks in recent plan text "
+            "(supported: hide/show timer, keyholder note). "
+            "Reminders/notifications cannot be set by API."
+        )
+
+    after = summarize_lock(await refresh_lock(chaster, lock))
+    lines.append(_status_lines("AFTER", after))
+    lines.append(
+        "Only report DONE items as real. Clearly tell Domme what could not be applied."
+    )
+    return ChasterActionResult(
+        ok=True,
+        facts="\n".join(lines),
+        lock=after,
+        before=before,
+        blocked=not did_any,
+    )
+
+
+_LOCK_TAG = re.compile(
+    r"\[\[\[LOCK\]\]\]\s*(.*?)\s*\[\[\[/LOCK\]\]\]",
+    re.I | re.S,
+)
+
+
+def parse_lock_tag_body(body: str) -> ChasterIntent | None:
+    """Parse a single [[[LOCK]]] body into an intent (AI Domme self-grant)."""
+    text = (body or "").strip()
+    if not text:
+        return None
+    low = text.lower().strip()
+    # History / push message: message Title | body   OR   message: body
+    msg_m = re.match(
+        r"^(?:message|history|notify|push)\s*(?::|\s+)\s*(.+)$",
+        text,
+        re.I | re.S,
+    )
+    if msg_m:
+        payload = msg_m.group(1).strip()
+        title = "Message from your keyholders"
+        body_text = payload
+        if "|" in payload:
+            left, right = payload.split("|", 1)
+            if left.strip() and right.strip():
+                title, body_text = left.strip()[:200], right.strip()
+        return ChasterIntent(
+            kind="history_message",
+            title=title,
+            reason=body_text[:2000],
+        )
+    # show / hide timer
+    if re.search(r"\b(show|unhide|reveal)\b", low) and re.search(
+        r"\b(time|timer)\b", low
+    ):
+        return ChasterIntent(kind="show_time")
+    if low in ("show_time", "unhide", "show"):
+        return ChasterIntent(kind="show_time")
+    if re.search(r"\b(hide|conceal)\b", low) and re.search(r"\b(time|timer)\b", low):
+        return ChasterIntent(kind="hide_time")
+    if low in ("hide_time", "hide"):
+        return ChasterIntent(kind="hide_time")
+    if low in ("unfreeze",) or re.search(r"\bunfreeze\b", low):
+        return ChasterIntent(kind="unfreeze")
+    if low in ("freeze",) or re.fullmatch(r"\s*freeze\s*", low):
+        return ChasterIntent(kind="freeze")
+    # add_time / remove_time with seconds or "10m"
+    m = re.search(
+        rf"\b(add_time|remove_time|add|remove)\s+(-?\d+(?:\.\d+)?)\s*({_TIME_UNIT})?\b",
+        low,
+    )
+    if m:
+        kind_raw, amount, unit = m.group(1), m.group(2), m.group(3)
+        secs = _to_seconds(amount, unit or "s")
+        if kind_raw.startswith("remove") or secs < 0:
+            return ChasterIntent(kind="add_time", seconds=-abs(secs))
+        return ChasterIntent(kind="add_time", seconds=abs(secs))
+    m2 = re.search(rf"^(-?\d+(?:\.\d+)?)\s*({_TIME_UNIT})\s*$", low)
+    if m2:
+        secs = _to_seconds(m2.group(1), m2.group(2))
+        return ChasterIntent(kind="add_time", seconds=secs)
+    m3 = re.search(rf"\bpillory(?:\s+(\d+(?:\.\d+)?)\s*({_TIME_UNIT})?)?\b", low)
+    if m3:
+        if m3.group(1):
+            secs = max(300, _to_seconds(m3.group(1), m3.group(2) or "s"))
+        else:
+            secs = 300
+        return ChasterIntent(kind="pillory", seconds=secs, reason="AI Domme decision")
+    # Fall back to normal intent parser on the body alone
+    return parse_chaster_intent(text)
+
+
+def extract_lock_commands(text: str) -> tuple[str, list[ChasterIntent]]:
+    """Strip [[[LOCK]]]…[[[/LOCK]]] tags and return intents to execute."""
+    intents: list[ChasterIntent] = []
+
+    def _repl(match: re.Match[str]) -> str:
+        intent = parse_lock_tag_body(match.group(1))
+        if intent and intent.kind in MUTATING:
+            intents.append(intent)
+        return ""
+
+    cleaned = _LOCK_TAG.sub(_repl, text or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, intents
+
+
+def format_group_lock_confirm(
+    *,
+    bot_name: str,
+    domme_title: str,
+    intent: ChasterIntent,
+    result: ChasterActionResult,
+) -> str:
+    """Sub-facing confirmation after either Domme changes the lock."""
+    title = (domme_title or "Mistress").strip() or "Mistress"
+    if not result.ok or result.blocked:
+        return ""
+    kind = intent.kind
+    if kind == "show_time":
+        action = "I've shown you the timer"
+    elif kind == "hide_time":
+        action = "I've hidden the timer again"
+    elif kind == "freeze":
+        action = "I've frozen you"
+    elif kind == "unfreeze":
+        action = "I've unfrozen you — time moves again"
+    elif kind == "add_time":
+        mins = max(1, abs(int(intent.seconds)) // 60)
+        if intent.seconds < 0:
+            action = f"I've taken {mins} minutes off"
+        else:
+            action = f"I've added {mins} minutes"
+    elif kind == "pillory":
+        action = "I've put you in the pillory"
+    elif kind == "history_message":
+        action = "I've left a message on your lock"
+    else:
+        action = "I've changed your lock"
+    rem = ""
+    lock = result.lock or {}
+    if isinstance(lock, dict) and lock.get("remaining"):
+        rem = f" Remaining: {lock.get('remaining')}."
+    return (
+        f"{action}.{rem}\n"
+        f"{title} and I decide your lock — remember that. — {bot_name}"
+    )

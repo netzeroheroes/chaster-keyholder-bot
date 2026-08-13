@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Extension configure</title>
+  <link rel="stylesheet" href="/static/ext/ext.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.9/iframeResizer.contentWindow.min.js"></script>
+</head>
+<body class="config-body">
+  <div id="gate" class="gate">
+    <p class="title">Configure in Chaster</p>
+    <p id="gateMsg">Use the Configure button on this extension inside Chaster.</p>
+  </div>
+
+  <form id="cfgForm" class="cfg hidden">
+    <p class="title">Bot timings &amp; lock controls</p>
+    <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
+
+    <label class="check"><input type="checkbox" id="autoPunishEnabled" /> Auto-punish rule breaks on lock</label>
+    <label class="field"><span>Auto-punish seconds</span><input id="autoPunishSeconds" type="number" min="60" step="60" /></label>
+
+    <label class="check"><input type="checkbox" id="autopilotEnabled" /> Autopilot (unprompted teases)</label>
+    <div class="row">
+      <label class="field"><span>Window start</span><input id="windowStart" type="text" placeholder="18:00" /></label>
+      <label class="field"><span>Window end</span><input id="windowEnd" type="text" placeholder="23:00" /></label>
+    </div>
+    <label class="field"><span>Timezone</span><input id="autopilotTz" type="text" placeholder="Europe/London" /></label>
+    <div class="row">
+      <label class="field"><span>Min gap (min)</span><input id="autopilotMin" type="number" min="5" /></label>
+      <label class="field"><span>Max gap (min)</span><input id="autopilotMax" type="number" min="5" /></label>
+    </div>
+    <label class="check"><input type="checkbox" id="autopilotChaster" /> Autopilot may nudge Chaster</label>
+    <label class="field"><span>Autopilot add-time (sec)</span><input id="autopilotPunishSeconds" type="number" min="60" step="60" /></label>
+    <div class="row">
+      <label class="field"><span>Bot name</span><input id="botName" type="text" /></label>
+      <label class="field"><span>Domme title</span><input id="dommeTitle" type="text" /></label>
+    </div>
+    <p id="cfgStatus" class="status"></p>
+  </form>
+
+  <script src="/static/ext/config.js"></script>
+</body>
+</html>

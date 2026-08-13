@@ -1,0 +1,32 @@
+# Free/paid web service on Render — standard Python host is enough (HTTPS included).
+# Deploy: push repo → Render Dashboard → New → Blueprint
+# Then in Chaster Developer → your extension:
+#   Main page URL:   https://<this-service>.onrender.com/ext
+#   Config page URL: https://<this-service>.onrender.com/ext/config
+services:
+  - type: web
+    name: chaster-keyholder-bot
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_MAX_TOKENS
+        value: "2048"
+      - key: CHASTER_ACCESS_TOKEN
+        sync: false
+      - key: CHASTER_EXTENSION_SLUG
+        sync: false
+      - key: CHASTER_LOCK_ID
+        sync: false
+      - key: STANDALONE_UI_ENABLED
+        value: "false"
+      - key: EXTENSION_DEV_BYPASS
+        value: "false"
+      - key: HOST
+        value: "0.0.0.0"

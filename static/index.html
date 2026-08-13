@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Domme / Sub Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg"></div>
+
+  <section id="gate" class="gate">
+    <div class="gate-card">
+      <p class="eyebrow">Two-person scene</p>
+      <h1>Who are you?</h1>
+      <p class="lede">Plan with your AI keyholder Domme in private. Execute the chastity game together in group. Voice works best in Chrome.</p>
+      <div class="role-picks">
+        <button type="button" class="btn primary" data-role="domme">I am the Domme</button>
+        <button type="button" class="btn ghost" data-role="sub">I am the Sub</button>
+      </div>
+      <label class="field pin-field hidden" id="pinField">
+        <span>PIN</span>
+        <input id="pin" type="password" autocomplete="current-password" />
+      </label>
+      <p id="gateStatus" class="status"></p>
+    </div>
+  </section>
+
+  <div id="app" class="app hidden">
+    <aside class="panel">
+      <header class="brand">
+        <p class="eyebrow" id="roleLabel">Role</p>
+        <h1 id="roomTitle">Group</h1>
+        <p class="lede" id="roomHelp"></p>
+      </header>
+
+      <div class="room-tabs" id="roomTabs">
+        <button type="button" class="tab" data-room="private">Plan</button>
+        <button type="button" class="tab active" data-room="group">Execute</button>
+      </div>
+
+      <div class="voice-panel">
+        <p class="field-label">Voice (hands-free play)</p>
+        <div class="voice-toggles">
+          <label class="check"><input type="checkbox" id="speakReplies" checked /> Speak bot replies</label>
+          <label class="check"><input type="checkbox" id="handsFree" /> Hands-free listen</label>
+        </div>
+        <div class="actions voice-actions">
+          <button type="button" id="micBtn" class="btn primary">Hold to talk</button>
+          <button type="button" id="stopAudio" class="btn ghost">Stop audio</button>
+        </div>
+        <div class="actions">
+          <button type="button" id="edgeStart" class="btn ghost">Start edge coach</button>
+          <button type="button" id="edgeStop" class="btn ghost">Stop coach</button>
+        </div>
+        <p id="edgeStatus" class="meta">Edge coach speaks timed cues so nobody has to type.</p>
+
+        <div id="chasterPanel" class="image-panel hidden">
+          <p class="field-label">Chaster keyholder</p>
+          <p id="chasterStatus" class="meta">Not linked</p>
+          <div class="actions">
+            <a id="chasterLogin" class="btn primary" href="/api/chaster/login" target="_blank" rel="noopener">Link Chaster</a>
+            <button type="button" id="chasterRefresh" class="btn ghost">Refresh</button>
+          </div>
+          <pre id="chasterWearers" class="meta wearers"></pre>
+        </div>
+
+        <div id="imagePanel" class="image-panel hidden">
+          <p class="field-label">Generate tease image</p>
+          <label class="field">
+            <span>Prompt</span>
+            <textarea id="imagePrompt" rows="3" placeholder="Adult tease photo prompt…"></textarea>
+          </label>
+          <label class="check"><input type="checkbox" id="imageToGroup" checked /> Post into current room</label>
+          <button type="button" id="imageGen" class="btn primary">Generate image</button>
+          <p id="imageStatus" class="meta">Uses OpenRouter (costs credits). Explicit prompts may be refused by some models.</p>
+        </div>
+      </div>
+
+      <div id="dommeControls" class="domme-controls hidden">
+        <div class="name-row">
+          <label class="field">
+            <span>Your name (Chaster keyholder syncs here)</span>
+            <input id="dommeName" type="text" placeholder="Domme name" />
+          </label>
+          <label class="field">
+            <span>Your title</span>
+            <input id="dommeTitle" type="text" placeholder="Mistress" />
+          </label>
+        </div>
+        <div class="name-row">
+          <label class="field">
+            <span>Bot / AI keyholder name</span>
+            <input id="botName" type="text" placeholder="Keyholder" />
+          </label>
+          <label class="field">
+            <span>Sub name</span>
+            <input id="subName" type="text" placeholder="Sub name" />
+          </label>
+        </div>
+        <label class="field grow">
+          <span>Active plan (Sub never sees this text)</span>
+          <textarea id="directives" spellcheck="false" placeholder="What should happen when you execute…"></textarea>
+        </label>
+        <p class="meta" id="memoryPreview"></p>
+        <button type="button" id="saveScene" class="btn primary">Save plan + names</button>
+
+        <div class="controls-block">
+          <p class="field-label">Lock timings (Chaster)</p>
+          <p class="meta">Times apply live — no restart. Chaster is the bot’s main lever.</p>
+          <label class="check"><input type="checkbox" id="autoPunishEnabled" /> Auto-punish rule breaks on lock</label>
+          <label class="field">
+            <span>Auto-punish add-time (seconds)</span>
+            <input id="autoPunishSeconds" type="number" min="60" max="86400" step="60" />
+          </label>
+          <label class="check"><input type="checkbox" id="autopilotEnabled" /> Autopilot (unprompted teases in window)</label>
+          <div class="name-row">
+            <label class="field">
+              <span>Window start (HH:MM)</span>
+              <input id="windowStart" type="text" placeholder="18:00" />
+            </label>
+            <label class="field">
+              <span>Window end (HH:MM)</span>
+              <input id="windowEnd" type="text" placeholder="23:00" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Timezone</span>
+            <input id="autopilotTz" type="text" placeholder="Europe/London" />
+          </label>
+          <div class="name-row">
+            <label class="field">
+              <span>Min gap (minutes)</span>
+              <input id="autopilotMin" type="number" min="5" max="720" />
+            </label>
+            <label class="field">
+              <span>Max gap (minutes)</span>
+              <input id="autopilotMax" type="number" min="5" max="1440" />
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" id="autopilotChaster" /> Autopilot may nudge Chaster</label>
+          <label class="field">
+            <span>Autopilot Chaster add-time (seconds)</span>
+            <input id="autopilotPunishSeconds" type="number" min="60" max="86400" step="60" />
+          </label>
+          <p class="meta" id="controlsStatus"></p>
+          <button type="button" id="saveControls" class="btn primary">Save timings</button>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="resetChat" class="btn ghost">Reset this room</button>
+        <button type="button" id="switchRole" class="btn ghost">Switch role</button>
+      </div>
+      <p id="status" class="status" aria-live="polite"></p>
+      <p class="meta" id="modelMeta"></p>
+    </aside>
+
+    <main class="chat">
+      <div class="messages-wrap">
+        <div id="messages" class="messages"></div>
+        <button type="button" id="jumpLatest" class="jump-latest hidden" aria-label="Jump to latest message">↓ New message</button>
+      </div>
+      <form id="chatForm" class="composer">
+        <button type="button" id="micTap" class="btn ghost mic-tap" title="Tap to talk">Mic</button>
+        <textarea id="input" rows="2" placeholder="Type or use mic…" autofocus></textarea>
+        <button type="submit" class="btn primary send" id="sendBtn">Send</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/voice.js"></script>
+  <script src="/static/edge-coach.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

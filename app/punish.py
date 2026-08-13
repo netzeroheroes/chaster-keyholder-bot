@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class RuleBreak:
+    reason: str
+    seconds: int = 600
+    freeze: bool = False
+    hide_timer: bool = False
+
+
+_PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
+    (
+        re.compile(
+            r"\b(i\s+(came|orgasmed|finished)|came\s+without|ruined\s+without|"
+            r"unlocked|took\s+(it|the cage)\s+off|removed\s+(my|the)\s+(cage|lock))\b",
+            re.I,
+        ),
+        RuleBreak(reason="came/unlocked without permission", seconds=3600, freeze=True),
+    ),
+    (
+        re.compile(
+            r"\b(i\s+won'?t|i\s+refuse|not\s+doing\s+(that|it|this)|"
+            r"make\s+me|fuck\s+off|i\s+quit|stop\s+controlling\s+me)\b",
+            re.I,
+        ),
+        RuleBreak(reason="refused / bratty defiance", seconds=1200, freeze=True),
+    ),
+    (
+        re.compile(
+            r"\b(i\s+decide|you\s+can'?t|you\s+don'?t\s+control|"
+            r"unlock\s+me\s+now|let\s+me\s+out\s+now)\b",
+            re.I,
+        ),
+        RuleBreak(reason="challenged control", seconds=1800, hide_timer=True),
+    ),
+    (
+        re.compile(
+            r"\b(i\s+forgot|didn'?t\s+(edge|stroke|listen|obey)|"
+            r"skipped|too\s+late|couldn'?t\s+be\s+bothered)\b",
+            re.I,
+        ),
+        RuleBreak(reason="failed / skipped an order", seconds=900),
+    ),
+    (
+        re.compile(
+            r"\b(that'?s\s+not\s+fair|i\s+deserve\s+release|"
+            r"you\s+have\s+to\s+(let|show|unhide|unlock))\b",
+            re.I,
+        ),
+        RuleBreak(reason="demanded mercy / entitlement", seconds=600, hide_timer=True),
+    ),
+]
+
+# Pleas are allowed — Sub may beg for mercy (timer/time), not issue orders
+_BEGGING = re.compile(
+    r"\b("
+    r"please|pls|plz|i\s+beg|begging|may\s+i|"
+    r"can\s+(i|you)|could\s+you|would\s+you|will\s+you|"
+    r"pretty\s+please|i'?m\s+begging|please\s+mistress|please\s+miss|"
+    r"have\s+mercy|be\s+merciful|if\s+it\s+pleases\s+you|"
+    r"i\s+know\s+i\s+don'?t\s+deserve|only\s+if\s+you\s+(want|allow|say)"
+    r")\b",
+    re.I,
+)
+
+_MERCY_TOPIC = re.compile(
+    r"\b("
+    r"unhide|show\s+(me\s+)?(the\s+)?timer|reveal\s+(the\s+)?timer|"
+    r"see\s+(the\s+)?(time|timer)|make\s+(the\s+)?timer\s+visible|"
+    r"take\s+(some\s+|a\s+little\s+)?time\s+off|remove\s+(some\s+|a\s+little\s+)?time|"
+    r"reduce\s+(the\s+|my\s+)?time|less\s+time|shorter|"
+    r"ease\s+up|go\s+easier|give\s+me\s+a\s+break|"
+    r"unfreeze|thaw|let\s+(the\s+)?(clock|time)\s+(run|move)"
+    r")\b",
+    re.I,
+)
+
+# Imperative / entitled orders — not allowed from Sub
+_DIRECT_ORDER = re.compile(
+    r"\b("
+    r"unhide\s+(the\s+)?timer\s+now|show\s+(me\s+)?(the\s+)?timer\s+now|"
+    r"(do\s+it|just\s+do\s+it|you\s+(will|must|have\s+to))|"
+    r"(unhide|show|reveal|remove|reduce|unfreeze|unlock)\s+(it|the\s+timer|my\s+timer|time)\s*(now|immediately)?|"
+    r"(take|remove)\s+\d+\s*(min|minute|hour|hr|day)s?\s*(off|from)|"
+    r"add\s+-\d+|subtract\s+\d+"
+    r")\b",
+    re.I,
+)
+
+
+def is_mercy_plea(message: str) -> bool:
+    """Polite begging about timer visibility / less time / unfreeze."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    return bool(_BEGGING.search(text) and _MERCY_TOPIC.search(text))
+
+
+def is_direct_lock_order(message: str) -> bool:
+    """Sub trying to command a lock change (not a polite plea)."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    if is_mercy_plea(text):
+        return False
+    return bool(_DIRECT_ORDER.search(text) or _MERCY_TOPIC.search(text))
+
+
+def detect_rule_break(message: str, *, role: str) -> RuleBreak | None:
+    """Sub-only: detect clear rule breaks that justify automatic detriment."""
+    if role != "sub":
+        return None
+    text = (message or "").strip()
+    if not text:
+        return None
+    # Mercy pleas are allowed — never auto-punish begging for timer/time
+    if is_mercy_plea(text):
+        return None
+    # Soft questions / obedience should not punish (unless confession of major break)
+    if re.search(
+        r"\b(what about|may i|can i|please|sorry|i will|yes mistress|yes miss)\b",
+        text,
+        re.I,
+    ):
+        if not re.search(r"\b(came|unlocked|took .+ off)\b", text, re.I):
+            return None
+    for pattern, br in _PATTERNS:
+        if pattern.search(text):
+            return br
+    # Direct lock orders (no begging) are a control challenge
+    if is_direct_lock_order(text):
+        return RuleBreak(
+            reason="gave lock orders instead of begging",
+            seconds=900,
+            hide_timer=True,
+        )
+    return None
+
+
+def format_auto_punish_reply(
+    *,
+    bot_name: str,
+    reason: str,
+    results: list,
+    seconds: int,
+    applied: list[str],
+) -> str:
+    """Immediate Domme-speak to the Sub after real Chaster detriment."""
+    done = [r for r in results if getattr(r, "ok", False) and not getattr(r, "blocked", False)]
+    if not done or not applied:
+        return ""
+
+    mins = max(1, int(seconds) // 60)
+    bits: list[str] = []
+    if "add_time" in applied:
+        bits.append(f"I've added {mins} minutes to your lock")
+    if "freeze" in applied:
+        bits.append("frozen you so the clock stops")
+    if "hide_time" in applied:
+        bits.append("hidden the timer from you")
+    if not bits:
+        bits.append("I've punished you on the lock")
+
+    action = ", and ".join(bits)
+    if action and action[0].islower():
+        action = action[0].upper() + action[1:]
+
+    snap = ""
+    lock = getattr(done[-1], "lock", None) or {}
+    rem = lock.get("remaining") if isinstance(lock, dict) else None
+    if rem:
+        snap = f" Remaining: {rem}."
+
+    return (
+        f"{action} for {reason}.{snap}\n"
+        f"That's how this works, boy — I control your lock. — {bot_name}"
+    )
