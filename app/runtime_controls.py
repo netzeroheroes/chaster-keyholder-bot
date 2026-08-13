@@ -28,6 +28,11 @@ class RuntimeControls:
     autopilot_allow_chaster: bool = True
     autopilot_chaster_chance: float = 0.35
     autopilot_punish_seconds: int = 600
+    # Session defaults when Domme/AI says "add time" without a size
+    default_add_time_seconds: int = 3600
+    default_remove_time_seconds: int = 1800
+    soft_add_time_seconds: int = 900
+    hard_add_time_seconds: int = 7200
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:

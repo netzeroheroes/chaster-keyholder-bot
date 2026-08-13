@@ -369,6 +369,20 @@ class ChasterClient:
         )
         return data if isinstance(data, dict) else {"config": config}
 
+    async def patch_extension_session(
+        self, session_id: str, *, config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a running extension session's config (keyholder session settings)."""
+        sid = (session_id or "").strip()
+        if not sid:
+            raise RuntimeError("sessionId missing")
+        data = await self._request(
+            "PATCH",
+            f"/api/extensions/sessions/{sid}",
+            json_body={"config": config},
+        )
+        return data if isinstance(data, dict) else {"config": config}
+
     async def post_custom_log(
         self,
         *,

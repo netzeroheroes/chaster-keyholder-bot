@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css?v=3" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=4" />
 </head>
 <body>
   <div id="gate" class="gate">
@@ -19,7 +19,10 @@
         <p class="eyebrow" id="roleLabel">—</p>
         <h1 id="heading">Chat</h1>
       </div>
-      <p class="meta" id="sessionMeta"></p>
+      <div class="top-actions">
+        <button type="button" id="settingsBtn" class="link-btn hidden">Session settings</button>
+        <p class="meta" id="sessionMeta"></p>
+      </div>
     </header>
     <nav id="roomTabs" class="room-tabs" aria-label="Chat rooms">
       <button type="button" class="room-tab active" data-room="group">Group</button>
@@ -44,6 +47,55 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=3"></script>
+  <div id="settingsPanel" class="settings-panel hidden" aria-hidden="true">
+    <div class="settings-card">
+      <header class="settings-head">
+        <div>
+          <p class="eyebrow">Keyholder</p>
+          <h2>Session settings</h2>
+        </div>
+        <button type="button" id="settingsClose" class="link-btn">Close</button>
+      </header>
+      <p class="meta settings-lede">
+        Default sizes for lock time tweaks, auto-punish, and autopilot. Saved on this session.
+      </p>
+      <form id="settingsForm" class="cfg">
+        <p class="title">Time adjustments</p>
+        <div class="row">
+          <label class="field"><span>Default add (sec)</span><input id="defaultAdd" type="number" min="60" step="60" /></label>
+          <label class="field"><span>Default remove (sec)</span><input id="defaultRemove" type="number" min="60" step="60" /></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Soft add (sec)</span><input id="softAdd" type="number" min="60" step="60" /></label>
+          <label class="field"><span>Hard add (sec)</span><input id="hardAdd" type="number" min="60" step="60" /></label>
+        </div>
+
+        <p class="title">Auto-punish</p>
+        <label class="check"><input type="checkbox" id="setAutoPunishEnabled" /> Auto-punish rule breaks</label>
+        <label class="field"><span>Auto-punish seconds</span><input id="setAutoPunishSeconds" type="number" min="60" step="60" /></label>
+
+        <p class="title">Autopilot</p>
+        <label class="check"><input type="checkbox" id="setAutopilotEnabled" /> Autopilot teases</label>
+        <div class="row">
+          <label class="field"><span>Window start</span><input id="setWindowStart" type="text" placeholder="18:00" /></label>
+          <label class="field"><span>Window end</span><input id="setWindowEnd" type="text" placeholder="23:00" /></label>
+        </div>
+        <label class="field"><span>Timezone</span><input id="setAutopilotTz" type="text" placeholder="Europe/London" /></label>
+        <label class="check"><input type="checkbox" id="setAutopilotChaster" /> Autopilot may nudge Chaster</label>
+        <label class="field"><span>Autopilot add-time (sec)</span><input id="setAutopilotPunish" type="number" min="60" step="60" /></label>
+
+        <div class="row">
+          <label class="field"><span>Bot name</span><input id="setBotName" type="text" /></label>
+          <label class="field"><span>Domme title</span><input id="setDommeTitle" type="text" /></label>
+        </div>
+        <div class="settings-actions">
+          <button type="submit" class="btn" id="settingsSave">Save settings</button>
+        </div>
+        <p id="settingsStatus" class="status"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/ext/ext.js?v=4"></script>
 </body>
 </html>

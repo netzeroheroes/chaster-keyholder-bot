@@ -113,22 +113,15 @@ def parse_chaster_intent(
     ) and re.search(r"\b(lock|cage|chaster|timer|time)\b", low):
         return ChasterIntent(kind="list_capabilities")
 
-    # Catalog only — "pick N toys / create a scene" is handled by scene_builder
-    if (
-        re.search(
-            r"\b(kinks?|toys?|fetish|fetishes|his profile|kink profile)\b",
-            low,
-        )
-        and re.search(
-            r"\b(what|list|show|his|boy|sub|profile|available)\b",
-            low,
-        )
-        and not re.search(
-            r"\b(pick|create|build|scene|use\s+\d+)\b",
-            low,
-        )
+    # Extensions / plugins on the lock (must beat kink/toy matching — "toy with him")
+    if re.search(
+        r"\b(extensions?|plugins?)\b",
+        low,
+    ) and re.search(
+        r"\b(what|which|list|show|have|on (his |the )?lock|use|how)\b",
+        low,
     ):
-        return ChasterIntent(kind="list_kinks")
+        return ChasterIntent(kind="list_extensions")
 
     if re.search(
         r"\b((lock\s+)?history|recent (lock )?actions?|what happened on (his |the )?lock|"
@@ -137,13 +130,27 @@ def parse_chaster_intent(
     ):
         return ChasterIntent(kind="list_history")
 
-    if re.search(
-        r"\b((what|which|list|show) (extensions?|plugins?|apps?)|"
-        r"extensions? on (his |the )?lock|"
-        r"other (extensions?|plugins?))\b",
-        low,
+    # Catalog only — "pick N toys / create a scene" is handled by scene_builder
+    # Avoid matching "toy with him" (verb) — require kink/profile catalog language
+    if (
+        (
+            re.search(
+                r"\b(kinks?|fetish(?:es)?|his profile|kink profile)\b",
+                low,
+            )
+            or re.search(r"\b(his|the)\s+toys?\b", low)
+            or re.search(r"\btoys?\s+(listed|on file|available|does he have)\b", low)
+        )
+        and re.search(
+            r"\b(what|list|show|profile|available)\b",
+            low,
+        )
+        and not re.search(
+            r"\b(pick|create|build|scene|use\s+\d+|extensions?|plugins?|toy with)\b",
+            low,
+        )
     ):
-        return ChasterIntent(kind="list_extensions")
+        return ChasterIntent(kind="list_kinks")
 
     # Tour / stepwise — handled in chat_service via chaster_tour
     if re.search(
@@ -262,7 +269,32 @@ def parse_chaster_intent(
         secs = extract_duration_seconds(message) or extract_duration_seconds(context)
         if secs and secs > 0:
             return ChasterIntent(kind="add_time", seconds=secs)
-        return None
+        try:
+            from app.runtime_controls import get_controls
+
+            secs = int(get_controls().default_add_time_seconds or 3600)
+        except Exception:  # noqa: BLE001
+            secs = 3600
+        return ChasterIntent(kind="add_time", seconds=max(60, secs))
+
+    # Bare "add time" / "add some time" / soft|hard add — use session settings sizes
+    if re.search(r"\b(lock|cage|chaster|him|timer)\b", low) and re.search(
+        r"\b(add|plus|\+)\b.*\btime\b|\bextend (him|the lock|his (lock|cage))\b",
+        low,
+    ):
+        try:
+            from app.runtime_controls import get_controls
+
+            c = get_controls()
+            if re.search(r"\b(soft|small|little|gentle)\b", low):
+                secs = int(c.soft_add_time_seconds or 900)
+            elif re.search(r"\b(hard|harsh|big|serious|mean)\b", low):
+                secs = int(c.hard_add_time_seconds or 7200)
+            else:
+                secs = int(c.default_add_time_seconds or 3600)
+        except Exception:  # noqa: BLE001
+            secs = 3600
+        return ChasterIntent(kind="add_time", seconds=max(60, secs))
 
     remove = re.search(
         rf"\b(?:remove|subtract|minus|-)\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\b",
@@ -615,12 +647,17 @@ async def run_chaster_intent(
             lines.extend(
                 [
                     "",
-                    "What I can drive directly today:",
-                    "• duo-domme — add/remove time, freeze, hide/show timer, pillory, history messages",
-                    "• Other plugins (Jigsaw, Wheel, Hygiene Opening / share links, Tasks…) — "
-                    "I see their results in lock history and react in chat when they fire.",
-                    "Full remote control of every third-party plugin isn't exposed the same way; "
-                    "history watch is the reliable bridge.",
+                    "How we can toy with him using them:",
+                    "• duo-domme — I can add/remove time, freeze, hide/show his timer, pillory, "
+                    "and post lock history / push messages. Say the order in chat "
+                    '(e.g. "add 2 hours", "hide the timer", "message him: stay denied").',
+                    "• jigsaw-puzzle / Wheel / Tasks / Hygiene Opening (share links) — "
+                    "he plays those in Chaster; when he completes, fails, or opens a share link, "
+                    "it hits lock history and I react in this chat. "
+                    "We cannot always press every third-party button remotely the same way.",
+                    "",
+                    "Session Settings (on this Keyholder page) sets default add/remove time sizes "
+                    "when you don't specify an amount.",
                 ]
             )
             return ChasterActionResult(

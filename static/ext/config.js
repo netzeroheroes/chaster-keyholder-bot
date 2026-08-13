@@ -49,7 +49,12 @@
   }
 
   function readForm() {
+    const g = (id) => document.getElementById(id);
     return {
+      default_add_time_seconds: Number(g("defaultAdd").value) || 3600,
+      default_remove_time_seconds: Number(g("defaultRemove").value) || 1800,
+      soft_add_time_seconds: Number(g("softAdd").value) || 900,
+      hard_add_time_seconds: Number(g("hardAdd").value) || 7200,
       auto_punish_enabled: els.autoPunishEnabled.checked,
       auto_punish_seconds: Number(els.autoPunishSeconds.value) || 600,
       autopilot_enabled: els.autopilotEnabled.checked,
@@ -66,6 +71,11 @@
   }
 
   function fillForm(cfg) {
+    const g = (id) => document.getElementById(id);
+    g("defaultAdd").value = cfg.default_add_time_seconds ?? 3600;
+    g("defaultRemove").value = cfg.default_remove_time_seconds ?? 1800;
+    g("softAdd").value = cfg.soft_add_time_seconds ?? 900;
+    g("hardAdd").value = cfg.hard_add_time_seconds ?? 7200;
     els.autoPunishEnabled.checked = !!cfg.auto_punish_enabled;
     els.autoPunishSeconds.value = cfg.auto_punish_seconds ?? 600;
     els.autopilotEnabled.checked = !!cfg.autopilot_enabled;

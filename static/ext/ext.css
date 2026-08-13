@@ -58,6 +58,23 @@ body.config-body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
+.top-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
@@ -219,3 +236,36 @@ textarea, input[type="text"], input[type="number"] {
 .field span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .check { display: flex; align-items: center; gap: 0.5rem; color: var(--text); }
+
+.settings-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: end center;
+  padding: 0;
+}
+.settings-card {
+  width: min(560px, 100%);
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 1rem 1rem 1.25rem;
+}
+.settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+.settings-head h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.15rem;
+}
+.settings-lede { margin: 0 0 0.75rem; }
+.settings-actions { margin-top: 0.35rem; }
+.settings-card .cfg { max-width: none; margin: 0; }

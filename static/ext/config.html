@@ -18,6 +18,16 @@
     <p class="title">Bot timings &amp; lock controls</p>
     <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
 
+    <p class="title" style="font-size:1rem">Time adjustments</p>
+    <div class="row">
+      <label class="field"><span>Default add (sec)</span><input id="defaultAdd" type="number" min="60" step="60" /></label>
+      <label class="field"><span>Default remove (sec)</span><input id="defaultRemove" type="number" min="60" step="60" /></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Soft add (sec)</span><input id="softAdd" type="number" min="60" step="60" /></label>
+      <label class="field"><span>Hard add (sec)</span><input id="hardAdd" type="number" min="60" step="60" /></label>
+    </div>
+
     <label class="check"><input type="checkbox" id="autoPunishEnabled" /> Auto-punish rule breaks on lock</label>
     <label class="field"><span>Auto-punish seconds</span><input id="autoPunishSeconds" type="number" min="60" step="60" /></label>
 

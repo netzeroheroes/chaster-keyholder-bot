@@ -43,6 +43,10 @@ _CONFIG_KEYS = (
     "autopilot_allow_chaster",
     "autopilot_chaster_chance",
     "autopilot_punish_seconds",
+    "default_add_time_seconds",
+    "default_remove_time_seconds",
+    "soft_add_time_seconds",
+    "hard_add_time_seconds",
     "bot_name",
     "domme_title",
 )
@@ -273,6 +277,83 @@ def register_extension_routes(
         if mem_updates:
             memory.update_fields(**mem_updates)
 
+        return {"ok": True, "config": clean}
+
+    def _merged_settings(session_cfg: dict[str, Any]) -> dict[str, Any]:
+        cfg = dict(session_cfg or {})
+        live = controls.snapshot()
+        for key in _CONFIG_KEYS:
+            if key not in cfg and key in live:
+                cfg[key] = live[key]
+        if "bot_name" not in cfg:
+            cfg["bot_name"] = memory.bot_name or "Keyholder"
+        if "domme_title" not in cfg:
+            cfg["domme_title"] = memory.domme_title or "Mistress"
+        return cfg
+
+    class ExtSettingsSaveBody(BaseModel):
+        main_token: str = Field(min_length=8)
+        config: dict[str, Any]
+
+    def _require_keyholder(sess: ExtSession, main_token: str) -> None:
+        if sess.role == "keyholder":
+            return
+        if settings.extension_dev_bypass and main_token.startswith("dev:"):
+            return
+        raise HTTPException(
+            status_code=403,
+            detail="Only the keyholder can open session settings.",
+        )
+
+    @api.post("/api/ext/settings/get")
+    async def ext_settings_get(body: ExtSessionBody) -> dict:
+        """Keyholder session settings from the main extension page (mainToken)."""
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        return {
+            "ok": True,
+            "config": _merged_settings(sess.config),
+            "session_id": sess.session_id,
+        }
+
+    @api.post("/api/ext/settings/save")
+    async def ext_settings_save(body: ExtSettingsSaveBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        clean = {k: body.config[k] for k in _CONFIG_KEYS if k in body.config}
+        if sess.session_id and sess.session_id != "dev":
+            try:
+                await chaster.patch_extension_session(sess.session_id, config=clean)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Could not save session config: {_api_detail(exc)}",
+                ) from exc
+        ctrl_updates = {k: v for k, v in clean.items() if k in controls.snapshot()}
+        if ctrl_updates:
+            controls.update(**ctrl_updates)
+        mem_updates = {}
+        if clean.get("bot_name"):
+            mem_updates["bot_name"] = str(clean["bot_name"]).strip()
+        if clean.get("domme_title"):
+            mem_updates["domme_title"] = str(clean["domme_title"]).strip()
+        if mem_updates:
+            memory.update_fields(**mem_updates)
+        import time as _time
+
+        cache.put(
+            ExtSession(
+                main_token=sess.main_token,
+                role=sess.role,
+                user_id=sess.user_id,
+                session_id=sess.session_id,
+                lock_id=sess.lock_id,
+                wearer_username=sess.wearer_username,
+                keyholder_username=sess.keyholder_username,
+                config={**sess.config, **clean},
+                fetched_at=_time.time(),
+            )
+        )
         return {"ok": True, "config": clean}
 
     # Denied probe — opening APIs without token

@@ -6,6 +6,11 @@
     roleLabel: document.getElementById("roleLabel"),
     heading: document.getElementById("heading"),
     sessionMeta: document.getElementById("sessionMeta"),
+    settingsBtn: document.getElementById("settingsBtn"),
+    settingsPanel: document.getElementById("settingsPanel"),
+    settingsClose: document.getElementById("settingsClose"),
+    settingsForm: document.getElementById("settingsForm"),
+    settingsStatus: document.getElementById("settingsStatus"),
     roomTabs: document.getElementById("roomTabs"),
     privateTab: document.getElementById("privateTab"),
     roomHint: document.getElementById("roomHint"),
@@ -157,13 +162,79 @@
 
     if (s.app_role === "domme" || s.role === "keyholder") {
       els.privateTab.classList.remove("hidden");
+      if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
     } else {
       els.privateTab.classList.add("hidden");
+      if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       state.room = "group";
     }
     updateRoomUi();
     els.gate.classList.add("hidden");
     els.app.classList.remove("hidden");
+  }
+
+  function fillSettings(cfg) {
+    const g = (id) => document.getElementById(id);
+    g("defaultAdd").value = cfg.default_add_time_seconds ?? 3600;
+    g("defaultRemove").value = cfg.default_remove_time_seconds ?? 1800;
+    g("softAdd").value = cfg.soft_add_time_seconds ?? 900;
+    g("hardAdd").value = cfg.hard_add_time_seconds ?? 7200;
+    g("setAutoPunishEnabled").checked = !!cfg.auto_punish_enabled;
+    g("setAutoPunishSeconds").value = cfg.auto_punish_seconds ?? 600;
+    g("setAutopilotEnabled").checked = !!cfg.autopilot_enabled;
+    g("setWindowStart").value = cfg.autopilot_window_start || "18:00";
+    g("setWindowEnd").value = cfg.autopilot_window_end || "23:00";
+    g("setAutopilotTz").value = cfg.autopilot_timezone || "Europe/London";
+    g("setAutopilotChaster").checked = !!cfg.autopilot_allow_chaster;
+    g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
+    g("setBotName").value = cfg.bot_name || "Keyholder";
+    g("setDommeTitle").value = cfg.domme_title || "Mistress";
+  }
+
+  function readSettings() {
+    const g = (id) => document.getElementById(id);
+    return {
+      default_add_time_seconds: Number(g("defaultAdd").value) || 3600,
+      default_remove_time_seconds: Number(g("defaultRemove").value) || 1800,
+      soft_add_time_seconds: Number(g("softAdd").value) || 900,
+      hard_add_time_seconds: Number(g("hardAdd").value) || 7200,
+      auto_punish_enabled: g("setAutoPunishEnabled").checked,
+      auto_punish_seconds: Number(g("setAutoPunishSeconds").value) || 600,
+      autopilot_enabled: g("setAutopilotEnabled").checked,
+      autopilot_window_start: g("setWindowStart").value.trim() || "18:00",
+      autopilot_window_end: g("setWindowEnd").value.trim() || "23:00",
+      autopilot_timezone: g("setAutopilotTz").value.trim() || "Europe/London",
+      autopilot_allow_chaster: g("setAutopilotChaster").checked,
+      autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
+      bot_name: g("setBotName").value.trim() || "Keyholder",
+      domme_title: g("setDommeTitle").value.trim() || "Mistress",
+    };
+  }
+
+  async function openSettings() {
+    if (!els.settingsPanel) return;
+    els.settingsStatus.textContent = "Loading…";
+    els.settingsPanel.classList.remove("hidden");
+    els.settingsPanel.setAttribute("aria-hidden", "false");
+    try {
+      const res = await fetch("/api/ext/settings/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Could not load settings"));
+      fillSettings(data.config || {});
+      els.settingsStatus.textContent = "Edit and save.";
+    } catch (err) {
+      els.settingsStatus.textContent = String(err.message || err);
+    }
+  }
+
+  function closeSettings() {
+    if (!els.settingsPanel) return;
+    els.settingsPanel.classList.add("hidden");
+    els.settingsPanel.setAttribute("aria-hidden", "true");
   }
 
   async function loadHistory() {
@@ -234,6 +305,39 @@
     if (!btn || btn.classList.contains("hidden")) return;
     switchRoom(btn.dataset.room);
   });
+
+  if (els.settingsBtn) {
+    els.settingsBtn.addEventListener("click", openSettings);
+  }
+  if (els.settingsClose) {
+    els.settingsClose.addEventListener("click", closeSettings);
+  }
+  if (els.settingsPanel) {
+    els.settingsPanel.addEventListener("click", (e) => {
+      if (e.target === els.settingsPanel) closeSettings();
+    });
+  }
+  if (els.settingsForm) {
+    els.settingsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      els.settingsStatus.textContent = "Saving…";
+      try {
+        const res = await fetch("/api/ext/settings/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            main_token: state.mainToken,
+            config: readSettings(),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
+        els.settingsStatus.textContent = "Saved.";
+      } catch (err) {
+        els.settingsStatus.textContent = String(err.message || err);
+      }
+    });
+  }
 
   els.messages.addEventListener("scroll", () => {
     state.stickToBottom = nearBottom();
