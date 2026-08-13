@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STATE_PATH = DATA_DIR / "lock_watch.json"
 
-# Events worth narrating in chat (games / other plugins — not our own Duo Domme edits)
+# Games / other plugins — always worth a group reaction
 _REACT_TYPES = frozenset(
     {
         "pillory_started",
@@ -50,8 +50,10 @@ _REACT_TYPES = frozenset(
     }
 )
 
-# Chat already confirms these when Domme/AI change the lock — don't double-post.
-_SKIP_TYPES = frozenset(
+# Timer edits from Duo Domme are already confirmed in chat — skip those.
+# Same event types from the human keyholder (manual on Chaster) SHOULD react.
+_SELF_EXTENSIONS = frozenset({"duo-domme"})
+_TIMER_TYPES = frozenset(
     {
         "time_changed",
         "lock_frozen",
@@ -60,6 +62,28 @@ _SKIP_TYPES = frozenset(
         "timer_revealed",
     }
 )
+
+
+def _is_our_duo_domme_action(event: dict[str, Any]) -> bool:
+    ext = str(event.get("extension") or "").strip().lower()
+    role = str(event.get("role") or "").strip().lower()
+    return ext in _SELF_EXTENSIONS or (
+        role == "extension" and ext in _SELF_EXTENSIONS
+    )
+
+
+def _should_react(event: dict[str, Any]) -> bool:
+    etype = str(event.get("type") or "")
+    if etype in _TIMER_TYPES:
+        # Mistress (or wearer) changed the lock outside chat — notice it.
+        # Our own Duo Domme edits — already narrated by chat.
+        return not _is_our_duo_domme_action(event)
+    if etype in _REACT_TYPES:
+        return True
+    if etype.endswith("_changed") and not _is_our_duo_domme_action(event):
+        return True
+    # Unknown plugin events
+    return bool(event.get("extension")) and not _is_our_duo_domme_action(event)
 
 
 def _load_state() -> dict[str, Any]:
@@ -79,16 +103,25 @@ def _save_state(state: dict[str, Any]) -> None:
 def format_history_event(event: dict[str, Any]) -> str:
     """Human-readable one-liner for a lock history entry."""
     etype = str(event.get("type") or "event")
-    title = str(event.get("title") or "").replace("%USER%", "Someone")
-    desc = str(event.get("description") or "").strip()
     ext = str(event.get("extension") or "").strip()
-    role = str(event.get("role") or "").strip()
+    role = str(event.get("role") or "").strip().lower()
+    if role == "keyholder":
+        who = "Mistress (keyholder, manual on Chaster)"
+    elif ext.lower() in _SELF_EXTENSIONS or role == "extension":
+        who = "Duo Domme (bot)" if ext.lower() in _SELF_EXTENSIONS else (ext or "an extension")
+    elif role == "wearer":
+        who = "the Sub (wearer)"
+    else:
+        who = "Someone"
+    title = str(event.get("title") or "").replace("%USER%", who)
+    desc = str(event.get("description") or "").strip()
     bits = [title or etype]
     if desc:
         bits.append(desc)
-    meta = " · ".join(x for x in (ext, role) if x)
-    if meta:
-        bits.append(f"({meta})")
+    if role == "keyholder":
+        bits.append("(manual keyholder action — not the bot)")
+    elif ext:
+        bits.append(f"(plugin: {ext})")
     return " — ".join(bits)
 
 
@@ -157,14 +190,12 @@ async def react_to_lock_events(
     title = memory.domme_title or "Mistress"
     reacted = 0
     for ev in events[:5]:
-        etype = str(ev.get("type") or "")
-        if etype in _SKIP_TYPES:
+        if not _should_react(ev):
             continue
-        if etype and etype not in _REACT_TYPES and not etype.endswith("_changed"):
-            # Still surface unknown extension/plugin events
-            if not ev.get("extension"):
-                continue
+        etype = str(ev.get("type") or "")
+        role = str(ev.get("role") or "").strip().lower()
         summary = format_history_event(ev)
+        manual = role == "keyholder"
         system = (
             f"You are {bot}, the AI Domme/keyholder in GROUP chat (18+).\n"
             f"ACTIVE CHANNEL: GROUP — Domme + Sub + you can all see this.\n"
@@ -174,8 +205,16 @@ async def react_to_lock_events(
             f"IMPORTANT: In Chaster, 'extension' means a lock PLUGIN (wheel, tasks, "
             f"puzzle, etc.), NOT 'more lock time'. Never congratulate someone for "
             f"'an extension' unless a plugin was actually enabled/updated.\n"
+        )
+        if manual:
+            system += (
+                f"{title} just changed the lock MANUALLY on Chaster (not via chat / "
+                f"not Duo Domme). Acknowledge her action — e.g. she added/removed time "
+                f"— and tease the Sub about it. Do not claim YOU did it.\n"
+            )
+        system += (
             f"Event: {summary}\n"
-            f"Raw type={etype} extension/plugin={ev.get('extension')} "
+            f"Raw type={etype} role={role} extension/plugin={ev.get('extension')} "
             f"payload={json.dumps(ev.get('payload') or {}, ensure_ascii=False)[:300]}"
         )
         try:
