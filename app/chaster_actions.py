@@ -1782,6 +1782,17 @@ async def run_chaster_intent(
         if intent.kind == "unfreeze":
             await chaster.set_freeze(lock_id, False)
             after = summarize_lock(await refresh_lock(chaster, lock))
+            try:
+                from app.lockbox_sync import sync_duration_from_chaster
+                from app.rad_lockbox import get_rad_client
+
+                rad = get_rad_client()
+                if rad is not None:
+                    await sync_duration_from_chaster(
+                        rad, chaster, reason="unfreeze_api", force=True
+                    )
+            except Exception:  # noqa: BLE001
+                log.exception("R+D resync after unfreeze failed")
             return ChasterActionResult(
                 ok=True,
                 facts=_facts_after(
@@ -1827,6 +1838,17 @@ async def run_chaster_intent(
         if intent.kind == "show_time":
             await chaster.set_display_remaining_time(lock_id, True)
             after = summarize_lock(await refresh_lock(chaster, lock))
+            try:
+                from app.lockbox_sync import sync_duration_from_chaster
+                from app.rad_lockbox import get_rad_client
+
+                rad = get_rad_client()
+                if rad is not None:
+                    await sync_duration_from_chaster(
+                        rad, chaster, reason="timer_revealed_api", force=True
+                    )
+            except Exception:  # noqa: BLE001
+                log.exception("R+D resync after show_time failed")
             return ChasterActionResult(
                 ok=True,
                 facts=_facts_after(

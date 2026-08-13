@@ -81,6 +81,12 @@ def _clamp_duration(seconds: int) -> int:
 # by parking the box on a long dummy duration until time is revealed again.
 _HIDDEN_DURATION = 86400 * 365 * 5  # 5 years (looks indefinite on the box)
 
+# Last observed Chaster freeze/hide — used to catch unfreeze/reveal without history events
+_LAST_CHASTER_FLAGS: dict[str, bool | None] = {
+    "frozen": None,
+    "time_hidden": None,
+}
+
 
 async def chaster_lock_snapshot(
     chaster: ChasterClient | None,
@@ -188,6 +194,43 @@ async def ensure_template_id(rad: RadLockboxClient) -> int | None:
 
 def _manual_only(rad: RadLockboxClient) -> bool:
     return bool(getattr(rad.settings, "rad_manual_only", False))
+
+
+async def maybe_resync_after_chaster_flags(
+    rad: RadLockboxClient,
+    chaster: ChasterClient | None,
+) -> dict[str, Any] | None:
+    """If Chaster just unfroze or unhid the timer, force a duration resync.
+
+    Works in manual-only mode too — those transitions are the exceptions where
+    we pull real Chaster remaining onto the box.
+    """
+    if not _sync_on(rad):
+        return None
+    snap = await chaster_lock_snapshot(chaster)
+    if not snap:
+        return None
+    frozen = bool(snap.get("frozen"))
+    hidden = bool(snap.get("time_hidden"))
+    prev_f = _LAST_CHASTER_FLAGS.get("frozen")
+    prev_h = _LAST_CHASTER_FLAGS.get("time_hidden")
+    _LAST_CHASTER_FLAGS["frozen"] = frozen
+    _LAST_CHASTER_FLAGS["time_hidden"] = hidden
+
+    # First observation — just seed, don't thrash
+    if prev_f is None and prev_h is None:
+        return None
+
+    reasons: list[str] = []
+    if prev_f is True and frozen is False:
+        reasons.append("lock_unfrozen")
+    if prev_h is True and hidden is False:
+        reasons.append("timer_revealed")
+    if not reasons:
+        return None
+    return await sync_duration_from_chaster(
+        rad, chaster, reason="+".join(reasons), force=True
+    )
 
 
 async def sync_duration_from_chaster(
@@ -561,6 +604,14 @@ _TIME_SYNC_TYPES = frozenset(
     }
 )
 
+# Even in manual-only mode, pull real Chaster time again after these.
+_FORCE_RESYNC_TYPES = frozenset(
+    {
+        "lock_unfrozen",
+        "timer_revealed",
+    }
+)
+
 
 async def handle_chaster_events(
     rad: RadLockboxClient,
@@ -592,6 +643,14 @@ async def handle_chaster_events(
         elif session_sync and etype == "locked":
             results.append(
                 await relock_from_chaster(rad, chaster, reason=etype)
+            )
+            synced_time = True
+        elif etype in _FORCE_RESYNC_TYPES:
+            # Unfreeze / unhide → always apply real Chaster remaining (even manual-only)
+            results.append(
+                await sync_duration_from_chaster(
+                    rad, chaster, reason=etype, force=True
+                )
             )
             synced_time = True
         elif (

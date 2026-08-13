@@ -287,7 +287,6 @@ async def lock_watch_loop(
 ) -> None:
     """Background poll of Chaster lock history."""
     interval = max(15, int(getattr(settings, "lock_watch_seconds", 45) or 45))
-    ticks = 0
     while True:
         try:
             if (
@@ -305,18 +304,20 @@ async def lock_watch_loop(
                         events=events,
                         rad=rad,
                     )
-                # Periodic Chaster → R+D duration sync (skip in manual-only mode)
-                ticks += 1
-                if (
-                    rad is not None
-                    and not getattr(settings, "rad_manual_only", False)
-                ):
+                # Always watch for unfreeze / timer reveal → force Chaster resync.
+                # Full duration sync only when not in manual-only mode.
+                if rad is not None:
                     try:
-                        from app.lockbox_sync import sync_duration_from_chaster
-
-                        await sync_duration_from_chaster(
-                            rad, chaster, reason="periodic"
+                        from app.lockbox_sync import (
+                            maybe_resync_after_chaster_flags,
+                            sync_duration_from_chaster,
                         )
+
+                        await maybe_resync_after_chaster_flags(rad, chaster)
+                        if not getattr(settings, "rad_manual_only", False):
+                            await sync_duration_from_chaster(
+                                rad, chaster, reason="periodic"
+                            )
                     except Exception:  # noqa: BLE001
                         log.debug("Periodic R+D duration sync skipped", exc_info=True)
         except asyncio.CancelledError:
