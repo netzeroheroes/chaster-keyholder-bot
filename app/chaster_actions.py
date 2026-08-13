@@ -33,6 +33,7 @@ ActionKind = Literal[
     "hygiene_open",
     "request_verification",
     "assign_task",
+    "restore_parked_extensions",
     "unsupported_reminders",
     "unsupported_notifications",
 ]
@@ -54,6 +55,7 @@ MUTATING = frozenset(
         "hygiene_open",
         "request_verification",
         "assign_task",
+        "restore_parked_extensions",
     }
 )
 
@@ -176,6 +178,14 @@ def parse_chaster_intent(
         low,
     ):
         return ChasterIntent(kind="list_extensions")
+
+    # Domme: restore plugins parked to free a non-Plus extension slot
+    if re.search(
+        r"\b(restore|unpark|put back)\b.*\b(parked\s+)?(extensions?|plugins?)\b"
+        r"|\brestore parked\b",
+        low,
+    ):
+        return ChasterIntent(kind="restore_parked_extensions")
 
     # Domme: activate / add an extension on the lock
     act = re.search(
@@ -868,6 +878,46 @@ async def run_chaster_intent(
                 before=before,
             )
 
+        if intent.kind == "restore_parked_extensions":
+            lock_id = str(before.get("lock_id") or "")
+            try:
+                result = await chaster.restore_parked_extensions(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not restore parked extensions: {exc}",
+                )
+            after_lock = summarize_lock(await refresh_lock(chaster, lock))
+            restored = result.get("restored") or []
+            still = result.get("still_parked") or []
+            names = ", ".join(
+                str(e.get("slug") or "?") for e in (result.get("extensions") or [])
+            )
+            if not restored and not still:
+                facts = (
+                    f"No parked extensions to restore.\n"
+                    f"On lock now: {names or '(none)'}\n"
+                    f"{_status_lines('AFTER', after_lock)}"
+                )
+            else:
+                facts = (
+                    f"CHASTER ACTION DONE (restore parked):\n"
+                    f"- Requested by: {requested_by}\n"
+                    f"- Restored: {', '.join(restored) or '(none — still at free 3-slot limit?)'}\n"
+                    f"- Still parked: {', '.join(str(p.get('slug') or '?') for p in still) or '(none)'}\n"
+                    f"- Extensions now: {names or '(none)'}\n"
+                    f"{_status_lines('AFTER', after_lock)}"
+                )
+            return ChasterActionResult(
+                ok=True,
+                facts=facts,
+                lock=after_lock,
+                before=before,
+            )
+
         if intent.kind == "activate_extension":
             lock_id = str(before.get("lock_id") or "")
             slug = (intent.reason or "").strip()
@@ -879,11 +929,16 @@ async def run_chaster_intent(
                     lock=before,
                     facts=(
                         "No extension slug given. Try: activate jigsaw / add share links / "
-                        "enable hygiene / enable tasks / enable verification picture."
+                        "enable hygiene / enable tasks / enable verification picture / "
+                        "enable pillory."
                     ),
                 )
             try:
-                after_exts = await chaster.activate_extension(lock_id, slug)
+                ensured = await chaster.ensure_extension(
+                    lock_id, slug, park_if_needed=True
+                )
+                after_exts = list(ensured.get("extensions") or [])
+                parked = list(ensured.get("parked") or [])
             except Exception as exc:  # noqa: BLE001
                 return ChasterActionResult(
                     ok=False,
@@ -896,10 +951,18 @@ async def run_chaster_intent(
             names = ", ".join(
                 str(e.get("slug") or "?") for e in after_exts
             ) or "(none)"
+            park_line = ""
+            if parked:
+                park_line = (
+                    "- Parked to free a slot (free max 3 extensions): "
+                    + ", ".join(str(p.get("slug") or "?") for p in parked)
+                    + '. Say "restore parked extensions" later.\n'
+                )
             facts = (
                 f"CHASTER ACTION DONE (extensions edit):\n"
                 f"- Requested by: {requested_by}\n"
                 f"- Action: activated / ensured `{slug}` on the lock\n"
+                f"{park_line}"
                 f"- Extensions now: {names}\n"
                 f"{_status_lines('AFTER', after_lock)}\n"
                 + _activation_followup(slug)
@@ -1365,19 +1428,81 @@ async def run_chaster_intent(
             )
 
         if intent.kind == "pillory":
-            await chaster.pillory(
-                lock_id,
-                duration_seconds=intent.seconds or 300,
-                reason=intent.reason or "AI Domme punishment",
-            )
+            secs = max(300, int(intent.seconds or 300))
+            reason = (intent.reason or "AI Domme punishment").strip()[:500]
+            parked_note = ""
+            try:
+                ensured = await chaster.ensure_extension(
+                    lock_id, "pillory", park_if_needed=True
+                )
+                parked = list(ensured.get("parked") or [])
+                if parked:
+                    names = ", ".join(
+                        str(p.get("slug") or "?") for p in parked
+                    )
+                    parked_note = (
+                        f" Temporarily parked `{names}` to free a slot "
+                        f"(free tier max 3 extensions; duo-domme kept). "
+                        'Say "restore parked extensions" later.'
+                    )
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"Could not enable Pillory on the lock: {exc}. "
+                        "Free accounts are limited to 3 extensions — "
+                        "park/remove one in Chaster, or use Plus, then retry."
+                    ),
+                )
+            # Confirm pillory slug is actually present before claiming
+            try:
+                exts = await chaster.list_lock_extensions(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not verify extensions after pillory enable: {exc}",
+                )
+            if not any(str(e.get("slug") or "") == "pillory" for e in exts):
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        "Pillory is still not on the lock after activate — "
+                        "not claiming a pillory. Check extension slots / Plus."
+                    ),
+                )
+            try:
+                await chaster.pillory(
+                    lock_id,
+                    duration_seconds=secs,
+                    reason=reason,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        f"Pillory extension is on the lock but start failed: {exc}. "
+                        "Nothing claimed."
+                    ),
+                )
             after = summarize_lock(await refresh_lock(chaster, lock))
             return ChasterActionResult(
                 ok=True,
                 facts=_facts_after(
                     action_line=(
-                        f"Pilloried for {format_duration(intent.seconds or 300)} "
-                        f"(reason: {intent.reason or 'AI Domme punishment'}). "
-                        "Note: pillory needs the Pillory extension on the lock to show publicly."
+                        f"Pilloried for {format_duration(secs)} "
+                        f"(reason: {reason}).{parked_note}"
                     ),
                     before=before,
                     after=after,
@@ -1731,11 +1856,14 @@ def format_extensions_facts(
             "- Tasks: assign/start-timer/complete when `tasks` is on the lock.",
             "- Share links (`link`): configure timeToAdd/timeToRemove; "
             "NO API to mint the public URL (UI only).",
-            "- Pillory: start via Duo Domme; community votes via pillory vote endpoint.",
+            "- Pillory: must be ON the lock, then Duo Domme starts it. "
+            "Free tier max 3 extensions — bot may temporarily park another plugin "
+            '(never duo-domme) to enable it; "restore parked extensions" later.',
             "- Jigsaw / Wheel / Dice: activate/config; gameplay is in Chaster UI "
             "(jigsaw remote actions unavailable).",
             '- Activate missing ones: "activate share links", "activate hygiene", '
-            '"activate tasks", "activate verification picture", "activate jigsaw".',
+            '"activate tasks", "activate verification picture", "activate pillory", '
+            '"activate jigsaw".',
             "- Never invent controls that are not listed above.",
         ]
     )

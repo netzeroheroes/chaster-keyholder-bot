@@ -23,6 +23,22 @@ API_BASE = "https://api.chaster.app"
 
 DEFAULT_SCOPES = "profile locks keyholder"
 
+# Free (non-Plus) locks: max 3 extensions. Duo Domme must always stay.
+FREE_EXTENSION_LIMIT = 3
+PROTECTED_EXTENSION_SLUGS = frozenset({"duo-domme"})
+# Park first when we need a free slot for a punishment plugin
+PARK_PRIORITY = (
+    "jigsaw-puzzle",
+    "dice",
+    "wheel-of-fortune",
+    "random-events",
+    "verification-picture",
+    "tasks",
+    "temporary-opening",
+    "link",
+)
+PARKED_PATH = DATA_DIR / "parked_extensions.json"
+
 
 class ChasterClient:
     def __init__(self, settings: Settings) -> None:
@@ -621,24 +637,24 @@ class ChasterClient:
             json_body={"extensions": clean},
         )
 
-    async def activate_extension(
-        self,
-        lock_id: str,
-        slug: str,
-        *,
-        config: dict[str, Any] | None = None,
-        mode: str | None = None,
-        regularity: int | None = None,
-    ) -> list[dict[str, Any]]:
-        """Add an extension if missing; never drop duo-domme or existing plugins."""
-        lid = (lock_id or "").strip()
-        want = (slug or "").strip()
-        if not lid or not want:
-            raise RuntimeError("lock_id and slug required")
-        current = await self.list_lock_extensions(lid)
-        if any(str(e.get("slug") or "") == want for e in current):
-            return current
-        # Prefer catalog defaults when available
+    def _load_parked(self) -> dict[str, list[dict[str, Any]]]:
+        if not PARKED_PATH.is_file():
+            return {}
+        try:
+            raw = json.loads(PARKED_PATH.read_text(encoding="utf-8"))
+            return raw if isinstance(raw, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_parked(self, data: dict[str, list[dict[str, Any]]]) -> None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        PARKED_PATH.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    async def _catalog_defaults(
+        self, slug: str, *, mode: str | None = None, regularity: int | None = None
+    ) -> tuple[dict[str, Any], str, int]:
         default_config: dict[str, Any] = {}
         default_mode = mode or "unlimited"
         default_reg = regularity or 3600
@@ -646,7 +662,7 @@ class ChasterClient:
             catalog = await self._request("GET", "/extensions")
             if isinstance(catalog, list):
                 for item in catalog:
-                    if isinstance(item, dict) and item.get("slug") == want:
+                    if isinstance(item, dict) and item.get("slug") == slug:
                         if isinstance(item.get("defaultConfig"), dict):
                             default_config = dict(item["defaultConfig"])
                         modes = item.get("availableModes") or []
@@ -656,7 +672,62 @@ class ChasterClient:
                             default_reg = int(item["defaultRegularity"])
                         break
         except Exception:  # noqa: BLE001
-            log.exception("Extension catalog lookup failed for %s", want)
+            log.exception("Extension catalog lookup failed for %s", slug)
+        return default_config, default_mode, int(default_reg)
+
+    def _pick_park_candidate(
+        self, current: list[dict[str, Any]], *, keep: str
+    ) -> dict[str, Any] | None:
+        """Choose a non-protected extension to park for a free slot."""
+        by_slug = {
+            str(e.get("slug") or ""): e
+            for e in current
+            if str(e.get("slug") or "")
+        }
+        for slug in PARK_PRIORITY:
+            if slug == keep or slug in PROTECTED_EXTENSION_SLUGS:
+                continue
+            if slug in by_slug:
+                return by_slug[slug]
+        # Last resort: any non-protected / non-target
+        for e in current:
+            slug = str(e.get("slug") or "")
+            if slug and slug != keep and slug not in PROTECTED_EXTENSION_SLUGS:
+                return e
+        return None
+
+    async def ensure_extension(
+        self,
+        lock_id: str,
+        slug: str,
+        *,
+        config: dict[str, Any] | None = None,
+        mode: str | None = None,
+        regularity: int | None = None,
+        park_if_needed: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Ensure `slug` is on the lock. Free tier max 3 extensions — may temporarily
+        park another plugin (never duo-domme) to make room.
+        """
+        lid = (lock_id or "").strip()
+        want = (slug or "").strip()
+        if not lid or not want:
+            raise RuntimeError("lock_id and slug required")
+        current = await self.list_lock_extensions(lid)
+        if any(str(e.get("slug") or "") == want for e in current):
+            return {"extensions": current, "parked": [], "already": True}
+
+        default_config, default_mode, default_reg = await self._catalog_defaults(
+            want, mode=mode, regularity=regularity
+        )
+        new_ext = {
+            "slug": want,
+            "config": config if isinstance(config, dict) else default_config,
+            "mode": default_mode,
+            "regularity": int(default_reg),
+        }
+
         body = [
             {
                 "slug": e.get("slug"),
@@ -666,16 +737,156 @@ class ChasterClient:
             }
             for e in current
         ]
-        body.append(
+        parked: list[dict[str, Any]] = []
+
+        # Free locks: 3 extensions max (Plus = unlimited). Count after adding.
+        if park_if_needed and len(body) + 1 > FREE_EXTENSION_LIMIT:
+            candidate = self._pick_park_candidate(current, keep=want)
+            if not candidate:
+                raise RuntimeError(
+                    f"Cannot add `{want}`: free tier allows {FREE_EXTENSION_LIMIT} "
+                    "extensions and nothing safe to park (duo-domme is protected)."
+                )
+            park_slug = str(candidate.get("slug") or "")
+            parked.append(
+                {
+                    "slug": park_slug,
+                    "config": candidate.get("config") or {},
+                    "mode": candidate.get("mode") or "unlimited",
+                    "regularity": candidate.get("regularity") or 3600,
+                }
+            )
+            body = [e for e in body if str(e.get("slug") or "") != park_slug]
+            log.info(
+                "Parking extension `%s` to free a slot for `%s` (free %s-ext limit)",
+                park_slug,
+                want,
+                FREE_EXTENSION_LIMIT,
+            )
+
+        body.append(new_ext)
+        try:
+            await self.replace_lock_extensions(lid, body)
+        except Exception as exc:  # noqa: BLE001
+            # Retry once with parking if API rejected for limit
+            msg = str(exc).lower()
+            if park_if_needed and not parked and (
+                "limit" in msg or "plus" in msg or "maximum" in msg or "too many" in msg
+            ):
+                candidate = self._pick_park_candidate(current, keep=want)
+                if not candidate:
+                    raise
+                park_slug = str(candidate.get("slug") or "")
+                parked.append(
+                    {
+                        "slug": park_slug,
+                        "config": candidate.get("config") or {},
+                        "mode": candidate.get("mode") or "unlimited",
+                        "regularity": candidate.get("regularity") or 3600,
+                    }
+                )
+                body = [
+                    {
+                        "slug": e.get("slug"),
+                        "config": e.get("config") or {},
+                        "mode": e.get("mode") or "unlimited",
+                        "regularity": e.get("regularity") or 3600,
+                    }
+                    for e in current
+                    if str(e.get("slug") or "") != park_slug
+                ]
+                body.append(new_ext)
+                await self.replace_lock_extensions(lid, body)
+            else:
+                raise
+
+        if parked:
+            store = self._load_parked()
+            existing = list(store.get(lid) or [])
+            # Avoid duplicate parked slugs
+            have = {str(e.get("slug") or "") for e in existing}
+            for p in parked:
+                if str(p.get("slug") or "") not in have:
+                    existing.append(p)
+            store[lid] = existing
+            self._save_parked(store)
+
+        after = await self.list_lock_extensions(lid)
+        if not any(str(e.get("slug") or "") == want for e in after):
+            raise RuntimeError(
+                f"Failed to put `{want}` on the lock after edit "
+                f"(still: {[e.get('slug') for e in after]})."
+            )
+        return {"extensions": after, "parked": parked, "already": False}
+
+    async def restore_parked_extensions(self, lock_id: str) -> dict[str, Any]:
+        """Put back extensions temporarily parked for free-tier slot limits."""
+        lid = (lock_id or "").strip()
+        store = self._load_parked()
+        parked = list(store.get(lid) or [])
+        if not parked:
+            return {"restored": [], "extensions": await self.list_lock_extensions(lid)}
+        current = await self.list_lock_extensions(lid)
+        have = {str(e.get("slug") or "") for e in current}
+        body = [
             {
-                "slug": want,
-                "config": config if isinstance(config, dict) else default_config,
-                "mode": default_mode,
-                "regularity": int(default_reg),
+                "slug": e.get("slug"),
+                "config": e.get("config") or {},
+                "mode": e.get("mode") or "unlimited",
+                "regularity": e.get("regularity") or 3600,
             }
+            for e in current
+        ]
+        restored: list[str] = []
+        for p in parked:
+            slug = str(p.get("slug") or "")
+            if not slug or slug in have:
+                continue
+            # If still at free limit, stop (Plus would allow more)
+            if len(body) >= FREE_EXTENSION_LIMIT:
+                break
+            body.append(
+                {
+                    "slug": slug,
+                    "config": p.get("config") or {},
+                    "mode": p.get("mode") or "unlimited",
+                    "regularity": p.get("regularity") or 3600,
+                }
+            )
+            have.add(slug)
+            restored.append(slug)
+        if restored:
+            await self.replace_lock_extensions(lid, body)
+            remaining = [
+                p for p in parked if str(p.get("slug") or "") not in set(restored)
+            ]
+            if remaining:
+                store[lid] = remaining
+            else:
+                store.pop(lid, None)
+            self._save_parked(store)
+        after = await self.list_lock_extensions(lid)
+        return {"restored": restored, "extensions": after, "still_parked": list(store.get(lid) or [])}
+
+    async def activate_extension(
+        self,
+        lock_id: str,
+        slug: str,
+        *,
+        config: dict[str, Any] | None = None,
+        mode: str | None = None,
+        regularity: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Add an extension if missing; park another if free-tier 3-slot limit blocks it."""
+        result = await self.ensure_extension(
+            lock_id,
+            slug,
+            config=config,
+            mode=mode,
+            regularity=regularity,
+            park_if_needed=True,
         )
-        await self.replace_lock_extensions(lid, body)
-        return await self.list_lock_extensions(lid)
+        return list(result.get("extensions") or [])
 
     def summarize_locks(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         from datetime import datetime, timezone

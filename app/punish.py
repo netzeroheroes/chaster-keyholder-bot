@@ -360,7 +360,7 @@ def format_auto_punish_reply(
     if "assign_task" in applied:
         bits.append("assigned you a Chaster task")
     if "pillory" in applied:
-        bits.append("put you in the pillory")
+        bits.append("put you in the pillory (extension enabled and started)")
     if "request_verification" in applied:
         bits.append("demanded a verification picture")
     if not bits:
