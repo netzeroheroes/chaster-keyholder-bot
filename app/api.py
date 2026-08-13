@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSON
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.autopilot import autopilot_loop, in_window
+from app.autopilot import autopilot_loop, autopilot_status, in_window
 from app.extension_routes import register_extension_routes
 from app.lock_watch import lock_watch_loop
 from app.runtime_controls import init_controls
@@ -285,7 +285,7 @@ def create_api(
             "auto_punish_enabled": controls.auto_punish_enabled,
             "autopilot": {
                 **controls.snapshot(),
-                "in_window": in_window(settings),
+                **autopilot_status(settings),
             },
             "pins_required": {
                 "domme": bool(settings.domme_pin),

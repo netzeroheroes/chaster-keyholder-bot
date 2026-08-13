@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+_FALLBACK_TEASES = (
+    "{sub} — just us. Stay caged and think about what I'm going to do with you.",
+    "Checking in, {sub}. Hands off. You're still mine until {title} says otherwise.",
+    "Don't get comfortable, {sub}. I'm watching the lock — and you.",
+    "Quiet stretch for you, {sub}. Behave. I'll decide when you get attention.",
+    "Still locked. Still owned. Say thank you in your head, {sub}.",
+)
+
 
 def _parse_hhmm(value: str) -> time:
     raw = (value or "00:00").strip()
@@ -79,6 +87,20 @@ def in_window(settings: Settings, now: datetime | None = None) -> bool:
 _LAST_TICK_ISO: str = ""
 _NEXT_WAKE_ISO: str = ""
 _LAST_SKIP_REASON: str = ""
+_FORCE_EVENT: asyncio.Event | None = None
+_LOOP_STARTED: bool = False
+
+
+def _force_event() -> asyncio.Event:
+    global _FORCE_EVENT
+    if _FORCE_EVENT is None:
+        _FORCE_EVENT = asyncio.Event()
+    return _FORCE_EVENT
+
+
+def request_force_tick() -> None:
+    """Wake the loop and run a tease as soon as possible (Domme 'Tease now')."""
+    _force_event().set()
 
 
 def autopilot_status(settings: Settings) -> dict[str, Any]:
@@ -99,6 +121,7 @@ def autopilot_status(settings: Settings) -> dict[str, Any]:
         "last_tick_at": _LAST_TICK_ISO or None,
         "next_wake_at": _NEXT_WAKE_ISO or None,
         "last_skip_reason": _LAST_SKIP_REASON or None,
+        "loop_running": _LOOP_STARTED,
     }
 
 
@@ -111,18 +134,19 @@ async def run_unprompted_tick(
     memory: LongTermMemory,
     bridge: GroupBridge,
     chaster: ChasterClient | None,
+    force: bool = False,
 ) -> dict[str, Any] | None:
     """One spontaneous group tease; optionally a mild lock nudge."""
+    global _LAST_SKIP_REASON, _LAST_TICK_ISO
+
     from app.chaster_actions import run_chaster_intent, ChasterIntent
     from app.persist import save_sessions
-    from app.roles import bot_label
+    from app.roles import bot_label, domme_address
 
-    if not in_window(settings):
+    if not force and not in_window(settings):
         return None
 
     bot = bot_label(memory)
-    from app.roles import domme_address
-
     title = domme_address(memory)
     sub = memory.sub_name or "BOY"
 
@@ -144,17 +168,30 @@ async def run_unprompted_tick(
             intent = ChasterIntent(kind="freeze")
         else:
             intent = ChasterIntent(kind="hide_time")
-        result = await run_chaster_intent(
-            chaster, intent, requested_by=f"{bot} (autopilot)"
-        )
-        if result.ok and not result.blocked:
-            chaster_line = (
-                f"\n[LOCK CHANGE CONFIRMED: {intent.kind}. "
-                f"Remaining={((result.lock or {}).get('remaining'))}, "
-                f"frozen={((result.lock or {}).get('is_frozen'))}]"
+        try:
+            result = await asyncio.wait_for(
+                run_chaster_intent(
+                    chaster, intent, requested_by=f"{bot} (autopilot)"
+                ),
+                timeout=20.0,
             )
-        else:
+        except asyncio.TimeoutError:
+            log.warning("Autopilot Chaster nudge timed out (%s)", intent.kind)
             chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
+            result = None
+        except Exception:  # noqa: BLE001
+            log.exception("Autopilot Chaster nudge failed")
+            chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
+            result = None
+        if result is not None:
+            if result.ok and not result.blocked:
+                chaster_line = (
+                    f"\n[LOCK CHANGE CONFIRMED: {intent.kind}. "
+                    f"Remaining={((result.lock or {}).get('remaining'))}, "
+                    f"frozen={((result.lock or {}).get('is_frozen'))}]"
+                )
+            else:
+                chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
 
     system = (
         f"You are {bot}, the AI Domme/keyholder. Unprompted check-in in GROUP chat.\n"
@@ -167,19 +204,53 @@ async def run_unprompted_tick(
         "Send an unprompted tease/order while the Sub is under our control."
         + chaster_line
     )
+    text = ""
     try:
-        text, _ = await agent.reply(user, history=[], system_prompt=system)
+        raw, _ = await asyncio.wait_for(
+            agent.reply(user, history=[], system_prompt=system),
+            timeout=60.0,
+        )
+        text = (raw or "").strip()
+        if text in ("(empty response)",):
+            text = ""
+    except asyncio.TimeoutError:
+        log.warning("Autopilot LLM timed out — using fallback tease")
+        _LAST_SKIP_REASON = "LLM timed out — posted fallback"
     except Exception:
-        log.exception("Autopilot LLM failed")
-        return None
+        log.exception("Autopilot LLM failed — using fallback tease")
+        _LAST_SKIP_REASON = "LLM failed — posted fallback"
 
-    text = (text or "").strip()
     if not text:
-        return None
+        text = random.choice(_FALLBACK_TEASES).format(sub=sub, title=title)
+        if not _LAST_SKIP_REASON:
+            _LAST_SKIP_REASON = "empty LLM — posted fallback"
+
     await bridge.publish_group_messages(store, [text], speaker=bot)
-    save_sessions(store)
-    log.info("Autopilot posted unprompted group line")
+    try:
+        save_sessions(store)
+    except Exception:  # noqa: BLE001
+        log.exception("Autopilot save_sessions failed (message still in memory)")
+    c_tz = _tzinfo(getattr(c, "autopilot_timezone", None))
+    _LAST_TICK_ISO = datetime.now(c_tz).isoformat(timespec="seconds")
+    log.info("Autopilot posted unprompted group line (%s chars)", len(text))
     return {"posted": text}
+
+
+async def _sleep_interruptible(total_seconds: float) -> bool:
+    """Sleep in short chunks. Returns True if a force-tick was requested."""
+    ev = _force_event()
+    remaining = max(0.0, float(total_seconds))
+    chunk = 15.0
+    while remaining > 0:
+        if ev.is_set():
+            return True
+        wait = min(chunk, remaining)
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=wait)
+            return True
+        except asyncio.TimeoutError:
+            remaining -= wait
+    return ev.is_set()
 
 
 async def autopilot_loop(
@@ -192,7 +263,9 @@ async def autopilot_loop(
     bridge: GroupBridge,
     chaster: ChasterClient | None,
 ) -> None:
-    global _LAST_TICK_ISO, _NEXT_WAKE_ISO, _LAST_SKIP_REASON
+    global _LAST_TICK_ISO, _NEXT_WAKE_ISO, _LAST_SKIP_REASON, _LOOP_STARTED
+    _LOOP_STARTED = True
+    ev = _force_event()
     c0 = _ctrl(settings)
     log.info(
         "Autopilot loop started enabled=%s window=%s-%s tz=%s",
@@ -206,8 +279,14 @@ async def autopilot_loop(
             c = _ctrl(settings)
             enabled = bool(getattr(c, "autopilot_enabled", False))
             open_now = window_open(settings)
-            if enabled and open_now:
-                _LAST_SKIP_REASON = ""
+            forced = ev.is_set()
+            if forced:
+                ev.clear()
+
+            should_tick = forced or (enabled and open_now)
+            if should_tick:
+                if not forced:
+                    _LAST_SKIP_REASON = ""
                 posted = await run_unprompted_tick(
                     settings=settings,
                     agent=agent,
@@ -216,14 +295,17 @@ async def autopilot_loop(
                     memory=memory,
                     bridge=bridge,
                     chaster=chaster,
+                    force=forced,
                 )
                 if posted:
-                    _LAST_TICK_ISO = datetime.now(
-                        _tzinfo(getattr(c, "autopilot_timezone", None))
-                    ).isoformat(timespec="seconds")
+                    if "fallback" not in (_LAST_SKIP_REASON or ""):
+                        _LAST_SKIP_REASON = ""
+                elif forced:
+                    _LAST_SKIP_REASON = "forced tick produced no message"
                 lo = max(1, int(getattr(c, "autopilot_min_minutes", 45)))
                 hi = max(lo, int(getattr(c, "autopilot_max_minutes", 120)))
-                delay = random.randint(lo, hi) * 60
+                # After a forced tease, still respect the gap unless disabled
+                delay = random.randint(lo, hi) * 60 if enabled else 30
             else:
                 if not enabled:
                     _LAST_SKIP_REASON = "autopilot_enabled is false on server"
@@ -239,10 +321,10 @@ async def autopilot_loop(
             _NEXT_WAKE_ISO = (
                 datetime.now(tz) + timedelta(seconds=delay)
             ).isoformat(timespec="seconds")
-            await asyncio.sleep(delay)
+            await _sleep_interruptible(delay)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("Autopilot tick failed")
             _LAST_SKIP_REASON = "tick error — see server logs"
-            await asyncio.sleep(60)
+            await _sleep_interruptible(60)

@@ -220,9 +220,8 @@
     const on = st.autopilot_enabled ? "ON" : "OFF";
     const win = st.window_open ? "inside window" : "outside window";
     const bits = [`Live: ${on}`, win];
-    if (st.last_skip_reason && !st.in_window) {
-      bits.push(st.last_skip_reason);
-    }
+    if (st.loop_running === false) bits.push("loop not started");
+    if (st.last_skip_reason) bits.push(st.last_skip_reason);
     if (st.last_tick_at) bits.push(`last tease ${st.last_tick_at}`);
     if (st.next_wake_at) bits.push(`next check ~${st.next_wake_at}`);
     el.textContent = bits.join(" · ");
@@ -494,6 +493,39 @@
         }
       } catch (err) {
         els.settingsStatus.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  const teaseNowBtn = document.getElementById("autopilotTeaseNow");
+  if (teaseNowBtn) {
+    teaseNowBtn.addEventListener("click", async () => {
+      const statusEl = document.getElementById("settingsStatus");
+      if (statusEl) statusEl.textContent = "Sending tease…";
+      teaseNowBtn.disabled = true;
+      try {
+        const res = await fetch("/api/ext/autopilot/tick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ main_token: state.mainToken }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(apiDetail(data, "Tease failed"));
+        renderAutopilotStatus(data.autopilot);
+        if (statusEl) {
+          statusEl.textContent = data.posted
+            ? "Tease posted to Group — switch rooms to see it."
+            : "Tick ran but nothing was posted.";
+        }
+        if (state.room !== "group") {
+          // Soft hint only; history poll will pick it up in group
+        } else {
+          await loadHistory();
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = String(err.message || err);
+      } finally {
+        teaseNowBtn.disabled = false;
       }
     });
   }

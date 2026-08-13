@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.agent import ChatAgent
-from app.autopilot import autopilot_status
+from app.autopilot import autopilot_status, run_unprompted_tick
 from app.bridge import GroupBridge
 from app.chaster import ChasterClient
 from app.chat_service import handle_chat_turn
@@ -500,6 +500,27 @@ def register_extension_routes(
             "config": clean,
             "chaster_sync": chaster_sync,
             "chaster_sync_error": sync_error,
+            "autopilot": autopilot_status(settings),
+        }
+
+    @api.post("/api/ext/autopilot/tick")
+    async def ext_autopilot_tick(body: ExtSessionBody) -> dict:
+        """Domme: fire one unprompted group tease immediately (debug / manual)."""
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        posted = await run_unprompted_tick(
+            settings=settings,
+            agent=agent,
+            store=store,
+            scene=scene,
+            memory=memory,
+            bridge=bridge,
+            chaster=chaster,
+            force=True,
+        )
+        return {
+            "ok": bool(posted),
+            "posted": (posted or {}).get("posted") if posted else None,
             "autopilot": autopilot_status(settings),
         }
 
