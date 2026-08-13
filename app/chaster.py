@@ -446,6 +446,7 @@ class ChasterClient:
                     "id": ext.get("_id") or ext.get("id"),
                     "slug": ext.get("slug") or ext.get("name"),
                     "mode": ext.get("mode"),
+                    "regularity": ext.get("regularity"),
                     "display_name": ext.get("displayName")
                     or ext.get("name")
                     or ext.get("slug"),
@@ -453,6 +454,108 @@ class ChasterClient:
                 }
             )
         return out
+
+    async def replace_lock_extensions(
+        self,
+        lock_id: str,
+        extensions: list[dict[str, Any]],
+    ) -> None:
+        """
+        Replace the lock's extension list (trusted keyholder).
+        ALWAYS include duo-domme or the bot loses control.
+        Body items: slug, config, mode, regularity — no _id.
+        """
+        lid = (lock_id or "").strip()
+        if not lid:
+            raise RuntimeError("lock_id required")
+        clean: list[dict[str, Any]] = []
+        for ext in extensions:
+            if not isinstance(ext, dict):
+                continue
+            slug = str(ext.get("slug") or "").strip()
+            if not slug:
+                continue
+            clean.append(
+                {
+                    "slug": slug,
+                    "config": ext.get("config")
+                    if isinstance(ext.get("config"), dict)
+                    else {},
+                    "mode": str(ext.get("mode") or "unlimited"),
+                    "regularity": int(ext.get("regularity") or 3600),
+                }
+            )
+        if not any(e["slug"] == "duo-domme" for e in clean):
+            clean.insert(
+                0,
+                {
+                    "slug": "duo-domme",
+                    "config": {},
+                    "mode": "unlimited",
+                    "regularity": 3600,
+                },
+            )
+        await self._request(
+            "POST",
+            f"/locks/{lid}/extensions",
+            json_body={"extensions": clean},
+        )
+
+    async def activate_extension(
+        self,
+        lock_id: str,
+        slug: str,
+        *,
+        config: dict[str, Any] | None = None,
+        mode: str | None = None,
+        regularity: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Add an extension if missing; never drop duo-domme or existing plugins."""
+        lid = (lock_id or "").strip()
+        want = (slug or "").strip()
+        if not lid or not want:
+            raise RuntimeError("lock_id and slug required")
+        current = await self.list_lock_extensions(lid)
+        if any(str(e.get("slug") or "") == want for e in current):
+            return current
+        # Prefer catalog defaults when available
+        default_config: dict[str, Any] = {}
+        default_mode = mode or "unlimited"
+        default_reg = regularity or 3600
+        try:
+            catalog = await self._request("GET", "/extensions")
+            if isinstance(catalog, list):
+                for item in catalog:
+                    if isinstance(item, dict) and item.get("slug") == want:
+                        if isinstance(item.get("defaultConfig"), dict):
+                            default_config = dict(item["defaultConfig"])
+                        modes = item.get("availableModes") or []
+                        if modes and not mode:
+                            default_mode = str(modes[0])
+                        if item.get("defaultRegularity") and not regularity:
+                            default_reg = int(item["defaultRegularity"])
+                        break
+        except Exception:  # noqa: BLE001
+            log.exception("Extension catalog lookup failed for %s", want)
+        body = [
+            {
+                "slug": e.get("slug"),
+                "config": e.get("config") or {},
+                "mode": e.get("mode") or "unlimited",
+                "regularity": e.get("regularity") or 3600,
+            }
+            for e in current
+        ]
+        body.append(
+            {
+                "slug": want,
+                "config": config if isinstance(config, dict) else default_config,
+                "mode": default_mode,
+                "regularity": int(default_reg),
+            }
+        )
+        await self.replace_lock_extensions(lid, body)
+        return await self.list_lock_extensions(lid)
 
     def summarize_locks(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         from datetime import datetime, timezone

@@ -34,7 +34,13 @@ from app.scene_builder import build_scene_from_profile, wants_scene_build
 
 # Read-only intents — Sub may ask; Domme may ask. No lock mutation.
 _READ_ONLY_INTENTS = frozenset(
-    {"list_kinks", "list_capabilities", "list_history", "list_extensions", "status"}
+    {
+        "list_kinks",
+        "list_capabilities",
+        "list_history",
+        "list_extensions",
+        "status",
+    }
 )
 from app.images import ImageService
 from app.memory import LongTermMemory
@@ -472,10 +478,13 @@ async def handle_chat_turn(
                         "BOY — lock control is for Mistress and me. "
                         "You don't get the control menu. Ask about your cage, toys, or orders."
                     )
+                elif result.ok and intent.kind in ("list_extensions", "list_history"):
+                    # Honest API facts only — no LLM inventing jigsaw controls
+                    chaster_truth_reply = format_capabilities_reply(result)
                 else:
                     chaster_note = (
-                        "\n\n[DIRECTOR: Could not load his profile/toys. "
-                        "Stay in scene without inventing a catalog.]"
+                        "\n\n[DIRECTOR: Could not load that read-only lock info. "
+                        "Stay in scene without inventing extensions or catalogs.]"
                     )
             else:
                 result = await run_chaster_intent(

@@ -27,6 +27,7 @@ ActionKind = Literal[
     "list_kinks",
     "list_history",
     "list_extensions",
+    "activate_extension",
     "unsupported_reminders",
     "unsupported_notifications",
 ]
@@ -42,8 +43,42 @@ MUTATING = frozenset(
         "show_time",
         "set_note",
         "history_message",
+        "activate_extension",
     }
 )
+
+# Duo Domme partner session — only these actions are real via our bot token
+DUO_DOMME_ACTIONS = (
+    "add_time",
+    "remove_time",
+    "freeze",
+    "unfreeze",
+    "toggle_freeze",
+    "pillory",
+    "set_display_remaining_time",
+)
+
+# Common extensions we can activate on a trusted lock (keyholder edit)
+ACTIVATABLE_SLUGS = {
+    "jigsaw": "jigsaw-puzzle",
+    "jigsaws": "jigsaw-puzzle",
+    "puzzle": "jigsaw-puzzle",
+    "puzzles": "jigsaw-puzzle",
+    "jigsaw puzzle": "jigsaw-puzzle",
+    "jigsaw-puzzle": "jigsaw-puzzle",
+    "wheel": "wheel-of-fortune",
+    "wheel of fortune": "wheel-of-fortune",
+    "wheel-of-fortune": "wheel-of-fortune",
+    "tasks": "tasks",
+    "task": "tasks",
+    "dice": "dice",
+    "pillory": "pillory",
+    "hygiene": "temporary-opening",
+    "temporary opening": "temporary-opening",
+    "share link": "temporary-opening",
+    "verification": "verification-picture",
+    "verification picture": "verification-picture",
+}
 
 
 @dataclass
@@ -115,13 +150,29 @@ def parse_chaster_intent(
 
     # Extensions / plugins on the lock (must beat kink/toy matching — "toy with him")
     if re.search(
-        r"\b(extensions?|plugins?)\b",
+        r"\b(extensions?|plugins?|jigsaws?|puzzles?|wheel(?:\s+of\s+fortune)?|tasks?)\b",
         low,
     ) and re.search(
-        r"\b(what|which|list|show|have|on (his |the )?lock|use|how)\b",
+        r"\b(what|which|list|show|have|on (his |the |my )?lock|use|how|can you do|do (to|with)|control)\b",
         low,
     ):
         return ChasterIntent(kind="list_extensions")
+
+    # Domme: activate / add an extension on the lock
+    act = re.search(
+        r"\b(?:activate|enable|add|install|turn on)\b\s+"
+        r"(?:the\s+|his\s+|a\s+)?"
+        r"(jigsaws?|puzzles?|jigsaw(?:\s+puzzle)?|wheel(?:\s+of\s+fortune)?|"
+        r"tasks?|dice|pillory|hygiene|temporary opening|verification(?:\s+picture)?)\b",
+        low,
+    )
+    if act:
+        alias = act.group(1).strip().lower()
+        slug = ACTIVATABLE_SLUGS.get(alias) or ACTIVATABLE_SLUGS.get(
+            alias.replace(" ", "-")
+        )
+        if slug:
+            return ChasterIntent(kind="activate_extension", reason=slug)
 
     if re.search(
         r"\b((lock\s+)?history|recent (lock )?actions?|what happened on (his |the )?lock|"
@@ -433,12 +484,17 @@ def summarize_lock(lock: dict[str, Any]) -> dict[str, Any]:
 
 
 def _status_lines(label: str, summary: dict[str, Any]) -> str:
+    rem = summary.get("remaining") or "unknown"
+    rem_secs = summary.get("remaining_seconds")
+    if rem_secs is None:
+        rem_detail = "seconds unknown (timer may be hidden)"
+    else:
+        rem_detail = f"{rem_secs} seconds"
     return (
         f"{label}:\n"
         f"- Wearer: {summary.get('username') or '?'}\n"
         f"- Status: {summary.get('status')}\n"
-        f"- Remaining: {summary.get('remaining')} "
-        f"({summary.get('remaining_seconds')} seconds)\n"
+        f"- Remaining: {rem} ({rem_detail})\n"
         f"- Frozen: {summary.get('is_frozen')}\n"
         f"- Timer visible: {summary.get('display_remaining_time')}\n"
         f"- Timer ended: {summary.get('timer_ended')}\n"
@@ -657,37 +713,56 @@ async def run_chaster_intent(
                     lock=before,
                     facts=f"Could not list extensions: {exc}",
                 )
-            lines = [
-                _domme_lock_snapshot(before),
-                "",
-                "Extensions / plugins on his lock:",
-            ]
-            if not exts:
-                lines.append("(none listed)")
-            for ext in exts:
-                slug = ext.get("slug") or "?"
-                mode = ext.get("mode") or ""
-                lines.append(f"• {slug}" + (f" ({mode})" if mode else ""))
-            lines.extend(
-                [
-                    "",
-                    "How we can toy with him using them:",
-                    "• duo-domme — I can add/remove time, freeze, hide/show his timer, pillory, "
-                    "and post lock history / push messages. Say the order in chat "
-                    '(e.g. "add 2 hours", "hide the timer", "message him: stay denied").',
-                    "• jigsaw-puzzle / Wheel / Tasks / Hygiene Opening (share links) — "
-                    "he plays those in Chaster; when he completes, fails, or opens a share link, "
-                    "it hits lock history and I react in this chat. "
-                    "We cannot always press every third-party button remotely the same way.",
-                    "",
-                    "Session Settings (on this Keyholder page) sets default add/remove time sizes "
-                    "when you don't specify an amount.",
-                ]
+            facts = format_extensions_facts(before, exts, requested_by=requested_by)
+            return ChasterActionResult(
+                ok=True,
+                facts=facts,
+                lock=before,
+                before=before,
+            )
+
+        if intent.kind == "activate_extension":
+            lock_id = str(before.get("lock_id") or "")
+            slug = (intent.reason or "").strip()
+            if not slug:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        "No extension slug given. Try: activate jigsaw / add wheel of fortune / "
+                        "enable tasks."
+                    ),
+                )
+            try:
+                after_exts = await chaster.activate_extension(lock_id, slug)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not activate `{slug}`: {exc}",
+                )
+            after_lock = summarize_lock(await refresh_lock(chaster, lock))
+            names = ", ".join(
+                str(e.get("slug") or "?") for e in after_exts
+            ) or "(none)"
+            facts = (
+                f"CHASTER ACTION DONE (extensions edit):\n"
+                f"- Requested by: {requested_by}\n"
+                f"- Action: activated / ensured `{slug}` on the lock\n"
+                f"- Extensions now: {names}\n"
+                f"{_status_lines('AFTER', after_lock)}\n"
+                "Note: gameplay for jigsaw/wheel/tasks is still done by the wearer in Chaster. "
+                "Duo Domme still controls time/freeze/timer. "
+                "I do NOT remotely move jigsaw pieces."
             )
             return ChasterActionResult(
                 ok=True,
-                facts="\n".join(lines),
-                lock=before,
+                facts=facts,
+                lock=after_lock,
                 before=before,
             )
 
@@ -998,6 +1073,110 @@ def _domme_lock_snapshot(summary: dict[str, Any]) -> str:
     )
 
 
+def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
+    """Honest remote-control matrix for a plugin currently on the lock."""
+    s = (slug or "").lower()
+    lines: list[str] = []
+    if s == "duo-domme":
+        lines.append(
+            "CONTROL: FULL via this bot — "
+            + ", ".join(DUO_DOMME_ACTIONS)
+            + "; plus lock history / push messages."
+        )
+        lines.append(
+            'Say in chat: "add 2 hours", "hide the timer", "freeze him", '
+            '"message him: stay denied".'
+        )
+        return lines
+    if s in ("jigsaw-puzzle", "jigsaw", "jigsaw-puzzles"):
+        pieces = config.get("pieces")
+        punish = config.get("punishments") or []
+        rewards = config.get("rewards") or []
+        puzzles = config.get("puzzles") or []
+        open_n = sum(
+            1
+            for p in puzzles
+            if isinstance(p, dict) and not p.get("completed")
+        )
+        lines.append(
+            "CONTROL: NOT remotely playable by this bot. "
+            "The wearer solves puzzles in the Chaster app/UI."
+        )
+        lines.append(
+            f"Live config: pieces={pieces}, open puzzles~{open_n}, "
+            f"punishments={punish or 'none'}, rewards={rewards or 'none'}, "
+            f"preventUnlockingWhenAvailable={config.get('preventUnlockingWhenAvailable')}, "
+            f"freezeWhenAvailable={config.get('freezeWhenAvailable')}."
+        )
+        lines.append(
+            "What we CAN do: Domme can activate/configure jigsaw in Chaster; "
+            'say "activate jigsaw" if it is missing. '
+            "When he completes/fails, history fires and I react in group. "
+            "Time penalties from failed puzzles apply through Chaster — "
+            "I do not move pieces or invent puzzle messages."
+        )
+        return lines
+    if s in ("wheel-of-fortune", "dice", "tasks", "pillory"):
+        lines.append(
+            "CONTROL: Wearer/keyholder plays this in Chaster. "
+            "This bot does not spin wheels / roll dice / assign official Tasks remotely "
+            "(except Duo Domme time/freeze/timer/pillory session actions)."
+        )
+        lines.append(
+            "I watch lock history for spins/tasks/pillory events and react in group. "
+            f'Domme can ensure it is on the lock: "activate {s}".'
+        )
+        return lines
+    if s in ("temporary-opening",):
+        lines.append(
+            "CONTROL: Hygiene / share-link opening — wearer uses Chaster share flow. "
+            "I react when share/open events hit history."
+        )
+        return lines
+    lines.append(
+        "CONTROL: Third-party/plugin — no Duo Domme remote buttons for this slug. "
+        "Wearer uses it in Chaster; I react to history events when they fire."
+    )
+    return lines
+
+
+def format_extensions_facts(
+    summary: dict[str, Any],
+    exts: list[dict[str, Any]],
+    *,
+    requested_by: str,
+) -> str:
+    lines = [
+        "CHASTER EXTENSIONS (real API — do not invent controls):",
+        f"- Requested by: {requested_by}",
+        _domme_lock_snapshot(summary),
+        "",
+        "On his lock right now:",
+    ]
+    if not exts:
+        lines.append("(none)")
+    for ext in exts:
+        slug = str(ext.get("slug") or "?")
+        name = str(ext.get("display_name") or slug)
+        mode = ext.get("mode") or ""
+        cfg = ext.get("config") if isinstance(ext.get("config"), dict) else {}
+        lines.append(f"• {name} (`{slug}`)" + (f" mode={mode}" if mode else ""))
+        lines.extend(f"  - {bit}" for bit in _describe_extension_control(slug, cfg))
+    lines.extend(
+        [
+            "",
+            "STRICT TRUTH:",
+            f"- Remotely controllable through this bot (Duo Domme): {', '.join(DUO_DOMME_ACTIONS)}.",
+            "- Jigsaw / Wheel / Tasks / Dice: wearer plays in Chaster; we do NOT "
+            "remotely adjust puzzle pieces or invent gameplay.",
+            '- Domme can activate missing plugins: "activate jigsaw", '
+            '"add wheel of fortune", "enable tasks".',
+            "- Never claim you changed a jigsaw unless an extensions ACTION DONE block says so.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
     """Domme-facing menu of real lock controls only."""
     return "\n".join(
@@ -1018,10 +1197,12 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '"message him: Be good tonight" or '
             '"send him a lock message: Tease | Edge twice and wait"',
             '• Recent history — say: "show lock history"',
-            '• Extensions on the lock — say: "what extensions are on his lock"',
+            '• Extensions on the lock — say: "what extensions are on his lock" / '
+            '"what can you do to my jigsaws"',
+            '• Activate a plugin — say: "activate jigsaw" / "add wheel of fortune"',
             "",
-            "Other plugins (Jigsaw, share/hygiene links, Wheel…) show up in history; "
-            "I react in group when those fire.",
+            "Jigsaw/Wheel/Tasks: he plays those in Chaster. We configure/activate and "
+            "react to history — we do not remotely move puzzle pieces.",
             "",
             "Just give the order in those words and I'll carry it out for real.",
         ]
@@ -1029,7 +1210,9 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
 
 
 def format_capabilities_reply(result: ChasterActionResult) -> str:
-    return "Mistress —\n\n" + (result.facts or "")
+    facts = (result.facts or "").strip()
+    # Keep API truth plain — Domme/Sub both see the same factual block
+    return facts
 
 
 def format_kink_profile(username: str, profile: dict[str, Any]) -> str:
