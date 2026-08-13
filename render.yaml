@@ -30,3 +30,21 @@ services:
         value: "false"
       - key: HOST
         value: "0.0.0.0"
+      - key: RAD_API_TOKEN
+        sync: false
+      - key: RAD_LOCKBOX_SYNC_ENABLED
+        value: "true"
+      - key: RAD_SYNC_HYGIENE
+        value: "true"
+      - key: RAD_SYNC_SESSION_LOCK
+        value: "false"
+      - key: RAD_MANUAL_ONLY
+        value: "true"
+      - key: RAD_TARGET_USER_ID
+        value: "0"
+      - key: RAD_LOCK_SETTINGS_ID
+        sync: false
+      - key: RAD_KEYHOLDER_IDS
+        value: ""
+      - key: RAD_IS_TEST_LOCK
+        value: "true"

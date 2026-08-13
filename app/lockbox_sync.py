@@ -153,7 +153,7 @@ def _target_duration_from_chaster(snap: dict[str, Any]) -> tuple[int | None, str
     Map Chaster state → R+D duration.
 
     R+D public API only supports duration (no freeze / hide flags), so:
-    - frozen: keep pushing real remaining (soft-freeze; timer gets rewound each sync)
+    - frozen: park at API max (10y) so the box doesn't keep counting down
     - time hidden: park on a long dummy duration until revealed
     - normal: real remaining
     """
@@ -163,11 +163,12 @@ def _target_duration_from_chaster(snap: dict[str, Any]) -> tuple[int | None, str
     if hidden:
         # Don't leak the real countdown on the box display
         return _HIDDEN_DURATION, "hidden-timer placeholder"
+    if frozen:
+        # Freeze has no R+D flag — park far out; unfreeze restores Chaster remaining.
+        return _MAX_DURATION, "frozen placeholder"
     if rem is None:
-        if frozen:
-            return _MAX_DURATION, "frozen (no endDate)"
         return None, "no remaining"
-    return _clamp_duration(int(rem)), "frozen soft-sync" if frozen else "chaster remaining"
+    return _clamp_duration(int(rem)), "chaster remaining"
 
 
 async def ensure_template_id(rad: RadLockboxClient) -> int | None:
@@ -229,12 +230,17 @@ async def maybe_resync_after_chaster_flags(
     _LAST_CHASTER_FLAGS["frozen"] = frozen
     _LAST_CHASTER_FLAGS["time_hidden"] = hidden
 
-    # First observation: seed flags. If already unfrozen+visible, catch up once
+    # First observation: seed flags + apply current freeze/hide/remaining once
     # (covers events missed while the server had no RAD token / was asleep).
     if prev_f is None and prev_h is None:
-        if not frozen and not hidden and snap.get("remaining"):
+        if frozen or hidden or snap.get("remaining"):
+            reason = "boot_catchup"
+            if frozen:
+                reason += "+lock_frozen"
+            if hidden:
+                reason += "+timer_hidden"
             return await sync_duration_from_chaster(
-                rad, chaster, reason="boot_catchup", force=True
+                rad, chaster, reason=reason, force=True
             )
         return None
 
@@ -243,22 +249,23 @@ async def maybe_resync_after_chaster_flags(
         reasons.append("lock_unfrozen")
     if prev_h is True and hidden is False:
         reasons.append("timer_revealed")
-    # Also apply freeze/hide soft-mapping when those turn on (non-manual full sync
-    # already does periodic; in manual mode only unfreeze/reveal matter — but
-    # applying hide/freeze placeholders keeps the box consistent if they toggle.)
     if prev_f is False and frozen is True:
         reasons.append("lock_frozen")
     if prev_h is False and hidden is True:
         reasons.append("timer_hidden")
     if not reasons:
-        return None
-    # Only force (bypass manual skip) for unfreeze/reveal; freeze/hide use normal
-    # path so manual-only stays parked unless revealing.
-    force = any(r in ("lock_unfrozen", "timer_revealed") for r in reasons)
-    if _manual_only(rad) and not force:
+        # While frozen/hidden, keep rewinding the placeholder so the box
+        # can't bleed down (even in manual-only).
+        if frozen or hidden:
+            return await sync_duration_from_chaster(
+                rad,
+                chaster,
+                reason="frozen_hold" if frozen else "hidden_hold",
+                force=True,
+            )
         return None
     return await sync_duration_from_chaster(
-        rad, chaster, reason="+".join(reasons), force=force
+        rad, chaster, reason="+".join(reasons), force=True
     )
 
 
@@ -633,10 +640,12 @@ _TIME_SYNC_TYPES = frozenset(
     }
 )
 
-# Even in manual-only mode, pull real Chaster time again after these.
+# Even in manual-only mode, apply freeze/hide placeholders and restore on release.
 _FORCE_RESYNC_TYPES = frozenset(
     {
+        "lock_frozen",
         "lock_unfrozen",
+        "timer_hidden",
         "timer_revealed",
     }
 )

@@ -304,8 +304,8 @@ async def lock_watch_loop(
                         events=events,
                         rad=rad,
                     )
-                # Always watch for unfreeze / timer reveal → force Chaster resync.
-                # Full duration sync only when not in manual-only mode.
+                # Flag edges (freeze/hide/unfreeze/reveal) + hold placeholders.
+                # Full remaining-time sync only when not in manual-only mode.
                 if rad is not None:
                     try:
                         from app.lockbox_sync import (
