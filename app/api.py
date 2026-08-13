@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -518,16 +518,37 @@ def create_api(
 
         @api.get("/", response_model=None)
         async def index():
+            # Chaster Main page URL is often set to the site root — send them to /ext
             if not settings.standalone_ui_enabled:
-                return HTMLResponse(
-                    "<!doctype html><meta charset=utf-8>"
-                    "<title>Closed</title>"
-                    "<body style='font-family:system-ui;background:#111;color:#ddd;"
-                    "display:grid;place-items:center;min-height:100vh;margin:0'>"
-                    "<p>Open this bot from <strong>Chaster</strong> "
-                    "(extension main page).</p></body>",
-                    status_code=403,
-                )
+                return RedirectResponse(url="/ext", status_code=302)
             return FileResponse(STATIC_DIR / "index.html")
+
+        @api.get("/main", response_model=None)
+        @api.get("/extension", response_model=None)
+        async def ext_aliases():
+            return RedirectResponse(url="/ext", status_code=302)
+
+    @api.exception_handler(404)
+    async def not_found_handler(request, exc):  # noqa: ARG001
+        # Browser / iframe: point people at the real Chaster entrypoints
+        accept = (request.headers.get("accept") or "").lower()
+        if "text/html" in accept or request.url.path in ("/", "/ext", "/ext/"):
+            return HTMLResponse(
+                "<!doctype html><meta charset=utf-8>"
+                "<title>Not found</title>"
+                "<body style='font-family:system-ui;background:#14110f;color:#f3e9e0;"
+                "display:grid;place-items:center;min-height:100vh;margin:0;padding:1rem;"
+                "text-align:center'>"
+                "<div><p><strong>Not found</strong></p>"
+                "<p style='color:#9a8b7e'>Chaster Main page URL must be "
+                "<code style='color:#e08763'>/ext</code><br/>"
+                "Config page URL must be "
+                "<code style='color:#e08763'>/ext/config</code></p>"
+                "<p><a href='/ext' style='color:#e08763'>Open /ext</a> · "
+                "<a href='/ext/config' style='color:#e08763'>Open /ext/config</a> · "
+                "<a href='/health' style='color:#e08763'>/health</a></p></div></body>",
+                status_code=404,
+            )
+        return JSONResponse({"detail": "Not Found", "try": ["/ext", "/ext/config", "/health"]}, status_code=404)
 
     return api
