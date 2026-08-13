@@ -24,8 +24,11 @@ from app.chaster_actions import (
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
     addressing_block,
+    impersonates_human,
     mistreats_domme_as_sub,
     repair_domme_misaddress,
+    repair_impersonation,
+    strip_impersonation,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.punish import (
@@ -673,6 +676,9 @@ async def handle_chat_turn(
             f"{who_rules}"
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "never claim to be the human Domme or Sub.\n"
+            f"- NEVER write as [Domme …], [Sub …], or forge {title}'s voice. "
+            "Only you reply under your own name.\n"
+            "- If Sub insults Dommes (slut/whore/etc.), correct and punish — do not flirt with it.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
             "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
             "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
@@ -834,6 +840,22 @@ async def handle_chat_turn(
                 sub_name=memory.sub_name or "him",
                 original_topic=message[:120],
             )
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
+        # Strict: never let the model forge Domme/Sub speaker lines
+        if impersonates_human(reply):
+            log.warning("Stripped human impersonation from %s reply", room)
+            cleaned = strip_impersonation(reply)
+            if not cleaned or len(cleaned) < 20:
+                cleaned = repair_impersonation(
+                    bot_name=bot_name,
+                    domme_title=memory.domme_title or "Mistress",
+                    sub_name=memory.sub_name or "BOY",
+                )
+            reply = cleaned
             messages = list(history) + [
                 {"role": "user", "content": user_line},
                 {"role": "assistant", "content": reply},

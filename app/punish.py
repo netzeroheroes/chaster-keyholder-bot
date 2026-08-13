@@ -24,6 +24,22 @@ _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
         ),
         RuleBreak(reason="came/unlocked without permission", seconds=3600, freeze=True),
     ),
+    # Insulting Domme / AI keyholder (not Domme calling HIM names)
+    (
+        re.compile(
+            r"^[\s\"']*(hi|hello|hey|yo)?[\s,]*"
+            r"(slut|whore|bitch|cunt|stupid\s+bitch|dumb\s+slut)\b"
+            r"|^(slut|whore|bitch)\s*[.!]?\s*$"
+            r"|\b(fuck you|fuck off|shut up)\b.*\b(mistress|miss|domme|keyholder)?\b"
+            r"|\b(you('re| are)\s+(a\s+)?(stupid\s+)?(slut|whore|bitch))\b",
+            re.I,
+        ),
+        RuleBreak(
+            reason="disrespected Domme/keyholder (insolent address)",
+            seconds=1800,
+            hide_timer=True,
+        ),
+    ),
     (
         re.compile(
             r"\b(i\s+won'?t|i\s+refuse|not\s+doing\s+(that|it|this)|"
@@ -180,6 +196,12 @@ def format_auto_punish_reply(
     if rem:
         snap = f" Remaining: {rem}."
 
+    if "disrespect" in (reason or "").lower() or "insolent" in (reason or "").lower():
+        return (
+            f"Watch your mouth. You do not call Dommes or your keyholder names.\n"
+            f"{action}.{snap}\n"
+            f"Try again with respect — or enjoy the extra time. — {bot_name}"
+        )
     return (
         f"{action} for {reason}.{snap}\n"
         f"That's how this works, boy — I control your lock. — {bot_name}"
