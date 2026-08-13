@@ -345,7 +345,7 @@ async def sync_duration_from_chaster(
                 chaster_frozen=frozen,
                 chaster_time_hidden=hidden,
             )
-        current = session.get("duration")
+        current = RadLockboxClient.remaining_from_session(session)
         # Soft-freeze / hidden: rewrite tightly. Normal: keep within ~15s of Chaster.
         skip_tol = 5 if (frozen or hidden) else 15
         try:

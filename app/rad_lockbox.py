@@ -7,6 +7,7 @@ Base: https://dashboard.researchanddesire.com/api/v1
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -169,10 +170,29 @@ class RadLockboxClient:
         *,
         target_user_id: int | None = None,
     ) -> dict[str, Any]:
-        """Set absolute remaining duration on the active session (from Chaster)."""
-        body: dict[str, Any] = {"duration": max(30, int(duration_seconds))}
+        """Set remaining time on the active session (Chaster remaining → R+D).
+
+        R+D's PATCH ``duration`` is total lock length from ``startDate``, not
+        remaining. Dashboard shows ``endDate - now`` (= start + duration - now).
+        So we convert: duration_total = remaining + elapsed_since_start.
+        """
+        remaining = max(30, int(duration_seconds))
+        session = await self.get_active_session(target_user_id=target_user_id)
+        total = remaining
+        if isinstance(session, dict) and session.get("startDate"):
+            try:
+                start = datetime.fromisoformat(
+                    str(session["startDate"]).replace("Z", "+00:00")
+                )
+                elapsed = max(
+                    0, int((datetime.now(timezone.utc) - start).total_seconds())
+                )
+                # API hard-cap ~10y on duration field
+                total = min(315_360_000, remaining + elapsed)
+            except (TypeError, ValueError):
+                total = remaining
+        body: dict[str, Any] = {"duration": max(30, int(total))}
         tid = target_user_id if target_user_id is not None else self.target_user_id
-        # Some deployments accept target on query; body is unused by PATCH per docs
         params: dict[str, Any] = {}
         if tid is not None:
             params["targetUserId"] = int(tid)
@@ -182,6 +202,21 @@ class RadLockboxClient:
             json_body=body,
             params=params or None,
         )
+
+    @staticmethod
+    def remaining_from_session(session: dict[str, Any] | None) -> int | None:
+        """Dashboard-visible remaining seconds from endDate (not the duration field)."""
+        if not isinstance(session, dict):
+            return None
+        end_raw = session.get("endDate")
+        if not end_raw:
+            return None
+        try:
+            end = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+            rem = int((end - datetime.now(timezone.utc)).total_seconds())
+            return rem if rem > 0 else 0
+        except (TypeError, ValueError):
+            return None
 
     async def status_snapshot(self) -> dict[str, Any]:
         """Safe status for UI / /api/meta (never includes the token)."""
