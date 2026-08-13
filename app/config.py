@@ -68,9 +68,11 @@ class Settings(BaseSettings):
     rad_sync_hygiene: bool = True
     # Also mirror full Chaster unlock/lock (usually leave false)
     rad_sync_session_lock: bool = False
-    # Manual-only: no Chaster timer/freeze/hide sync — just lock/unlock (hygiene + buttons).
-    # Uses API max duration (10y) as a stand-in for "no timer" (R+D has no forever API).
+    # Manual-only: no continuous Chaster timer sync — lock/unlock (+ hygiene) only.
+    # Keep false so Chaster remaining is periodically mirrored to the box.
     rad_manual_only: bool = False
+    # How often to push Chaster remaining onto R+D (seconds).
+    rad_timer_sync_seconds: int = 60
     # Lockee's R+D user id (keyholder token acting on linked user)
     rad_target_user_id: int = 0
     # Lock template id — only used to *start* a session; duration comes from Chaster.

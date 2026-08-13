@@ -45,7 +45,9 @@ services:
       - key: RAD_SYNC_SESSION_LOCK
         value: "false"
       - key: RAD_MANUAL_ONLY
-        value: "true"
+        value: "false"
+      - key: RAD_TIMER_SYNC_SECONDS
+        value: "60"
       - key: RAD_TARGET_USER_ID
         value: "0"
       - key: RAD_LOCK_SETTINGS_ID

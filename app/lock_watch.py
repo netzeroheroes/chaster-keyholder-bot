@@ -322,8 +322,12 @@ async def lock_watch_loop(
     chaster: ChasterClient,
     rad: Any | None = None,
 ) -> None:
-    """Background poll of Chaster lock history."""
+    """Background poll of Chaster lock history + periodic R+D timer sync."""
     interval = max(15, int(getattr(settings, "lock_watch_seconds", 45) or 45))
+    timer_every = max(
+        15, int(getattr(settings, "rad_timer_sync_seconds", 60) or 60)
+    )
+    last_timer_sync = 0.0
     while True:
         try:
             if (
@@ -342,7 +346,7 @@ async def lock_watch_loop(
                         rad=rad,
                     )
                 # Flag edges (freeze/hide/unfreeze/reveal) + hold placeholders.
-                # Full remaining-time sync only when not in manual-only mode.
+                # Periodic remaining-time sync keeps R+D aligned with Chaster.
                 if rad is not None:
                     try:
                         from app.lockbox_sync import (
@@ -351,10 +355,13 @@ async def lock_watch_loop(
                         )
 
                         await maybe_resync_after_chaster_flags(rad, chaster)
+                        now = asyncio.get_event_loop().time()
                         if not getattr(settings, "rad_manual_only", False):
-                            await sync_duration_from_chaster(
-                                rad, chaster, reason="periodic"
-                            )
+                            if now - last_timer_sync >= timer_every:
+                                await sync_duration_from_chaster(
+                                    rad, chaster, reason="periodic"
+                                )
+                                last_timer_sync = now
                     except Exception:  # noqa: BLE001
                         log.debug("Periodic R+D duration sync skipped", exc_info=True)
         except asyncio.CancelledError:
