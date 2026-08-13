@@ -378,6 +378,17 @@ def parse_chaster_intent(
     if add:
         return ChasterIntent(kind="add_time", seconds=_to_seconds(add.group(1), add.group(2)))
 
+    # Bare duration replies: "10 mins", "+10m", "2 hours." → add that much
+    # (common after "add some time" / "how much?" — must hit Chaster, not just chat)
+    bare = re.fullmatch(
+        rf"\s*[+]?\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\s*[.!]?\s*",
+        low,
+    )
+    if bare:
+        return ChasterIntent(
+            kind="add_time", seconds=_to_seconds(bare.group(1), bare.group(2))
+        )
+
     # "add that time" / "add the time for him" — resolve duration from recent chat
     if re.search(
         r"\b(?:add|apply|put)\s+(?:that|the|this)\s+time\b"
@@ -396,6 +407,15 @@ def parse_chaster_intent(
         except Exception:  # noqa: BLE001
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))
+
+    # Follow-up: Domme answers with a duration after someone asked to add/extend time
+    if extract_duration_seconds(message) and re.search(
+        r"\b(add|added|adding|extend|extended|how much|how long|time)\b",
+        (context or "").lower(),
+    ):
+        secs = extract_duration_seconds(message)
+        if secs and secs > 0:
+            return ChasterIntent(kind="add_time", seconds=secs)
 
     # Bare "add time" / "add some time" / soft|hard — session min/max
     # (lock/cage optional — Sub/Domme often just say "add some time")
