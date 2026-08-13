@@ -54,9 +54,11 @@ class Settings(BaseSettings):
     # (backup if webhooks miss; primary path is POST /api/chaster/webhook)
     lock_watch_enabled: bool = True
     lock_watch_seconds: int = 45
-    # Partner-extension webhook Basic auth (set in Chaster Developer → Extension URLs)
+    # Duo Domme (your developer app) → Extension URLs → webhooks
+    # Basic auth is optional; if password is set AND require_auth=true, Chaster must send it.
     chaster_webhook_user: str = "chaster-bot"
     chaster_webhook_password: str = ""
+    chaster_webhook_require_auth: bool = False
 
     # Research & Desire Lockbox (Dashboard API) — Chaster hygiene ↔ physical box
     # Docs: https://dev.researchanddesire.com/ — Ultra API token required

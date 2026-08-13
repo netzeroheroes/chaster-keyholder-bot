@@ -1,10 +1,10 @@
-"""Chaster partner-extension webhooks (push) → lockbox sync + lock-watch.
+"""Chaster Duo Domme webhooks (push) → lockbox sync + lock-watch.
 
 Docs: https://docs.chaster.app/api/extensions-api/create-your-extension/webhooks/
-Configure in Developer → Extension URLs:
+Configure on the Duo Domme developer app → Extension URLs:
   POST https://<host>/api/chaster/webhook
-  Basic auth: CHASTER_WEBHOOK_USER / CHASTER_WEBHOOK_PASSWORD
   Event: action_log.created (also accepts extension_session.*)
+  Basic auth optional unless CHASTER_WEBHOOK_REQUIRE_AUTH=true
 """
 
 from __future__ import annotations
@@ -29,20 +29,30 @@ def webhook_auth_configured(settings: Any) -> bool:
 def verify_webhook_basic(
     settings: Any, credentials: HTTPBasicCredentials | None
 ) -> None:
-    """Require HTTP Basic when credentials are configured; else 503."""
-    if not webhook_auth_configured(settings):
+    """Optional HTTP Basic (Duo Domme often sends URL-only unless auth is set)."""
+    require = bool(getattr(settings, "chaster_webhook_require_auth", False))
+    if not require:
+        # If Chaster does send Basic auth and we have a password, still verify it.
+        if credentials is None or not webhook_auth_configured(settings):
+            return
+    elif not webhook_auth_configured(settings):
         raise HTTPException(
             status_code=503,
-            detail="Webhook auth not configured (CHASTER_WEBHOOK_USER/PASSWORD)",
+            detail="Webhook auth required but CHASTER_WEBHOOK_PASSWORD is empty",
         )
+
+    if not webhook_auth_configured(settings):
+        return
     expected_user = (settings.chaster_webhook_user or "").strip()
     expected_pass = (settings.chaster_webhook_password or "").strip()
     if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+        if require:
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        return
     user_ok = secrets.compare_digest(credentials.username or "", expected_user)
     pass_ok = secrets.compare_digest(credentials.password or "", expected_pass)
     if not (user_ok and pass_ok):

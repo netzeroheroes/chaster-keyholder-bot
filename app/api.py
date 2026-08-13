@@ -298,9 +298,16 @@ def create_api(
         request: Request,
         credentials: HTTPBasicCredentials | None = Depends(webhook_basic),
     ) -> dict:
-        """Chaster Developer → Extension URLs → action_log.created (Basic auth)."""
+        """Duo Domme Developer → Extension URLs → action_log.created."""
+        import logging as _logging
+
         verify_webhook_basic(settings, credentials)
         body = await read_json_body(request)
+        _logging.getLogger(__name__).info(
+            "Chaster webhook hit auth=%s bytes~%s",
+            bool(credentials and credentials.username),
+            len(str(body)),
+        )
         return await handle_chaster_webhook(
             settings=settings,
             body=body,
@@ -328,7 +335,9 @@ def create_api(
             "chaster_configured": chaster.configured,
             "chaster_webhook": {
                 "auth_configured": webhook_auth_configured(settings),
+                "require_auth": bool(settings.chaster_webhook_require_auth),
                 "path": "/api/chaster/webhook",
+                "extension": settings.chaster_extension_slug or "duo-domme",
                 "events": [
                     "action_log.created",
                     "extension_session.created",

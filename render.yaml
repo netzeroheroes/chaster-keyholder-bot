@@ -28,6 +28,8 @@ services:
         value: "chaster-bot"
       - key: CHASTER_WEBHOOK_PASSWORD
         sync: false
+      - key: CHASTER_WEBHOOK_REQUIRE_AUTH
+        value: "false"
       - key: STANDALONE_UI_ENABLED
         value: "false"
       - key: EXTENSION_DEV_BYPASS
