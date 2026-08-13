@@ -7,3 +7,4 @@ pydantic>=2.8.0
 pydantic-settings>=2.4.0
 python-dotenv>=1.0.1
 tenacity>=8.5.0
+tzdata>=2024.1

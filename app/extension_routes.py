@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.agent import ChatAgent
+from app.autopilot import autopilot_status
 from app.bridge import GroupBridge
 from app.chaster import ChasterClient
 from app.chat_service import handle_chat_turn
@@ -194,11 +195,20 @@ def register_extension_routes(
     @api.post("/api/ext/session")
     async def ext_session(body: ExtSessionBody) -> dict:
         sess = await _require_session(chaster, cache, settings, body.main_token)
+        # Keyholder session config on Chaster → live autopilot/auto-punish controls
+        if sess.app_role == "domme" and sess.config:
+            try:
+                _sync_controls_from_config(_merged_settings(sess.config))
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "Could not sync controls from session", exc_info=True
+                )
         return {
             "ok": True,
             "session": public_session_view(sess),
             "bot_name": memory.bot_name or "Keyholder",
             "domme_title": memory.domme_title or "",
+            "autopilot": autopilot_status(settings),
         }
 
     @api.post("/api/ext/history")
@@ -359,6 +369,20 @@ def register_extension_routes(
         cfg.setdefault("default_remove_time_seconds", 1800)
         return cfg
 
+    def _sync_controls_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
+        """
+        Push config into live RuntimeControls (what autopilot actually reads).
+        Chaster session config alone does NOT drive the loop — this bridge does.
+        """
+        updates = {
+            k: cfg[k]
+            for k in _CONFIG_KEYS
+            if k in cfg and k in controls.snapshot()
+        }
+        if updates:
+            return controls.update(**updates)
+        return controls.snapshot()
+
     def _require_keyholder(sess: ExtSession, main_token: str) -> None:
         if sess.role == "keyholder":
             return
@@ -374,10 +398,15 @@ def register_extension_routes(
         """Keyholder session settings from the main extension page (mainToken)."""
         sess = await _require_session(chaster, cache, settings, body.main_token)
         _require_keyholder(sess, body.main_token)
+        merged = _merged_settings(sess.config)
+        # Keep live loop in sync with what the UI shows (survives Render restarts
+        # when Chaster still has the saved session config).
+        live = _sync_controls_from_config(merged)
         return {
             "ok": True,
-            "config": _merged_settings(sess.config),
+            "config": {**merged, **{k: live[k] for k in live if k in _CONFIG_KEYS}},
             "session_id": sess.session_id,
+            "autopilot": autopilot_status(settings),
         }
 
     @api.post("/api/ext/settings/save")
@@ -418,9 +447,7 @@ def register_extension_routes(
 
         # Always persist locally first so the bot uses the new timings even if
         # Chaster session sync fails.
-        ctrl_updates = {k: v for k, v in clean.items() if k in controls.snapshot()}
-        if ctrl_updates:
-            controls.update(**ctrl_updates)
+        _sync_controls_from_config(clean)
         mem_updates = {}
         if clean.get("bot_name"):
             mem_updates["bot_name"] = str(clean["bot_name"]).strip()
@@ -473,6 +500,7 @@ def register_extension_routes(
             "config": clean,
             "chaster_sync": chaster_sync,
             "chaster_sync_error": sync_error,
+            "autopilot": autopilot_status(settings),
         }
 
     # Denied probe — opening APIs without token

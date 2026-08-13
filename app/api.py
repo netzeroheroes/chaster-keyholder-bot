@@ -182,6 +182,35 @@ def create_api(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        # Seed live controls from Duo Domme session config (Render disk is ephemeral).
+        try:
+            if chaster.configured:
+                sid = await chaster.resolve_session_id()
+                raw = await chaster._request("GET", f"/api/extensions/sessions/{sid}")
+                sess = (raw or {}).get("session") if isinstance(raw, dict) else {}
+                cfg = (sess or {}).get("config") if isinstance(sess, dict) else {}
+                if isinstance(cfg, dict) and cfg:
+                    updates = {
+                        k: cfg[k]
+                        for k in cfg
+                        if k in controls.snapshot()
+                    }
+                    if updates:
+                        controls.update(**updates)
+                        import logging as _logging
+
+                        _logging.getLogger(__name__).info(
+                            "Seeded runtime controls from Chaster session "
+                            "(autopilot_enabled=%s)",
+                            updates.get("autopilot_enabled"),
+                        )
+        except Exception:  # noqa: BLE001
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Could not seed controls from Chaster session", exc_info=True
+            )
+
         # Always run the loop; it no-ops when autopilot_enabled is false
         tasks = [
             asyncio.create_task(

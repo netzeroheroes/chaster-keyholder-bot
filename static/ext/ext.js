@@ -210,6 +210,24 @@
     return Math.max(60, Math.round(n * mult));
   }
 
+  function renderAutopilotStatus(st) {
+    const el = document.getElementById("autopilotLive");
+    if (!el) return;
+    if (!st || typeof st !== "object") {
+      el.textContent = "Autopilot status: —";
+      return;
+    }
+    const on = st.autopilot_enabled ? "ON" : "OFF";
+    const win = st.window_open ? "inside window" : "outside window";
+    const bits = [`Live: ${on}`, win];
+    if (st.last_skip_reason && !st.in_window) {
+      bits.push(st.last_skip_reason);
+    }
+    if (st.last_tick_at) bits.push(`last tease ${st.last_tick_at}`);
+    if (st.next_wake_at) bits.push(`next check ~${st.next_wake_at}`);
+    el.textContent = bits.join(" · ");
+  }
+
   function fillSettings(cfg) {
     const g = (id) => document.getElementById(id);
     const minSec =
@@ -294,6 +312,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Could not load settings"));
       fillSettings(data.config || {});
+      renderAutopilotStatus(data.autopilot);
       els.settingsStatus.textContent = "Edit and save.";
     } catch (err) {
       els.settingsStatus.textContent = String(err.message || err);
@@ -465,12 +484,13 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
+        renderAutopilotStatus(data.autopilot);
         if (data.chaster_sync === "failed") {
           els.settingsStatus.textContent =
             "Saved for the bot. Chaster sync note: " +
             (data.chaster_sync_error || "could not update session config");
         } else {
-          els.settingsStatus.textContent = "Saved.";
+          els.settingsStatus.textContent = "Saved. Autopilot uses these live values.";
         }
       } catch (err) {
         els.settingsStatus.textContent = String(err.message || err);

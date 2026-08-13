@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import datetime, time
+from datetime import datetime, timedelta, time, timezone
 from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # noqa: BLE001
+    ZoneInfo = None  # type: ignore[misc, assignment]
 
 if TYPE_CHECKING:
     from app.agent import ChatAgent
@@ -36,14 +40,20 @@ def _ctrl(settings: Settings):
         return settings
 
 
-def in_window(settings: Settings, now: datetime | None = None) -> bool:
+def _tzinfo(name: str | None):
+    key = (name or "UTC").strip() or "UTC"
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(key)
+        except Exception:  # noqa: BLE001
+            pass
+    return timezone.utc
+
+
+def window_open(settings: Settings, now: datetime | None = None) -> bool:
+    """True if current local time is inside the configured daily window."""
     c = _ctrl(settings)
-    if not getattr(c, "autopilot_enabled", False):
-        return False
-    try:
-        tz = ZoneInfo(getattr(c, "autopilot_timezone", None) or "UTC")
-    except Exception:  # noqa: BLE001
-        tz = ZoneInfo("UTC")
+    tz = _tzinfo(getattr(c, "autopilot_timezone", None))
     now = now or datetime.now(tz)
     if now.tzinfo is None:
         now = now.replace(tzinfo=tz)
@@ -56,6 +66,40 @@ def in_window(settings: Settings, now: datetime | None = None) -> bool:
         return start <= t <= end
     # Overnight window (e.g. 22:00–02:00)
     return t >= start or t <= end
+
+
+def in_window(settings: Settings, now: datetime | None = None) -> bool:
+    """Enabled AND inside the daily window."""
+    c = _ctrl(settings)
+    if not getattr(c, "autopilot_enabled", False):
+        return False
+    return window_open(settings, now)
+
+
+_LAST_TICK_ISO: str = ""
+_NEXT_WAKE_ISO: str = ""
+_LAST_SKIP_REASON: str = ""
+
+
+def autopilot_status(settings: Settings) -> dict[str, Any]:
+    """Live status for Domme settings UI / debugging."""
+    c = _ctrl(settings)
+    enabled = bool(getattr(c, "autopilot_enabled", False))
+    open_now = window_open(settings)
+    return {
+        "autopilot_enabled": enabled,
+        "in_window": bool(enabled and open_now),
+        "window_open": open_now,
+        "window_start": getattr(c, "autopilot_window_start", "18:00"),
+        "window_end": getattr(c, "autopilot_window_end", "23:00"),
+        "timezone": getattr(c, "autopilot_timezone", "Europe/London"),
+        "min_gap_minutes": int(getattr(c, "autopilot_min_minutes", 45) or 45),
+        "max_gap_minutes": int(getattr(c, "autopilot_max_minutes", 120) or 120),
+        "allow_chaster": bool(getattr(c, "autopilot_allow_chaster", False)),
+        "last_tick_at": _LAST_TICK_ISO or None,
+        "next_wake_at": _NEXT_WAKE_ISO or None,
+        "last_skip_reason": _LAST_SKIP_REASON or None,
+    }
 
 
 async def run_unprompted_tick(
@@ -148,6 +192,7 @@ async def autopilot_loop(
     bridge: GroupBridge,
     chaster: ChasterClient | None,
 ) -> None:
+    global _LAST_TICK_ISO, _NEXT_WAKE_ISO, _LAST_SKIP_REASON
     c0 = _ctrl(settings)
     log.info(
         "Autopilot loop started enabled=%s window=%s-%s tz=%s",
@@ -159,8 +204,11 @@ async def autopilot_loop(
     while True:
         try:
             c = _ctrl(settings)
-            if getattr(c, "autopilot_enabled", False) and in_window(settings):
-                await run_unprompted_tick(
+            enabled = bool(getattr(c, "autopilot_enabled", False))
+            open_now = window_open(settings)
+            if enabled and open_now:
+                _LAST_SKIP_REASON = ""
+                posted = await run_unprompted_tick(
                     settings=settings,
                     agent=agent,
                     store=store,
@@ -169,14 +217,32 @@ async def autopilot_loop(
                     bridge=bridge,
                     chaster=chaster,
                 )
+                if posted:
+                    _LAST_TICK_ISO = datetime.now(
+                        _tzinfo(getattr(c, "autopilot_timezone", None))
+                    ).isoformat(timespec="seconds")
                 lo = max(1, int(getattr(c, "autopilot_min_minutes", 45)))
                 hi = max(lo, int(getattr(c, "autopilot_max_minutes", 120)))
                 delay = random.randint(lo, hi) * 60
             else:
-                delay = 60  # re-check window every minute
+                if not enabled:
+                    _LAST_SKIP_REASON = "autopilot_enabled is false on server"
+                else:
+                    _LAST_SKIP_REASON = (
+                        f"outside window "
+                        f"{getattr(c, 'autopilot_window_start', '?')}-"
+                        f"{getattr(c, 'autopilot_window_end', '?')} "
+                        f"{getattr(c, 'autopilot_timezone', '?')}"
+                    )
+                delay = 30  # pick up settings changes quickly
+            tz = _tzinfo(getattr(c, "autopilot_timezone", None))
+            _NEXT_WAKE_ISO = (
+                datetime.now(tz) + timedelta(seconds=delay)
+            ).isoformat(timespec="seconds")
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("Autopilot tick failed")
+            _LAST_SKIP_REASON = "tick error — see server logs"
             await asyncio.sleep(60)
