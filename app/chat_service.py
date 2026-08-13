@@ -21,6 +21,7 @@ from app.chaster_actions import (
     run_chaster_intent,
     run_tour_step,
 )
+from app.lock_guard import scrub_lock_hallucinations
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.punish import (
     detect_rule_break,
@@ -258,6 +259,50 @@ async def handle_chat_turn(
             )
 
     bot_name = bot_label(memory)
+    live_remaining = ""
+
+    def _memory_command_result(reply: str) -> dict[str, Any]:
+        sid_m = session_id_for(room)
+        hist = list(store.get(sid_m))
+        hist.append({"role": "user", "content": format_user_line(
+            role, message, memory,
+            chaster_role=chaster_role,
+            chaster_username=handle or None,
+            room=room,
+        )})
+        hist.append({"role": "assistant", "content": reply})
+        store.set(sid_m, hist)
+        store.append_display(DisplayMessage(speaker=speaker, content=message, room=room))
+        store.append_display(DisplayMessage(speaker=bot_name, content=reply, room=room))
+        save_sessions(store)
+        return {
+            "reply": reply,
+            "room": room,
+            "role": role,
+            "group_posts": [],
+            "image_urls": [],
+        }
+
+    # Explicit memory commands (Domme) — deterministic, not LLM
+    if role == "domme":
+        remember_fact = memory.parse_remember_command(message)
+        forget_q = memory.parse_forget_command(message)
+        if remember_fact:
+            entry = memory.remember_fact(remember_fact, source=speaker)
+            return _memory_command_result(
+                f"Got it — locked into memory:\n• {entry}\n\n"
+                "Ask me later with “what do you remember?” and I’ll recall it."
+            )
+        if forget_q:
+            removed = memory.forget_fact(forget_q)
+            if removed:
+                listing = "\n".join(f"• {r}" for r in removed[:8])
+                reply_m = f"Forgotten ({len(removed)}):\n{listing}"
+            else:
+                reply_m = f"Nothing matched “{forget_q}” in durable facts."
+            return _memory_command_result(reply_m)
+        if memory.wants_recall(message):
+            return _memory_command_result(memory.format_recall_reply(for_domme=True))
 
     # Domme scene builder: pick real toys from his profile and craft a scene
     if role == "domme" and wants_scene_build(message) and chaster and chaster.configured:
@@ -314,6 +359,11 @@ async def handle_chat_turn(
         try:
             live = await fetch_live_status_block(chaster, requested_by=speaker)
             chaster_note = f"\n\n[{live}]"
+            m_rem = re.search(
+                r"- Remaining:\s*([^\n(]+)", live
+            )
+            if m_rem:
+                live_remaining = m_rem.group(1).strip()
         except Exception:  # noqa: BLE001
             log.exception("Live Chaster status fetch failed")
             chaster_note = (
@@ -451,6 +501,17 @@ async def handle_chat_turn(
                             result=result,
                             more_remaining=False,
                         )
+                    if not result.blocked and intent.kind not in _READ_ONLY_INTENTS:
+                        rem = ""
+                        if isinstance(result.lock, dict):
+                            rem = str(result.lock.get("remaining") or "")
+                            live_remaining = rem or live_remaining
+                        memory.log_lock_event(
+                            action=intent.kind,
+                            remaining=rem,
+                            by=speaker,
+                            detail=intent.reason or "",
+                        )
                     log.info(
                         "Chaster intent %s ok blocked=%s",
                         intent.kind,
@@ -529,6 +590,16 @@ async def handle_chat_turn(
                     if truth:
                         # Skip LLM — consequence hits immediately via Chaster
                         chaster_truth_reply = truth
+                        rem = ""
+                        for r in results:
+                            if r.ok and isinstance(r.lock, dict) and r.lock.get("remaining"):
+                                rem = str(r.lock.get("remaining"))
+                        memory.log_lock_event(
+                            action="auto_punish:" + (",".join(applied) or br.reason),
+                            remaining=rem,
+                            by=f"{bot_name} (auto-punish)",
+                            detail=br.reason,
+                        )
                         log.info("Auto-punish applied for %s", br.reason)
                     else:
                         chaster_note += (
@@ -552,6 +623,7 @@ async def handle_chat_turn(
             "- If YOU grant a lock change from private, emit [[[LOCK]]]…[[[/LOCK]]].\n"
             "- Never invent reminder schedules. Never repeat a previous bot message.\n"
             "- Do not pretend this reply is already in Group unless you emitted GROUP tags.\n"
+            "- MEMORY: use stored facts/timeline/lock_log when relevant; do not invent memories.\n"
         )
     else:
         anti_loop = (
@@ -560,8 +632,8 @@ async def handle_chat_turn(
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "never claim to be the human Domme or Sub.\n"
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
-            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
-            "Never invent remaining time, 'new length', day totals, or keypad codes.\n"
+            "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
+            "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
             "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
             "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
             "- Sub may BEG either Dominant for mercy. Never scold him for addressing Mistress.\n"
@@ -571,6 +643,7 @@ async def handle_chat_turn(
             "- Never claim lock changes without LOCK tags or confirmed facts this turn.\n"
             "- Lock history messages (custom logs) are real and may push-notify him — use them.\n"
             "- Reminder schedules still cannot be set via API; don't invent those.\n"
+            "- MEMORY: recall stored facts when relevant; never invent past events.\n"
             "- Never repeat a previous bot message.\n"
             "- Advance with a NEW concrete order or punishment.\n"
             "- Do not workshop private strategy out loud; execute.\n"
@@ -693,6 +766,24 @@ async def handle_chat_turn(
                 ]
                 log.info("Forced hands-off takeover line in group")
 
+        # Strict: kill invented lock numbers when no API action confirmed this turn
+        had_action = (
+            "CHASTER ACTION DONE" in chaster_note
+            or "CHASTER ACTION BLOCKED" in chaster_note
+        )
+        scrubbed = scrub_lock_hallucinations(
+            reply,
+            live_remaining=live_remaining,
+            had_action_facts=had_action,
+        )
+        if scrubbed:
+            log.warning("Scrubbed lock hallucination in %s reply", room)
+            reply = scrubbed
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
     group_posts: list[str] = []
     image_urls: list[str] = []
     visible_reply = reply
@@ -721,6 +812,16 @@ async def handle_chat_turn(
                     log.warning("AI LOCK tag failed %s: %s", lint.kind, result.error)
                     confirms.append(
                         f"(Lock action `{lint.kind}` failed — nothing changed.)"
+                    )
+                if result.ok and not result.blocked:
+                    rem = ""
+                    if isinstance(result.lock, dict):
+                        rem = str(result.lock.get("remaining") or "")
+                    memory.log_lock_event(
+                        action=lint.kind,
+                        remaining=rem,
+                        by=f"{bot_name} (AI Domme)",
+                        detail=lint.reason or "",
                     )
             if confirms:
                 visible_reply = (

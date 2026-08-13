@@ -15,10 +15,36 @@ log = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 MEMORY_PATH = DATA_DIR / "memory.json"
 
+_REMEMBER_CMD = re.compile(
+    r"^\s*(?:please\s+)?(?:remember|note|save|store)\s+(?:that\s+|this\s+:?\s*)?(.+)$",
+    re.I | re.DOTALL,
+)
+_FORGET_CMD = re.compile(
+    r"^\s*(?:please\s+)?(?:forget|erase|delete)\s+(?:that\s+|this\s+|the\s+fact\s+)?:?\s*(.+)$",
+    re.I | re.DOTALL,
+)
+_RECALL_CMD = re.compile(
+    r"\b("
+    r"what do you remember|what have you remembered|"
+    r"recall(?:\s+what you know)?|show (?:me )?memory|"
+    r"what do you know about (?:him|us|our|the sub)|"
+    r"remind me what (?:we|you) (?:said|noted|remembered)"
+    r")\b",
+    re.I,
+)
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
 
 @dataclass
 class LongTermMemory:
-    """Persistent facts that develop across sessions."""
+    """Persistent facts that develop across sessions and can be recalled later."""
 
     domme_name: str = ""
     domme_title: str = "Mistress"  # how bot addresses the Domme
@@ -32,6 +58,10 @@ class LongTermMemory:
     relationship_notes: list[str] = field(default_factory=list)
     timeline: list[str] = field(default_factory=list)  # dated developments
     private_bond: list[str] = field(default_factory=list)  # Domme↔bot friendship notes
+    # Explicit durable facts Domme told us to keep ("remember that…")
+    facts: list[str] = field(default_factory=list)
+    # Real Chaster action log only (never invent)
+    lock_log: list[str] = field(default_factory=list)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
     @classmethod
@@ -57,14 +87,16 @@ class LongTermMemory:
                 "domme_title": self.domme_title,
                 "bot_name": self.bot_name or "Keyholder",
                 "sub_name": self.sub_name,
-                "sub_titles": list(self.sub_titles),
-                "hard_limits": list(self.hard_limits),
-                "soft_limits": list(self.soft_limits),
-                "kinks": list(self.kinks),
+                "sub_titles": list(self.sub_titles)[-40:],
+                "hard_limits": list(self.hard_limits)[-40:],
+                "soft_limits": list(self.soft_limits)[-40:],
+                "kinks": list(self.kinks)[-60:],
                 "chastity": dict(self.chastity),
                 "relationship_notes": list(self.relationship_notes)[-80:],
                 "timeline": list(self.timeline)[-120:],
                 "private_bond": list(self.private_bond)[-80:],
+                "facts": list(self.facts)[-100:],
+                "lock_log": list(self.lock_log)[-80:],
             }
             path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -83,6 +115,8 @@ class LongTermMemory:
                 "relationship_notes": list(self.relationship_notes),
                 "timeline": list(self.timeline),
                 "private_bond": list(self.private_bond),
+                "facts": list(self.facts),
+                "lock_log": list(self.lock_log),
             }
 
     def update_fields(self, **kwargs: object) -> dict:
@@ -94,6 +128,64 @@ class LongTermMemory:
         self.save()
         return self.snapshot()
 
+    def remember_fact(self, fact: str, *, source: str = "Domme") -> str:
+        text = re.sub(r"\s+", " ", (fact or "").strip())
+        if not text:
+            return ""
+        # Avoid duplicate near-identical facts
+        entry = f"{_today()} [{source}] {text}"
+        with self._lock:
+            low = text.lower()
+            self.facts = [
+                f for f in self.facts if low not in f.lower() and f.lower() not in low
+            ]
+            self.facts.append(entry)
+            self.facts = self.facts[-100:]
+            self.timeline.append(f"{_today()} Remembered: {text[:160]}")
+            self.timeline = self.timeline[-120:]
+        self.save()
+        return entry
+
+    def forget_fact(self, query: str) -> list[str]:
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        removed: list[str] = []
+        with self._lock:
+            kept: list[str] = []
+            for f in self.facts:
+                if q in f.lower():
+                    removed.append(f)
+                else:
+                    kept.append(f)
+            self.facts = kept
+        if removed:
+            self.save()
+        return removed
+
+    def log_lock_event(
+        self,
+        *,
+        action: str,
+        remaining: str = "",
+        by: str = "",
+        detail: str = "",
+    ) -> None:
+        bits = [b for b in (action, detail) if b]
+        line = f"{_now_stamp()} — {'; '.join(bits)}"
+        if remaining:
+            line += f" · remaining {remaining}"
+        if by:
+            line += f" · by {by}"
+        with self._lock:
+            self.lock_log.append(line)
+            self.lock_log = self.lock_log[-80:]
+            if remaining:
+                self.chastity["last_remaining"] = remaining
+                self.chastity["last_lock_event"] = line
+                self.chastity["updated_at"] = _now_stamp()
+        self.save()
+
     def prompt_block(self, *, room: str) -> str:
         snap = self.snapshot()
         title = snap["domme_title"] or "Mistress"
@@ -101,18 +193,25 @@ class LongTermMemory:
         sub = snap["sub_name"] or "the Sub"
 
         lines = [
-            "LONG-TERM MEMORY (develops over time — treat as true):",
+            "LONG-TERM MEMORY (persistent — recall these when asked; treat as true):",
             "PEOPLE (never mix these up):",
             f"- You = AI Domme / keyholder named '{snap.get('bot_name') or 'Keyholder'}' (not the human Domme).",
             f"- Human Domme = {domme}. Address her as '{title}' (and by name when natural).",
             f"- Human Sub = {sub}. Titles: {', '.join(snap['sub_titles']) or '(none yet)'}.",
-            "- CHASTER TRUTH: Never claim you changed a Chaster lock (time, freeze, hide timer, "
-            "notes, notifications) unless this turn includes a CHASTER ACTION DONE/BLOCKED block.",
+            "- CHASTER TRUTH (STRICT): Never invent lock remaining time, totals, or keypad codes.",
+            "  Live numbers come ONLY from [CHASTER LIVE STATUS] / ACTION DONE this turn.",
+            "  Memory chastity/lock_log are for context/recall — not a substitute for live status.",
             f"- Hard limits: {', '.join(snap['hard_limits']) or '(ask / learn)'}.",
             f"- Soft limits: {', '.join(snap['soft_limits']) or '(none noted)'}.",
             f"- Kinks: {', '.join(snap['kinks']) or '(discovering)'}.",
-            f"- Chastity: {json.dumps(snap['chastity'], ensure_ascii=False) if snap['chastity'] else '(unknown)'}.",
+            f"- Chastity notes: {json.dumps(snap['chastity'], ensure_ascii=False) if snap['chastity'] else '(unknown)'}.",
         ]
+        if snap["facts"]:
+            lines.append("- Durable facts to RECALL when relevant or when asked:")
+            lines.extend(f"  • {n}" for n in snap["facts"][-20:])
+        if snap["lock_log"]:
+            lines.append("- Recent REAL lock actions (API-confirmed history):")
+            lines.extend(f"  • {n}" for n in snap["lock_log"][-10:])
         if snap["relationship_notes"]:
             lines.append("- Relationship notes:")
             lines.extend(f"  • {n}" for n in snap["relationship_notes"][-12:])
@@ -127,7 +226,63 @@ class LongTermMemory:
             f"ALWAYS acknowledge {title} when she speaks — reply to her, include her, "
             "never ignore her in favor of only the Sub."
         )
+        lines.append(
+            "When Domme says 'remember that…', store it. When she asks what you remember, "
+            "quote facts/timeline/lock_log accurately — do not invent."
+        )
         return "\n".join(lines)
+
+    def format_recall_reply(self, *, for_domme: bool = True) -> str:
+        snap = self.snapshot()
+        title = snap["domme_title"] or "Mistress"
+        lines = [
+            f"{title} — here's what I'm holding onto:" if for_domme else "What I know about you:",
+        ]
+        if snap["facts"]:
+            lines.append("Facts:")
+            lines.extend(f"• {n}" for n in snap["facts"][-15:])
+        else:
+            lines.append("Facts: (none stored yet — tell me 'remember that…')")
+        if snap["lock_log"]:
+            lines.append("Recent real lock actions:")
+            lines.extend(f"• {n}" for n in snap["lock_log"][-8:])
+        if snap["timeline"]:
+            lines.append("Timeline:")
+            lines.extend(f"• {n}" for n in snap["timeline"][-8:])
+        if for_domme and snap["private_bond"]:
+            lines.append("Private bond notes:")
+            lines.extend(f"• {n}" for n in snap["private_bond"][-6:])
+        if snap["hard_limits"] or snap["kinks"]:
+            lines.append(
+                f"Limits/kinks: hard={', '.join(snap['hard_limits']) or '—'}; "
+                f"kinks={', '.join(snap['kinks']) or '—'}"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def parse_remember_command(message: str) -> str | None:
+        m = _REMEMBER_CMD.match((message or "").strip())
+        if not m:
+            return None
+        fact = m.group(1).strip().strip("\"'")
+        if len(fact) < 3:
+            return None
+        # Don't treat lock orders as remember commands
+        if re.search(r"\b(add|remove|freeze|unfreeze|hide|show)\b.*\b(time|timer|lock)\b", fact, re.I):
+            return None
+        return fact
+
+    @staticmethod
+    def parse_forget_command(message: str) -> str | None:
+        m = _FORGET_CMD.match((message or "").strip())
+        if not m:
+            return None
+        q = m.group(1).strip().strip("\"'")
+        return q if len(q) >= 2 else None
+
+    @staticmethod
+    def wants_recall(message: str) -> bool:
+        return bool(_RECALL_CMD.search(message or ""))
 
     async def consolidate_from_turn(
         self,
@@ -139,17 +294,21 @@ class LongTermMemory:
         bot_text: str,
     ) -> None:
         """Extract durable facts from a turn and merge into memory."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = _today()
         current = json.dumps(self.snapshot(), ensure_ascii=False)
         system = (
             "You maintain long-term memory for an adult D/s chastity game (18+ only).\n"
             "Given the latest turn, update MEMORY as JSON ONLY (no markdown).\n"
-            "Keep prior facts unless corrected. Append short new timeline/private_bond notes.\n"
-            "Schema keys: domme_name, domme_title, sub_name, sub_titles, hard_limits, "
-            "soft_limits, kinks, chastity (object of string values), relationship_notes, "
-            "timeline, private_bond.\n"
-            "Lists of strings. chastity examples: status, cage, last_lock, typical_lock_days.\n"
-            "timeline/private_bond entries should be short and preferably start with the date.\n"
+            "Keep prior facts unless corrected. Append short new notes.\n"
+            "Schema keys: domme_name, domme_title, bot_name, sub_name, sub_titles, "
+            "hard_limits, soft_limits, kinks, chastity (object of string values), "
+            "relationship_notes, timeline, private_bond, facts, lock_log.\n"
+            "IMPORTANT:\n"
+            "- facts = durable preferences/rules Domme wants remembered (short bullets).\n"
+            "- lock_log = ONLY copy real API-confirmed lock actions already present; "
+            "never invent lock durations or new lock_log lines from fiction.\n"
+            "- Do not put invented remaining times into chastity.\n"
+            "Lists of strings. timeline/private_bond/facts should preferably start with the date.\n"
             "If nothing new, return the current memory unchanged.\n"
             f"Today's date: {today}"
         )
@@ -188,19 +347,31 @@ class LongTermMemory:
             updates["domme_name"] = data["domme_name"].strip()
         if isinstance(data.get("domme_title"), str) and data["domme_title"].strip():
             updates["domme_title"] = data["domme_title"].strip()
+        if isinstance(data.get("bot_name"), str) and data["bot_name"].strip():
+            updates["bot_name"] = data["bot_name"].strip()
         if isinstance(data.get("sub_name"), str):
             updates["sub_name"] = data["sub_name"].strip()
         for key in ("sub_titles", "hard_limits", "soft_limits", "kinks"):
             if key in data:
                 updates[key] = _str_list(data.get(key))
         if isinstance(data.get("chastity"), dict):
-            updates["chastity"] = {
-                str(k): str(v) for k, v in data["chastity"].items() if str(v).strip()
+            # Don't let model invent remaining-time fields
+            ch = {
+                str(k): str(v)
+                for k, v in data["chastity"].items()
+                if str(v).strip()
+                and not re.search(r"remaining|end_date|seconds", str(k), re.I)
             }
-        for key in ("relationship_notes", "timeline", "private_bond"):
+            # Keep our authoritative lock fields
+            with self._lock:
+                for keep in ("last_remaining", "last_lock_event", "updated_at"):
+                    if keep in self.chastity:
+                        ch[keep] = self.chastity[keep]
+            updates["chastity"] = ch
+        for key in ("relationship_notes", "timeline", "private_bond", "facts"):
             if key in data:
                 updates[key] = _str_list(data.get(key))[-120:]
-
+        # lock_log is append-only from real API — never replace from LLM fiction
         if updates:
             self.update_fields(**updates)
             log.info("Memory updated from %s/%s turn", room, speaker)

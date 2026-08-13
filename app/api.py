@@ -93,6 +93,8 @@ class MemoryUpdate(BaseModel):
     relationship_notes: list[str] | None = None
     timeline: list[str] | None = None
     private_bond: list[str] | None = None
+    facts: list[str] | None = None
+    lock_log: list[str] | None = None
 
 
 class ChasterTimeRequest(BaseModel):
@@ -464,6 +466,8 @@ def create_api(
                 "kinks": snap["kinks"],
                 "chastity": snap["chastity"],
                 "private_bond": None,
+                "facts": snap.get("facts", [])[-8:],
+                "lock_log": snap.get("lock_log", [])[-6:],
                 "relationship_notes": snap["relationship_notes"][-6:],
                 "timeline": snap["timeline"][-8:],
             }
