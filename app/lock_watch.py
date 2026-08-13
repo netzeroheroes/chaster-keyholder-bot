@@ -1,0 +1,230 @@
+"""Watch Chaster lock history and let the AI Domme react in group chat."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from app.persist import save_sessions
+from app.roles import bot_label, session_id_for
+from app.sessions import DisplayMessage
+
+if TYPE_CHECKING:
+    from app.agent import ChatAgent
+    from app.chaster import ChasterClient
+    from app.config import Settings
+    from app.memory import LongTermMemory
+    from app.scene import SceneState
+    from app.sessions import SessionStore
+
+log = logging.getLogger(__name__)
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+STATE_PATH = DATA_DIR / "lock_watch.json"
+
+# Events worth narrating in chat (extensions, share/hygiene, games, lock changes)
+_REACT_TYPES = frozenset(
+    {
+        "time_changed",
+        "lock_frozen",
+        "lock_unfrozen",
+        "timer_hidden",
+        "timer_revealed",
+        "pillory_started",
+        "pillory_ended",
+        "temporary_opening_opened",
+        "temporary_opening_locked",
+        "combination_verified",
+        "extension_enabled",
+        "extension_disabled",
+        "extension_updated",
+        "task_completed",
+        "task_failed",
+        "dice_rolled",
+        "wheel_of_fortune_turned",
+        "link_submitted",
+        "share_link",
+        "custom",
+        "unlocked",
+        "locked",
+        "max_limit_date_removed",
+        "session_offer_accepted",
+    }
+)
+
+
+def _load_state() -> dict[str, Any]:
+    if not STATE_PATH.is_file():
+        return {"last_id": "", "seen": []}
+    try:
+        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"last_id": "", "seen": []}
+
+
+def _save_state(state: dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def format_history_event(event: dict[str, Any]) -> str:
+    """Human-readable one-liner for a lock history entry."""
+    etype = str(event.get("type") or "event")
+    title = str(event.get("title") or "").replace("%USER%", "Someone")
+    desc = str(event.get("description") or "").strip()
+    ext = str(event.get("extension") or "").strip()
+    role = str(event.get("role") or "").strip()
+    bits = [title or etype]
+    if desc:
+        bits.append(desc)
+    meta = " · ".join(x for x in (ext, role) if x)
+    if meta:
+        bits.append(f"({meta})")
+    return " — ".join(bits)
+
+
+async def fetch_new_events(
+    chaster: ChasterClient, *, limit: int = 15
+) -> list[dict[str, Any]]:
+    """Return newest unseen history events (oldest→newest). Seeds on first run."""
+    lock_id = (chaster.settings.chaster_lock_id or "").strip()
+    if not lock_id:
+        st = await chaster.status()
+        lock_id = str((st.get("lock") or {}).get("lock_id") or "")
+    if not lock_id:
+        return []
+
+    results = await chaster.get_lock_history(lock_id, limit=limit)
+    if not results:
+        return []
+
+    state = _load_state()
+    last_id = str(state.get("last_id") or "")
+    newest_id = str(results[0].get("_id") or "")
+
+    if not last_id:
+        # First run: remember tip of history, don't flood chat
+        state["last_id"] = newest_id
+        state["seen"] = [newest_id]
+        _save_state(state)
+        return []
+
+    new: list[dict[str, Any]] = []
+    for ev in results:
+        eid = str(ev.get("_id") or "")
+        if not eid or eid == last_id:
+            break
+        new.append(ev)
+
+    if not new:
+        return []
+
+    # results are newest-first; react oldest-first
+    new.reverse()
+    state["last_id"] = newest_id
+    seen = list(state.get("seen") or [])
+    for ev in new:
+        eid = str(ev.get("_id") or "")
+        if eid:
+            seen.append(eid)
+    state["seen"] = seen[-80:]
+    _save_state(state)
+    return new
+
+
+async def react_to_lock_events(
+    *,
+    agent: ChatAgent,
+    store: SessionStore,
+    scene: SceneState,
+    memory: LongTermMemory,
+    chaster: ChasterClient,
+    events: list[dict[str, Any]],
+) -> int:
+    """Post AI Domme reactions into the group room for new lock history events."""
+    if not events:
+        return 0
+    bot = bot_label(memory)
+    title = memory.domme_title or "Mistress"
+    reacted = 0
+    for ev in events[:5]:
+        etype = str(ev.get("type") or "")
+        if etype and etype not in _REACT_TYPES and not etype.endswith("_changed"):
+            # Still surface unknown extension events
+            if not ev.get("extension"):
+                continue
+        summary = format_history_event(ev)
+        system = (
+            f"You are {bot}, the AI Domme/keyholder in GROUP chat (18+).\n"
+            f"A real Chaster lock event just happened. React in 1–3 short sentences "
+            f"to the Sub (and {title} if relevant). Stay in character. "
+            f"Do NOT invent further lock changes. Do NOT emit [[[LOCK]]] tags.\n"
+            f"Event: {summary}\n"
+            f"Raw type={etype} extension={ev.get('extension')} "
+            f"payload={json.dumps(ev.get('payload') or {}, ensure_ascii=False)[:300]}"
+        )
+        try:
+            reply, _ = await agent.reply(
+                f"[LOCK EVENT] {summary}",
+                history=[],
+                system_prompt=system,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Lock-watch LLM reaction failed")
+            reply = f"Something just happened on your lock: {summary}"
+        text = (reply or "").strip() or f"Noted on your lock: {summary}"
+        # Strip accidental LOCK tags from reactions
+        from app.chaster_actions import extract_lock_commands
+
+        text, _ = extract_lock_commands(text)
+        store.append_display(
+            DisplayMessage(speaker=bot, content=text, room="group")
+        )
+        # Keep model history loosely aware
+        sid = session_id_for("group")
+        store.append(
+            sid,
+            {"role": "assistant", "content": text},
+        )
+        reacted += 1
+        log.info("Lock-watch reacted to %s: %s", etype, summary[:120])
+    if reacted:
+        save_sessions(store)
+    return reacted
+
+
+async def lock_watch_loop(
+    *,
+    settings: Settings,
+    agent: ChatAgent,
+    store: SessionStore,
+    scene: SceneState,
+    memory: LongTermMemory,
+    chaster: ChasterClient,
+) -> None:
+    """Background poll of Chaster lock history."""
+    interval = max(15, int(getattr(settings, "lock_watch_seconds", 45) or 45))
+    while True:
+        try:
+            if (
+                getattr(settings, "lock_watch_enabled", True)
+                and chaster.configured
+            ):
+                events = await fetch_new_events(chaster)
+                if events:
+                    await react_to_lock_events(
+                        agent=agent,
+                        store=store,
+                        scene=scene,
+                        memory=memory,
+                        chaster=chaster,
+                        events=events,
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Lock-watch tick failed")
+        await asyncio.sleep(interval)

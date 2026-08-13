@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.autopilot import autopilot_loop, in_window
 from app.extension_routes import register_extension_routes
+from app.lock_watch import lock_watch_loop
 from app.runtime_controls import init_controls
 
 from app.agent import ChatAgent
@@ -154,26 +155,41 @@ def create_api(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         # Always run the loop; it no-ops when autopilot_enabled is false
-        task = asyncio.create_task(
-            autopilot_loop(
-                settings=settings,
-                agent=agent,
-                store=store,
-                scene=scene,
-                memory=memory,
-                bridge=bridge,
-                chaster=chaster,
+        tasks = [
+            asyncio.create_task(
+                autopilot_loop(
+                    settings=settings,
+                    agent=agent,
+                    store=store,
+                    scene=scene,
+                    memory=memory,
+                    bridge=bridge,
+                    chaster=chaster,
+                ),
+                name="autopilot",
             ),
-            name="autopilot",
-        )
+            asyncio.create_task(
+                lock_watch_loop(
+                    settings=settings,
+                    agent=agent,
+                    store=store,
+                    scene=scene,
+                    memory=memory,
+                    chaster=chaster,
+                ),
+                name="lock-watch",
+            ),
+        ]
         try:
             yield
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     api = FastAPI(title="Chatbot", version="0.7.0", lifespan=lifespan)
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)

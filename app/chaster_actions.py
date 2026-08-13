@@ -25,6 +25,8 @@ ActionKind = Literal[
     "tour_step",
     "list_capabilities",
     "list_kinks",
+    "list_history",
+    "list_extensions",
     "unsupported_reminders",
     "unsupported_notifications",
 ]
@@ -127,6 +129,21 @@ def parse_chaster_intent(
         )
     ):
         return ChasterIntent(kind="list_kinks")
+
+    if re.search(
+        r"\b((lock\s+)?history|recent (lock )?actions?|what happened on (his |the )?lock|"
+        r"show (me )?(the )?history|last (lock )?events?)\b",
+        low,
+    ):
+        return ChasterIntent(kind="list_history")
+
+    if re.search(
+        r"\b((what|which|list|show) (extensions?|plugins?|apps?)|"
+        r"extensions? on (his |the )?lock|"
+        r"other (extensions?|plugins?))\b",
+        low,
+    ):
+        return ChasterIntent(kind="list_extensions")
 
     # Tour / stepwise — handled in chat_service via chaster_tour
     if re.search(
@@ -538,6 +555,81 @@ async def run_chaster_intent(
                 before=before,
             )
 
+        if intent.kind == "list_history":
+            lock_id = str(before.get("lock_id") or "")
+            try:
+                events = await chaster.get_lock_history(lock_id, limit=12)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not load lock history: {exc}",
+                )
+            from app.lock_watch import format_history_event
+
+            lines = [
+                _domme_lock_snapshot(before),
+                "",
+                "Recent lock history (newest first):",
+            ]
+            if not events:
+                lines.append("(no recent events)")
+            for ev in events[:12]:
+                lines.append(f"• {format_history_event(ev)}")
+            lines.append(
+                "I also watch this live — new extension/share/timer events "
+                "get a reaction in group chat."
+            )
+            return ChasterActionResult(
+                ok=True,
+                facts="\n".join(lines),
+                lock=before,
+                before=before,
+            )
+
+        if intent.kind == "list_extensions":
+            lock_id = str(before.get("lock_id") or "")
+            try:
+                exts = await chaster.list_lock_extensions(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not list extensions: {exc}",
+                )
+            lines = [
+                _domme_lock_snapshot(before),
+                "",
+                "Extensions / plugins on his lock:",
+            ]
+            if not exts:
+                lines.append("(none listed)")
+            for ext in exts:
+                slug = ext.get("slug") or "?"
+                mode = ext.get("mode") or ""
+                lines.append(f"• {slug}" + (f" ({mode})" if mode else ""))
+            lines.extend(
+                [
+                    "",
+                    "What I can drive directly today:",
+                    "• duo-domme — add/remove time, freeze, hide/show timer, pillory, history messages",
+                    "• Other plugins (Jigsaw, Wheel, Hygiene Opening / share links, Tasks…) — "
+                    "I see their results in lock history and react in chat when they fire.",
+                    "Full remote control of every third-party plugin isn't exposed the same way; "
+                    "history watch is the reliable bridge.",
+                ]
+            )
+            return ChasterActionResult(
+                ok=True,
+                facts="\n".join(lines),
+                lock=before,
+                before=before,
+            )
+
         block = preflight_block_reason(intent, before)
         if block:
             facts = (
@@ -849,6 +941,11 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '• Message / push via lock history — say: '
             '"message him: Be good tonight" or '
             '"send him a lock message: Tease | Edge twice and wait"',
+            '• Recent history — say: "show lock history"',
+            '• Extensions on the lock — say: "what extensions are on his lock"',
+            "",
+            "Other plugins (Jigsaw, share/hygiene links, Wheel…) show up in history; "
+            "I react in group when those fire.",
             "",
             "Just give the order in those words and I'll carry it out for real.",
         ]
@@ -1152,9 +1249,17 @@ _LOCK_TAG = re.compile(
 )
 
 
+def _normalize_lock_body(body: str) -> str:
+    """Models often write add_time <3900> — strip angle brackets around numbers."""
+    text = (body or "").strip()
+    text = re.sub(r"<\s*(-?\d+(?:\.\d+)?)\s*>", r"\1", text)
+    text = text.replace("×", "x")
+    return text.strip()
+
+
 def parse_lock_tag_body(body: str) -> ChasterIntent | None:
     """Parse a single [[[LOCK]]] body into an intent (AI Domme self-grant)."""
-    text = (body or "").strip()
+    text = _normalize_lock_body(body)
     if not text:
         return None
     low = text.lower().strip()
@@ -1192,7 +1297,7 @@ def parse_lock_tag_body(body: str) -> ChasterIntent | None:
         return ChasterIntent(kind="unfreeze")
     if low in ("freeze",) or re.fullmatch(r"\s*freeze\s*", low):
         return ChasterIntent(kind="freeze")
-    # add_time / remove_time with seconds or "10m"
+    # add_time / remove_time with seconds or "10m" (optional <> already stripped)
     m = re.search(
         rf"\b(add_time|remove_time|add|remove)\s+(-?\d+(?:\.\d+)?)\s*({_TIME_UNIT})?\b",
         low,
@@ -1218,14 +1323,36 @@ def parse_lock_tag_body(body: str) -> ChasterIntent | None:
     return parse_chaster_intent(text)
 
 
+def parse_lock_tag_bodies(body: str) -> list[ChasterIntent]:
+    """Parse one LOCK tag that may contain multiple actions (· / ; / newlines)."""
+    text = _normalize_lock_body(body)
+    if not text:
+        return []
+    parts = [
+        p.strip()
+        for p in re.split(r"\s*[·•|;]\s*|\n+", text)
+        if p and p.strip()
+    ]
+    if not parts:
+        parts = [text]
+    intents: list[ChasterIntent] = []
+    for part in parts:
+        intent = parse_lock_tag_body(part)
+        if intent and intent.kind in MUTATING:
+            intents.append(intent)
+    if not intents:
+        intent = parse_lock_tag_body(text)
+        if intent and intent.kind in MUTATING:
+            intents.append(intent)
+    return intents
+
+
 def extract_lock_commands(text: str) -> tuple[str, list[ChasterIntent]]:
     """Strip [[[LOCK]]]…[[[/LOCK]]] tags and return intents to execute."""
     intents: list[ChasterIntent] = []
 
     def _repl(match: re.Match[str]) -> str:
-        intent = parse_lock_tag_body(match.group(1))
-        if intent and intent.kind in MUTATING:
-            intents.append(intent)
+        intents.extend(parse_lock_tag_bodies(match.group(1)))
         return ""
 
     cleaned = _LOCK_TAG.sub(_repl, text or "")

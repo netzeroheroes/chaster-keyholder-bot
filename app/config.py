@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     chaster_lock_id: str = ""
     # Partner extension slug used for lock actions (add/freeze/pillory…)
     chaster_extension_slug: str = "duo-domme"
+    # Poll Chaster lock history and let the AI Domme react in group chat
+    lock_watch_enabled: bool = True
+    lock_watch_seconds: int = 45
 
     # Auto-punish Sub rule breaks with real lock detriment
     auto_punish_enabled: bool = True

@@ -31,7 +31,9 @@ from app.runtime_controls import get_controls
 from app.scene_builder import build_scene_from_profile, wants_scene_build
 
 # Read-only intents — Sub may ask; Domme may ask. No lock mutation.
-_READ_ONLY_INTENTS = frozenset({"list_kinks", "list_capabilities", "status"})
+_READ_ONLY_INTENTS = frozenset(
+    {"list_kinks", "list_capabilities", "list_history", "list_extensions", "status"}
+)
 from app.images import ImageService
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
@@ -406,7 +408,12 @@ async def handle_chat_turn(
                 )
                 if result.ok:
                     chaster_note = f"\n\n[{result.facts}]"
-                    if intent.kind in ("list_capabilities", "list_kinks"):
+                    if intent.kind in (
+                        "list_capabilities",
+                        "list_kinks",
+                        "list_history",
+                        "list_extensions",
+                    ):
                         chaster_truth_reply = format_capabilities_reply(result)
                     else:
                         chaster_truth_reply = format_truth_reply(
@@ -645,18 +652,14 @@ async def handle_chat_turn(
     visible_reply = reply
 
     # AI Domme self-grants via [[[LOCK]]] tags (either Dominant may decide)
-    if (
-        chaster
-        and chaster.configured
-        and not chaster_truth_reply
-        and visible_reply
-    ):
+    if visible_reply and "[[[LOCK]]]" in visible_reply.upper():
         cleaned, lock_intents = extract_lock_commands(visible_reply)
-        if lock_intents:
-            visible_reply = cleaned
+        # Always strip tags from what the Sub/Domme see
+        visible_reply = cleaned
+        if chaster and chaster.configured and not chaster_truth_reply and lock_intents:
             confirms: list[str] = []
             title = memory.domme_title or "Mistress"
-            for lint in lock_intents[:3]:
+            for lint in lock_intents[:4]:
                 result = await run_chaster_intent(
                     chaster, lint, requested_by=f"{bot_name} (AI Domme)"
                 )
@@ -670,14 +673,26 @@ async def handle_chat_turn(
                     confirms.append(conf)
                 elif not result.ok:
                     log.warning("AI LOCK tag failed %s: %s", lint.kind, result.error)
+                    confirms.append(
+                        f"(Lock action `{lint.kind}` failed — nothing changed.)"
+                    )
             if confirms:
                 visible_reply = (
                     (visible_reply + "\n\n" + "\n\n".join(confirms)).strip()
                     if visible_reply
                     else "\n\n".join(confirms)
                 )
-            if messages and messages[-1].get("role") == "assistant":
-                messages[-1] = {"role": "assistant", "content": visible_reply}
+        elif lock_intents and not (chaster and chaster.configured):
+            visible_reply = (
+                (visible_reply + "\n\n(Chaster not linked — lock tags ignored.)").strip()
+            )
+        elif "[[[LOCK]]]" in (reply or "").upper() and not lock_intents:
+            visible_reply = (
+                visible_reply
+                + "\n\n(I meant to change the lock but the command was malformed — try again.)"
+            ).strip()
+        if messages and messages[-1].get("role") == "assistant":
+            messages[-1] = {"role": "assistant", "content": visible_reply}
 
     if room == "private" and role == "domme":
         visible_reply, group_posts = await bridge.maybe_initiate_from_private(

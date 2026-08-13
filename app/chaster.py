@@ -399,6 +399,47 @@ class ChasterClient:
             json_body=body,
         )
 
+    async def get_lock_history(
+        self, lock_id: str, *, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Recent lock action log (time changes, freezes, extensions, share opens…)."""
+        lid = (lock_id or "").strip()
+        if not lid:
+            return []
+        data = await self._request(
+            "POST",
+            f"/locks/{lid}/history",
+            json_body={"limit": max(1, min(50, int(limit)))},
+        )
+        if isinstance(data, dict):
+            return list(data.get("results") or [])
+        if isinstance(data, list):
+            return data
+        return []
+
+    async def list_lock_extensions(self, lock_id: str | None = None) -> list[dict[str, Any]]:
+        """Extensions currently on the lock (Duo Domme, Jigsaw, Hygiene Opening, …)."""
+        lid = (lock_id or self.settings.chaster_lock_id or "").strip()
+        lock = await self.get_lock(lid) if lid else None
+        if not lock:
+            return []
+        out: list[dict[str, Any]] = []
+        for ext in lock.get("extensions") or []:
+            if not isinstance(ext, dict):
+                continue
+            out.append(
+                {
+                    "id": ext.get("_id") or ext.get("id"),
+                    "slug": ext.get("slug") or ext.get("name"),
+                    "mode": ext.get("mode"),
+                    "display_name": ext.get("displayName")
+                    or ext.get("name")
+                    or ext.get("slug"),
+                    "config": ext.get("config") or {},
+                }
+            )
+        return out
+
     def summarize_locks(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         from datetime import datetime, timezone
 
