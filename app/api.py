@@ -344,6 +344,13 @@ def create_api(
                     "extension_session.updated",
                     "extension_session.deleted",
                 ],
+                "priority_actions": [
+                    "lock_frozen",
+                    "lock_unfrozen",
+                    "time_changed",
+                    "temporary_opening_opened",
+                    "temporary_opening_locked",
+                ],
             },
             "auto_punish_enabled": controls.auto_punish_enabled,
             "autopilot": {

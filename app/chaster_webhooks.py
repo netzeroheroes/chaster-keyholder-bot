@@ -158,36 +158,47 @@ async def handle_chaster_webhook(
             out["handled"].append("ignored_other_lock")
             return out
         history_ev = history_event_from_action_log(alog)
-        etype = str(history_ev.get("type") or "")
+        from app.lockbox_sync import normalize_history_type
+
+        etype = normalize_history_type(history_ev)
         log.info(
             "Chaster webhook action_log type=%s id=%s",
             etype,
             history_ev.get("_id"),
         )
+        out["action_type"] = etype
 
         from app.lock_watch import mark_history_events_seen
 
         mark_history_events_seen([history_ev])
 
+        # Primary path: freeze / time / hygiene via lockbox sync (force)
         if rad is not None:
-            from app.lockbox_sync import handle_chaster_events
+            from app.lockbox_sync import (
+                handle_chaster_events,
+                is_lockbox_priority_event,
+                maybe_resync_after_chaster_flags,
+            )
 
+            priority = is_lockbox_priority_event(etype)
             try:
                 results = await handle_chaster_events(
-                    rad, [history_ev], chaster=chaster
+                    rad,
+                    [history_ev],
+                    chaster=chaster,
+                    source="webhook",
                 )
                 out["lockbox"] = results
-                out["handled"].append("lockbox_sync")
+                out["handled"].append(
+                    "lockbox_priority" if priority else "lockbox_sync"
+                )
             except Exception:  # noqa: BLE001
                 log.exception("Webhook lockbox sync failed")
                 out["ok"] = False
                 out["handled"].append("lockbox_sync_error")
 
-        # Flag hold / freeze placeholders even if history type was unexpected
-        if rad is not None:
+            # Freeze/hide flag edges (covers missed action-log type variants)
             try:
-                from app.lockbox_sync import maybe_resync_after_chaster_flags
-
                 flag_r = await maybe_resync_after_chaster_flags(rad, chaster)
                 if flag_r:
                     out["flag_sync"] = flag_r

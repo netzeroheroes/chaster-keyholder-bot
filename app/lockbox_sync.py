@@ -632,24 +632,62 @@ async def relock_after_hygiene(
 _TIME_SYNC_TYPES = frozenset(
     {
         "time_changed",
+        "link_time_changed",
         "lock_frozen",
         "lock_unfrozen",
         "timer_hidden",
         "timer_revealed",
         "temporary_opening_locked",
+        "temporary_opening_locked_late",
         "locked",
     }
 )
 
-# Even in manual-only mode, apply freeze/hide placeholders and restore on release.
+# Always apply immediately (webhook primary path; also bypasses manual-only).
 _FORCE_RESYNC_TYPES = frozenset(
     {
         "lock_frozen",
         "lock_unfrozen",
         "timer_hidden",
         "timer_revealed",
+        "time_changed",
+        "link_time_changed",
     }
 )
+
+_HYGIENE_OPEN_TYPES = frozenset(
+    {
+        "temporary_opening_opened",
+    }
+)
+_HYGIENE_CLOSE_TYPES = frozenset(
+    {
+        "temporary_opening_locked",
+        "temporary_opening_locked_late",
+    }
+)
+
+
+def is_lockbox_priority_event(etype: str) -> bool:
+    """Freeze / timer / hygiene — handled immediately via webhook."""
+    t = (etype or "").strip()
+    return (
+        t in _FORCE_RESYNC_TYPES
+        or t in _HYGIENE_OPEN_TYPES
+        or t in _HYGIENE_CLOSE_TYPES
+        or t in _TIME_SYNC_TYPES
+    )
+
+
+def normalize_history_type(event: dict[str, Any]) -> str:
+    """Normalize action-log type (strip optional prefix. namespace)."""
+    raw = str(event.get("type") or "").strip()
+    prefix = str(event.get("prefix") or "").strip()
+    if prefix and raw.startswith(f"{prefix}."):
+        return raw[len(prefix) + 1 :]
+    if raw.startswith("default."):
+        return raw[len("default.") :]
+    return raw
 
 
 async def handle_chaster_events(
@@ -657,20 +695,25 @@ async def handle_chaster_events(
     events: list[dict[str, Any]],
     *,
     chaster: ChasterClient | None = None,
+    source: str = "poll",
 ) -> list[dict[str, Any]]:
-    """Mirror relevant Chaster history events onto the R+D lockbox."""
+    """Mirror relevant Chaster history events onto the R+D lockbox.
+
+    ``source=\"webhook\"`` forces timer sync for freeze/time changes even if
+    manual-only is on; hygiene always runs when enabled.
+    """
     if not events:
         return []
     if not rad.configured:
         log.warning(
             "Chaster lock events ignored — RAD_API_TOKEN not set (%s)",
-            [str(e.get("type") or "") for e in events[:5]],
+            [normalize_history_type(e) for e in events[:5]],
         )
         _stamp(
             action="skip",
             ok=False,
             detail="RAD_API_TOKEN not set — events not synced",
-            chaster_type=",".join(str(e.get("type") or "") for e in events[:3]),
+            chaster_type=",".join(normalize_history_type(e) for e in events[:3]),
         )
         return []
     if not _sync_on(rad):
@@ -680,31 +723,38 @@ async def handle_chaster_events(
     hygiene = bool(getattr(rad.settings, "rad_sync_hygiene", True))
     session_sync = bool(getattr(rad.settings, "rad_sync_session_lock", False))
     manual = _manual_only(rad)
+    from_webhook = source == "webhook"
     results: list[dict[str, Any]] = []
     synced_time = False
 
     for ev in events:
-        etype = str(ev.get("type") or "")
-        log.info("Lockbox sync handling Chaster event type=%s", etype)
-        if hygiene and etype == "temporary_opening_opened":
-            results.append(await unlock_for_hygiene(rad, reason=etype))
-        elif hygiene and etype == "temporary_opening_locked":
+        etype = normalize_history_type(ev)
+        reason = f"{source}:{etype}" if from_webhook else etype
+        log.info(
+            "Lockbox sync handling Chaster event type=%s source=%s",
+            etype,
+            source,
+        )
+        if hygiene and etype in _HYGIENE_OPEN_TYPES:
+            results.append(await unlock_for_hygiene(rad, reason=reason))
+        elif hygiene and etype in _HYGIENE_CLOSE_TYPES:
             results.append(
-                await relock_from_chaster(rad, chaster, reason=etype)
+                await relock_from_chaster(rad, chaster, reason=reason)
             )
             synced_time = True
         elif session_sync and etype == "unlocked":
-            results.append(await unlock_for_hygiene(rad, reason=etype))
+            results.append(await unlock_for_hygiene(rad, reason=reason))
         elif session_sync and etype == "locked":
             results.append(
-                await relock_from_chaster(rad, chaster, reason=etype)
+                await relock_from_chaster(rad, chaster, reason=reason)
             )
             synced_time = True
-        elif etype in _FORCE_RESYNC_TYPES:
-            # Unfreeze / unhide → always apply real Chaster remaining (even manual-only)
+        elif etype in _FORCE_RESYNC_TYPES or (
+            from_webhook and etype in _TIME_SYNC_TYPES
+        ):
             results.append(
                 await sync_duration_from_chaster(
-                    rad, chaster, reason=etype, force=True
+                    rad, chaster, reason=reason, force=True
                 )
             )
             synced_time = True
@@ -714,7 +764,9 @@ async def handle_chaster_events(
             and not synced_time
         ):
             results.append(
-                await sync_duration_from_chaster(rad, chaster, reason=etype)
+                await sync_duration_from_chaster(
+                    rad, chaster, reason=reason, force=from_webhook
+                )
             )
             synced_time = True
 
