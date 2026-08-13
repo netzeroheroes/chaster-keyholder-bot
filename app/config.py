@@ -12,12 +12,10 @@ class Settings(BaseSettings):
 
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_api_key: str = ""
-    llm_model: str = (
-        "cognitivecomputations/dolphin-mistral-24b-venice-edition"
-    )
+    llm_model: str = "openai/gpt-oss-20b:free"
     # Cap completion size — OpenRouter reserves credits against max_tokens.
     # Keep this under your remaining balance (402 if too high).
-    llm_max_tokens: int = 2048
+    llm_max_tokens: int = 1024
     system_prompt: str = ""  # unused when scene prompts are active
 
     llm_enable_tools: bool = False

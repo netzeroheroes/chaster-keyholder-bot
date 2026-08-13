@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionToolMessageParam,
@@ -10,6 +12,8 @@ from openai.types.chat import (
 
 from app.config import Settings
 from app.tools.base import ToolRegistry
+
+log = logging.getLogger(__name__)
 
 
 class ChatAgent:
@@ -73,12 +77,13 @@ class ChatAgent:
             self.tools.schemas() if self.settings.llm_enable_tools else []
         )
 
+        max_tokens = max(256, int(self.settings.llm_max_tokens or 1024))
         for _ in range(self.max_tool_rounds):
             kwargs: dict[str, Any] = {
                 "model": self.settings.llm_model,
                 "messages": messages,
                 # Cap so OpenRouter credit checks don't reserve a huge completion
-                "max_tokens": max(256, int(self.settings.llm_max_tokens or 2048)),
+                "max_tokens": max_tokens,
                 # Reduce copy-paste loops on smaller/uncensored models
                 "temperature": 0.9,
                 "frequency_penalty": 0.7,
@@ -88,7 +93,26 @@ class ChatAgent:
                 kwargs["tools"] = tool_schemas
                 kwargs["tool_choice"] = "auto"
 
-            completion = await self.client.chat.completions.create(**kwargs)
+            try:
+                completion = await self.client.chat.completions.create(**kwargs)
+            except APIStatusError as exc:
+                # OpenRouter 402: requested max_tokens > affordable balance
+                if exc.status_code == 402 and max_tokens > 256:
+                    affordable = _affordable_tokens(str(exc))
+                    retry_for = max(256, min(max_tokens // 2, affordable or max_tokens // 2))
+                    if retry_for < max_tokens:
+                        log.warning(
+                            "OpenRouter 402 — retrying with max_tokens=%s (was %s)",
+                            retry_for,
+                            max_tokens,
+                        )
+                        max_tokens = retry_for
+                        kwargs["max_tokens"] = max_tokens
+                        completion = await self.client.chat.completions.create(**kwargs)
+                    else:
+                        raise
+                else:
+                    raise
             choice = completion.choices[0].message
             tool_calls = choice.tool_calls or []
 
@@ -130,3 +154,14 @@ class ChatAgent:
             "Stopped after too many tool rounds. Try a simpler request.",
             messages,
         )
+
+
+def _affordable_tokens(error_text: str) -> int | None:
+    """Parse OpenRouter 402 'can only afford N' if present."""
+    m = re.search(r"can only afford\s+(\d+)", error_text, re.I)
+    if not m:
+        return None
+    try:
+        return max(0, int(m.group(1)))
+    except ValueError:
+        return None
