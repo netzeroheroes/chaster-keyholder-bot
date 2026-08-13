@@ -149,6 +149,9 @@ class RadLockboxClient:
         if kh:
             body["keyholderIds"] = [int(x) for x in kh]
         test = self.is_test_lock if is_test_lock is None else is_test_lock
+        # No R+D keyholder linked → self/test lock so hygiene unlock works via API
+        if not kh and is_test_lock is None:
+            test = True
         if test:
             body["isTestLock"] = True
         return await self._request("POST", "/lkbx/session/current", json_body=body)

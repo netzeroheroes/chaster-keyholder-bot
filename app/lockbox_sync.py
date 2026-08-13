@@ -356,7 +356,26 @@ async def relock_from_chaster(
         )
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
-        # Session may already exist — still try to push Chaster time
+        # Lock call may error even when a session was created — recover.
+        try:
+            session = await rad.get_active_session()
+        except Exception:  # noqa: BLE001
+            session = None
+        if session and session.get("isActive") and duration is not None:
+            try:
+                await rad.set_duration(duration)
+                return _stamp(
+                    action="lock",
+                    ok=True,
+                    detail=(
+                        f"Session active after lock quirk; duration synced to "
+                        f"{duration}s from Chaster"
+                    ),
+                    chaster_type=reason,
+                    chaster_remaining=rem,
+                )
+            except Exception as exc2:  # noqa: BLE001
+                msg = f"{msg} | duration sync: {exc2}"
         if "already have an active lock" in msg.lower() and duration is not None:
             try:
                 await rad.set_duration(duration)
@@ -373,7 +392,7 @@ async def relock_from_chaster(
                     ok=False,
                     detail=(
                         f"Active lock exists but duration sync failed: {exc2}. "
-                        "API token must be the KEYHOLDER account (Missb), not the lockee."
+                        "Use RAD_IS_TEST_LOCK=true if there is no R+D keyholder."
                     ),
                     chaster_type=reason,
                     chaster_remaining=rem,
