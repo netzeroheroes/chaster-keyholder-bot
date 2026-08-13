@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css?v=4" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=5" />
 </head>
 <body>
   <div id="gate" class="gate">
@@ -19,15 +19,15 @@
         <p class="eyebrow" id="roleLabel">—</p>
         <h1 id="heading">Chat</h1>
       </div>
-      <div class="top-actions">
-        <button type="button" id="settingsBtn" class="link-btn hidden">Session settings</button>
-        <p class="meta" id="sessionMeta"></p>
-      </div>
+      <p class="meta" id="sessionMeta"></p>
     </header>
     <nav id="roomTabs" class="room-tabs" aria-label="Chat rooms">
       <button type="button" class="room-tab active" data-room="group">Group</button>
       <button type="button" class="room-tab hidden" data-room="private" id="privateTab">
         Private
+      </button>
+      <button type="button" class="room-tab settings-tab hidden" id="settingsBtn" data-action="settings">
+        Settings
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
@@ -96,6 +96,6 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=4"></script>
+  <script src="/static/ext/ext.js?v=5"></script>
 </body>
 </html>

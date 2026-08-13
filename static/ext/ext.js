@@ -303,11 +303,18 @@
   els.roomTabs.addEventListener("click", (e) => {
     const btn = e.target.closest(".room-tab");
     if (!btn || btn.classList.contains("hidden")) return;
+    if (btn.dataset.action === "settings" || btn.id === "settingsBtn") {
+      openSettings();
+      return;
+    }
     switchRoom(btn.dataset.room);
   });
 
   if (els.settingsBtn) {
-    els.settingsBtn.addEventListener("click", openSettings);
+    els.settingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openSettings();
+    });
   }
   if (els.settingsClose) {
     els.settingsClose.addEventListener("click", closeSettings);
