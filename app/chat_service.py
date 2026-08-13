@@ -39,10 +39,14 @@ from app.speaker_guard import (
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.punish import (
+    bump_disobey_streak,
+    cool_disobey_streak,
     detect_rule_break,
+    escalate_rule_break,
     format_auto_punish_reply,
     is_direct_lock_order,
     is_mercy_plea,
+    looks_like_obedience,
 )
 from app.runtime_controls import get_controls
 from app.scene_builder import build_scene_from_profile, wants_scene_build
@@ -614,13 +618,22 @@ async def handle_chat_turn(
 
         # Begging alone (even without parsed intent) — feed the scene, no punish
         if role == "sub" and not chaster_truth_reply and is_mercy_plea(message):
+            cooled = cool_disobey_streak(memory, reset=False)
             if "[DIRECTOR: Sub is BEGGING" not in chaster_note:
                 chaster_note += (
-                    "\n\n[DIRECTOR: Sub is BEGGING (timer/time/unfreeze mercy) to the "
+                    "\n\n[DIRECTOR: Sub is BEGGING (ease punishments / timer mercy) to the "
                     f"Dommes. Allowed — he may beg {her} or you. Refer to both of you "
                     "as Dominants. Either of you may grant/deny. If YOU grant, emit "
-                    f"[[[LOCK]]]. Never scold him for addressing {her}.]"
+                    f"[[[LOCK]]]. Never scold him for addressing {her}. "
+                    f"Disobedience streak cooled to {cooled}. "
+                    "Do NOT tell him to beg for unlock.]"
                 )
+        elif role == "sub" and not chaster_truth_reply and looks_like_obedience(message):
+            cooled = cool_disobey_streak(memory, reset=True)
+            chaster_note += (
+                f"\n\n[DIRECTOR: Lockee showed apology/obedience — disobedience streak "
+                f"cleared (was cooling to {cooled}). Acknowledge briefly; do not pile on.]"
+            )
 
         # Automatic Chaster detriment first — lock is the bot's main lever
         # (skipped for begging; fires for direct orders / rule breaks)
@@ -635,10 +648,18 @@ async def handle_chat_turn(
             if punish_on and chaster.configured:
                 br = detect_rule_break(message, role=role)
                 if br:
-                    # Prefer live Domme setting; fall back to pattern severity
+                    strike = bump_disobey_streak(memory)
+                    br = escalate_rule_break(br, strike)
+                    # Prefer live Domme floor; escalated pattern severity wins if higher
                     punish_secs = int(default_secs or br.seconds or 600)
                     if br.seconds > punish_secs:
                         punish_secs = br.seconds
+                    # Also scale Domme default by strike when pattern base was lower
+                    if strike >= 2 and int(default_secs or 0) >= punish_secs:
+                        punish_secs = min(
+                            86400,
+                            int(int(default_secs) * (1.5 ** (strike - 1))),
+                        )
                     results = []
                     applied: list[str] = []
                     r1 = await run_chaster_intent(
@@ -673,6 +694,7 @@ async def handle_chat_turn(
                         results=results,
                         seconds=punish_secs,
                         applied=applied,
+                        strike=strike,
                     )
                     if truth:
                         # Skip LLM — consequence hits immediately via Chaster
@@ -685,9 +707,14 @@ async def handle_chat_turn(
                             action="auto_punish:" + (",".join(applied) or br.reason),
                             remaining=rem,
                             by=f"{bot_name} (auto-punish)",
-                            detail=br.reason,
+                            detail=f"strike {strike}: {br.reason}",
                         )
-                        log.info("Auto-punish applied for %s", br.reason)
+                        log.info(
+                            "Auto-punish strike=%s secs=%s for %s",
+                            strike,
+                            punish_secs,
+                            br.reason,
+                        )
                     else:
                         chaster_note += (
                             f"\n\n[AUTO-PUNISH attempted for: {br.reason} but lock "
@@ -745,8 +772,9 @@ async def handle_chat_turn(
             "UI already shows who spoke. If you address someone, say 'keyholder' or 'lockee'.\n"
             "- NEVER tell the lockee to beg to be unlocked. Unlock is not a beg-goal. "
             "He may beg to ease/stop punishments, unhide timer, or reduce added time.\n"
-            "- No lecture escalation: short dismissals get a real consequence once, then a new beat — "
-            "not the same 'beg or else' threat every turn.\n"
+            "- Disobedience escalates: each continued brat/insult strike adds more time "
+            "(and freeze on later strikes). Do not empty-threat lecture — the lock hits harder.\n"
+            "- Short dismissals get a real consequence; keep stacking if he continues.\n"
             "- Femdom/matriarchal: female Dominants hold power; the locked Sub serves.\n"
             "- If Sub insults Dommes (slut/whore/hores/etc.), PUNISH with ADD time. "
             "Never remove time, never tease-reward, never play along with the slur.\n"

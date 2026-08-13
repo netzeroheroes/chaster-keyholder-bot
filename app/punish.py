@@ -3,8 +3,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
 
 log = logging.getLogger(__name__)
+
+# Cap escalated add-time at 24h per strike
+_MAX_PUNISH_SECONDS = 86400
 
 
 @dataclass
@@ -13,6 +18,7 @@ class RuleBreak:
     seconds: int = 600
     freeze: bool = False
     hide_timer: bool = False
+    strike: int = 1  # disobedience streak after this offense
 
 
 _PATTERNS: list[tuple[re.Pattern[str], RuleBreak]] = [
@@ -165,7 +171,8 @@ def detect_rule_break(message: str, *, role: str) -> RuleBreak | None:
         return None
     # Soft questions / obedience should not punish (unless confession of major break)
     if re.search(
-        r"\b(what about|may i|can i|please|sorry|i will|yes mistress|yes miss)\b",
+        r"\b(what about|may i|can i|please|sorry|i will|yes mistress|yes miss|"
+        r"yes keyholder|i'?ll obey|i will obey)\b",
         text,
         re.I,
     ):
@@ -184,6 +191,84 @@ def detect_rule_break(message: str, *, role: str) -> RuleBreak | None:
     return None
 
 
+def looks_like_obedience(message: str) -> bool:
+    """Genuine apology / compliance — may cool the streak (not a punish)."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    if detect_rule_break(text, role="sub"):
+        return False
+    return bool(
+        re.search(
+            r"\b("
+            r"sorry|i'?m sorry|forgive me|i apologize|"
+            r"yes (keyholder|mistress|miss|ma'?am)|"
+            r"i('?ll| will) (obey|behave|listen|do (it|that|better))|"
+            r"please (ease|stop|forgive)|i'?ll be good"
+            r")\b",
+            text,
+            re.I,
+        )
+    )
+
+
+def get_disobey_streak(memory: Any) -> int:
+    ch = getattr(memory, "chastity", None) or {}
+    if not isinstance(ch, dict):
+        return 0
+    try:
+        return max(0, int(ch.get("disobey_streak") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def bump_disobey_streak(memory: Any) -> int:
+    """Increment lasting disobedience counter; return new strike count (1+)."""
+    n = get_disobey_streak(memory) + 1
+    ch = dict(getattr(memory, "chastity", None) or {})
+    ch["disobey_streak"] = str(n)
+    ch["disobey_last"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    memory.update_fields(chastity=ch)
+    return n
+
+
+def cool_disobey_streak(memory: Any, *, reset: bool = False) -> int:
+    """Reduce or clear streak when he begs properly / obeys."""
+    cur = get_disobey_streak(memory)
+    if cur <= 0:
+        return 0
+    nxt = 0 if reset else max(0, cur - 1)
+    ch = dict(getattr(memory, "chastity", None) or {})
+    if nxt:
+        ch["disobey_streak"] = str(nxt)
+    else:
+        ch.pop("disobey_streak", None)
+    ch["disobey_last"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    memory.update_fields(chastity=ch)
+    return nxt
+
+
+def escalate_rule_break(br: RuleBreak, strike: int) -> RuleBreak:
+    """Scale time + extras as disobedience continues (strike is 1-based)."""
+    n = max(1, int(strike or 1))
+    # 1→base, 2→1.5x, 3→2.25x, 4→~3.4x … cap 24h
+    mult = min(6.0, 1.5 ** (n - 1))
+    seconds = max(60, min(_MAX_PUNISH_SECONDS, int(br.seconds * mult)))
+    freeze = br.freeze or n >= 2
+    hide = br.hide_timer or n >= 1
+    # Keep stacking severity in the reason label for the reply
+    reason = br.reason
+    if n >= 2:
+        reason = f"{br.reason} (strike {n} - escalating)"
+    return RuleBreak(
+        reason=reason,
+        seconds=seconds,
+        freeze=freeze,
+        hide_timer=hide,
+        strike=n,
+    )
+
+
 def format_auto_punish_reply(
     *,
     bot_name: str,
@@ -191,6 +276,7 @@ def format_auto_punish_reply(
     results: list,
     seconds: int,
     applied: list[str],
+    strike: int = 1,
 ) -> str:
     """Immediate Domme-speak to the Sub after real Chaster detriment."""
     done = [r for r in results if getattr(r, "ok", False) and not getattr(r, "blocked", False)]
@@ -218,13 +304,27 @@ def format_auto_punish_reply(
     if rem:
         snap = f" Remaining: {rem}."
 
+    strike_n = max(1, int(strike or 1))
+    escalate_line = ""
+    if strike_n >= 2:
+        escalate_line = (
+            f"\nThat's strike {strike_n}. Keep mouthing off and it gets worse each time."
+        )
+    elif strike_n == 1:
+        escalate_line = "\nKeep it up and the next hit will be harder."
+
     if "disrespect" in (reason or "").lower() or "insolent" in (reason or "").lower():
         return (
             f"Watch your mouth. You do not call Dommes or your keyholder names.\n"
-            f"{action}.{snap}\n"
-            f"Try again with respect — or enjoy the extra time. — {bot_name}"
+            f"{action}.{snap}{escalate_line}\n"
+            f"Beg to ease the punishments — not for unlock. — {bot_name}"
+        )
+    if "dismissive" in (reason or "").lower() or "brat" in (reason or "").lower():
+        return (
+            f"{action} for that attitude.{snap}{escalate_line}\n"
+            f"Obey, or beg to ease the punishments. — {bot_name}"
         )
     return (
-        f"{action} for {reason}.{snap}\n"
-        f"That's how this works, boy — I control your lock. — {bot_name}"
+        f"{action} for {reason}.{snap}{escalate_line}\n"
+        f"That's how this works, lockee — I control your lock. — {bot_name}"
     )
