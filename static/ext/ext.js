@@ -251,6 +251,11 @@
         : "time ?";
     const hyg = st.hygiene_unlock ? "hygiene→unlock" : "hygiene off";
     const bits = [sync, mode, hyg, state];
+    if (!st.configured) {
+      el.textContent =
+        "Lockbox: NOT CONFIGURED — set RAD_API_TOKEN + RAD_LOCKBOX_SYNC_ENABLED=true on Render";
+      return;
+    }
     if (st.last_sync && st.last_sync.chaster_frozen) bits.push("Chaster FROZEN");
     if (st.last_sync && st.last_sync.chaster_time_hidden)
       bits.push("Chaster timer HIDDEN");

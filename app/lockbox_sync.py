@@ -205,8 +205,20 @@ async def maybe_resync_after_chaster_flags(
     Works in manual-only mode too — those transitions are the exceptions where
     we pull real Chaster remaining onto the box.
     """
+    if not rad.configured:
+        return _stamp(
+            action="set_duration",
+            ok=False,
+            detail="RAD_API_TOKEN not set on server — add Render env vars",
+            chaster_type="config",
+        )
     if not _sync_on(rad):
-        return None
+        return _stamp(
+            action="set_duration",
+            ok=False,
+            detail="RAD_LOCKBOX_SYNC_ENABLED is false",
+            chaster_type="config",
+        )
     snap = await chaster_lock_snapshot(chaster)
     if not snap:
         return None
@@ -217,8 +229,13 @@ async def maybe_resync_after_chaster_flags(
     _LAST_CHASTER_FLAGS["frozen"] = frozen
     _LAST_CHASTER_FLAGS["time_hidden"] = hidden
 
-    # First observation — just seed, don't thrash
+    # First observation: seed flags. If already unfrozen+visible, catch up once
+    # (covers events missed while the server had no RAD token / was asleep).
     if prev_f is None and prev_h is None:
+        if not frozen and not hidden and snap.get("remaining"):
+            return await sync_duration_from_chaster(
+                rad, chaster, reason="boot_catchup", force=True
+            )
         return None
 
     reasons: list[str] = []
@@ -226,10 +243,22 @@ async def maybe_resync_after_chaster_flags(
         reasons.append("lock_unfrozen")
     if prev_h is True and hidden is False:
         reasons.append("timer_revealed")
+    # Also apply freeze/hide soft-mapping when those turn on (non-manual full sync
+    # already does periodic; in manual mode only unfreeze/reveal matter — but
+    # applying hide/freeze placeholders keeps the box consistent if they toggle.)
+    if prev_f is False and frozen is True:
+        reasons.append("lock_frozen")
+    if prev_h is False and hidden is True:
+        reasons.append("timer_hidden")
     if not reasons:
         return None
+    # Only force (bypass manual skip) for unfreeze/reveal; freeze/hide use normal
+    # path so manual-only stays parked unless revealing.
+    force = any(r in ("lock_unfrozen", "timer_revealed") for r in reasons)
+    if _manual_only(rad) and not force:
+        return None
     return await sync_duration_from_chaster(
-        rad, chaster, reason="+".join(reasons), force=True
+        rad, chaster, reason="+".join(reasons), force=force
     )
 
 
@@ -620,7 +649,22 @@ async def handle_chaster_events(
     chaster: ChasterClient | None = None,
 ) -> list[dict[str, Any]]:
     """Mirror relevant Chaster history events onto the R+D lockbox."""
-    if not events or not _sync_on(rad):
+    if not events:
+        return []
+    if not rad.configured:
+        log.warning(
+            "Chaster lock events ignored — RAD_API_TOKEN not set (%s)",
+            [str(e.get("type") or "") for e in events[:5]],
+        )
+        _stamp(
+            action="skip",
+            ok=False,
+            detail="RAD_API_TOKEN not set — events not synced",
+            chaster_type=",".join(str(e.get("type") or "") for e in events[:3]),
+        )
+        return []
+    if not _sync_on(rad):
+        log.warning("Chaster lock events ignored — RAD_LOCKBOX_SYNC_ENABLED=false")
         return []
 
     hygiene = bool(getattr(rad.settings, "rad_sync_hygiene", True))
@@ -631,6 +675,7 @@ async def handle_chaster_events(
 
     for ev in events:
         etype = str(ev.get("type") or "")
+        log.info("Lockbox sync handling Chaster event type=%s", etype)
         if hygiene and etype == "temporary_opening_opened":
             results.append(await unlock_for_hygiene(rad, reason=etype))
         elif hygiene and etype == "temporary_opening_locked":
