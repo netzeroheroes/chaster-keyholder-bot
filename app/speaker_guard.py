@@ -90,6 +90,6 @@ def repair_domme_misaddress(
     topic = (original_topic or "").strip()
     extra = f" About your order ({topic}): noted — I'll keep control of {sub}." if topic else ""
     return (
-        f"{title} — sorry, that was aimed wrong. You're the keyholder, not the lockee.\n"
+        f"{title} - sorry, that was aimed wrong. You're the keyholder, not the lockee.\n"
         f"I answer to you; {sub} is the one in the cage.{extra}"
     )
