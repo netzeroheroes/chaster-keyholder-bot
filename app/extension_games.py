@@ -92,12 +92,24 @@ def games_prompt_block() -> str:
     return "\n".join(lines)
 
 
-def share_link_punish_config(strike: int) -> str:
-    """Harsher share-link +/− as strikes climb (reason body for configure_share_links)."""
+def share_link_punish_config(
+    strike: int,
+    *,
+    current_add: int = 0,
+    current_remove: int = 0,
+) -> str:
+    """Harsher share-link +/- as strikes climb (reason body for configure_share_links)."""
     n = max(1, int(strike or 1))
-    # add grows; remove shrinks toward zero
-    add = min(12 * 3600, 2 * 3600 * n)  # 2h, 4h, 6h… cap 12h
-    remove = max(0, 1800 // n)  # 30m → 15m → 10m…
+    # Always move past current config so Chaster shows a real change
+    add = min(12 * 3600, max(2 * 3600 * n, int(current_add or 0) + 3600 * n))
+    # Shrink remove; if already tiny, leave at 0
+    target_remove = max(0, 900 // n)  # 15m, 7m, 5m…
+    if int(current_remove or 0) > 0:
+        remove = min(int(current_remove), target_remove)
+        if remove == int(current_remove) and remove > 0:
+            remove = max(0, remove // 2)
+    else:
+        remove = target_remove
     return f"add:{add}|remove:{remove}"
 
 
@@ -125,7 +137,13 @@ def punish_task_for_strike(strike: int, reason: str) -> str:
     )
 
 
-def extension_punish_intents(strike: int, *, reason: str) -> list[ChasterIntent]:
+def extension_punish_intents(
+    strike: int,
+    *,
+    reason: str,
+    share_add: int = 0,
+    share_remove: int = 0,
+) -> list[ChasterIntent]:
     """
     Extra extension levers for escalating disobedience.
     Intents that fail (plugin missing) are skipped by the action runner as blocked.
@@ -136,7 +154,9 @@ def extension_punish_intents(strike: int, *, reason: str) -> list[ChasterIntent]
     out.append(
         ChasterIntent(
             kind="configure_share_links",
-            reason=share_link_punish_config(n),
+            reason=share_link_punish_config(
+                n, current_add=share_add, current_remove=share_remove
+            ),
         )
     )
     if n >= 2:

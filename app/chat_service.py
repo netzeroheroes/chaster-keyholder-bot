@@ -714,8 +714,25 @@ async def handle_chat_turn(
                             applied.append("hide_time")
                     # Extension punishments (share links, tasks, pillory, verification)
                     if br.use_extensions:
+                        share_add = share_remove = 0
+                        try:
+                            for ext in await chaster.list_lock_extensions():
+                                if str(ext.get("slug") or "") != "link":
+                                    continue
+                                cfg = ext.get("config") or {}
+                                share_add = int(cfg.get("timeToAdd") or 0)
+                                share_remove = int(cfg.get("timeToRemove") or 0)
+                                break
+                        except Exception:  # noqa: BLE001
+                            log.debug(
+                                "Could not read share-link config for punish",
+                                exc_info=True,
+                            )
                         for lint in extension_punish_intents(
-                            strike, reason=br.reason
+                            strike,
+                            reason=br.reason,
+                            share_add=share_add,
+                            share_remove=share_remove,
                         )[:4]:
                             try:
                                 rx = await run_chaster_intent(

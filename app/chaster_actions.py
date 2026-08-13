@@ -1128,6 +1128,32 @@ async def run_chaster_intent(
             if not updates:
                 updates = {"timeToAdd": 3600, "timeToRemove": 3600}
             try:
+                before_exts = await chaster.list_lock_extensions(lock_id)
+            except Exception as exc:  # noqa: BLE001
+                return ChasterActionResult(
+                    ok=False,
+                    error=str(exc),
+                    before=before,
+                    lock=before,
+                    facts=f"Could not read extensions: {exc}",
+                )
+            before_link = next(
+                (e for e in before_exts if str(e.get("slug") or "") == "link"),
+                None,
+            )
+            if not before_link:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        "Share links (`link`) is not on the lock. "
+                        'Say: "activate share links" first.'
+                    ),
+                )
+            before_cfg = dict(before_link.get("config") or {})
+            try:
                 after_exts = await chaster.update_extension_config(
                     lock_id, "link", updates
                 )
@@ -1155,19 +1181,56 @@ async def run_chaster_intent(
                 (e for e in after_exts if e.get("slug") == "link"),
                 {},
             )
-            cfg = link.get("config") if isinstance(link, dict) else {}
+            cfg = dict(link.get("config") or {}) if isinstance(link, dict) else {}
+
+            def _cfg_int(d: dict[str, Any], key: str) -> int:
+                try:
+                    return int(d.get(key) or 0)
+                except (TypeError, ValueError):
+                    return 0
+
+            applied_ok = all(_cfg_int(cfg, k) == int(v) for k, v in updates.items())
+            changed = any(
+                _cfg_int(before_cfg, k) != _cfg_int(cfg, k) for k in updates
+            )
             after = summarize_lock(await refresh_lock(chaster, lock))
+            if not applied_ok:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=after,
+                    facts=(
+                        "Share links config did NOT take on Chaster "
+                        f"(wanted {updates}, still "
+                        f"+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s). "
+                        "Lock may block extension edits, or values were rejected."
+                    ),
+                )
+            if not changed:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=after,
+                    facts=(
+                        "Share links already at that config "
+                        f"(+{cfg.get('timeToAdd')}s / -{cfg.get('timeToRemove')}s) - "
+                        "nothing to update."
+                    ),
+                )
             return ChasterActionResult(
                 ok=True,
                 facts=(
                     f"CHASTER ACTION DONE (share links config):\n"
                     f"- Requested by: {requested_by}\n"
-                    f"- timeToAdd: {cfg.get('timeToAdd')}s · "
-                    f"timeToRemove: {cfg.get('timeToRemove')}s · "
-                    f"enableRandom: {cfg.get('enableRandom')} · "
-                    f"visits: {cfg.get('nbVisits')}\n"
-                    "Share links themselves are used in the Chaster UI / his profile — "
-                    "there is no API to mint a new public URL from this bot.\n"
+                    f"- Before: +{before_cfg.get('timeToAdd')}s / "
+                    f"-{before_cfg.get('timeToRemove')}s\n"
+                    f"- After: +{cfg.get('timeToAdd')}s / "
+                    f"-{cfg.get('timeToRemove')}s · "
+                    f"enableRandom={cfg.get('enableRandom')} · "
+                    f"visits={cfg.get('nbVisits')}\n"
+                    "Share URL stays in the Chaster UI — bot only changes +/- per visit.\n"
                     f"{_status_lines('AFTER', after)}"
                 ),
                 lock=after,
