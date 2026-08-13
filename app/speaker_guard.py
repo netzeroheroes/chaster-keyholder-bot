@@ -87,11 +87,12 @@ def addressing_block(
             f"This message is from {speaker} — the HUMAN DOMME / Chaster KEYHOLDER.\n"
             f"She is NOT locked. She is NOT the wearer. Do NOT give HER hygiene unlocks, "
             f"orders to kneel, or talk about 'your cage' as hers.\n"
-            "UI already shows who spoke — do NOT write [Keyholder: Domme] or her username.\n"
-            "If you address her, say 'keyholder'. The wearer is 'lockee' (or boy) — not usernames.\n"
-            f"Confirm orders TO her. The lockee is {sub} — he/him.\n"
-            f"You ({bot_name}) are her co-Domme peer / AI keyholder — Dominant, having fun. "
-            f"Never obedient, never a slave.\n"
+            "UI already shows who spoke — NEVER invent labels like [You (@Keyholder):] "
+            "or [Keyholder: Domme]. Do not address yourself.\n"
+            "If Domme calls him slut/whore/boy she is teasing the LOCKEE — join her "
+            "in controlling him. Do not scold her. Do not call HER slut.\n"
+            "Briefly ack her, then give the lockee a concrete order. "
+            f"Wearer = lockee ({sub}). You ({bot_name}) are co-Domme — Dominant, having fun.\n"
         )
     return (
         "\n\n[WHO IS SPEAKING — CRITICAL]\n"
@@ -151,13 +152,20 @@ _IMPERSONATE = re.compile(
     re.I | re.M,
 )
 
-# Fake UI chrome the model invents: [Keyholder: Domme] Name,
+# Fake UI chrome the model invents: [Keyholder: Domme], [You (@Keyholder):], etc.
 _CHAT_CHROME = re.compile(
-    r"^\[?\s*Keyholder\s*(:\s*Domme)?\s*\]\s*:?\s*",
+    r"\[\s*(?:You\s*)?\(?\s*@?\s*(?:Keyholder|Domme|Sub|Bot)\s*\)?"
+    r"(?:\s*:\s*(?:Domme|Sub|Keyholder))?[^\]\n]*\]\s*:?\s*",
     re.I,
 )
 _LEADING_USERNAME = re.compile(
     r"^@?[A-Za-z0-9_\-]{3,32}\s*,\s*",
+)
+# Domme playfully naming the lockee (not an insult at the AI)
+_DOMME_TEASE_LOCKEE = re.compile(
+    r"^[\s\"']*(hi|hello|hey|yo|sup)?[\s,]*"
+    r"(slut|sluts?|whore|whores?|hores?|bitch|boy|cuck|toy)\b",
+    re.I,
 )
 _BEG_UNLOCK = re.compile(
     r"\bbeg\s+(me\s+)?to\s+unlock(\s+you)?\b|"
@@ -217,11 +225,15 @@ def strip_chat_chrome(
     *,
     sub_name: str = "",
     domme_name: str = "",
+    bot_name: str = "",
 ) -> str:
     """Remove invented speaker tags and leading usernames — UI already shows who spoke."""
     text = (reply or "").strip()
     if not text:
         return text
+    # Strip wrapping brackets the model sometimes puts around the whole reply
+    if text.startswith("[") and text.endswith("]") and text.count("[") == 1:
+        text = text[1:-1].strip()
     lines = text.splitlines()
     cleaned_lines: list[str] = []
     for i, line in enumerate(lines):
@@ -233,33 +245,54 @@ def strip_chat_chrome(
         s = _IMPERSONATE.sub("", s).strip()
         # Strip username openers on the first few lines
         if i < 3:
-            for uname in (sub_name, domme_name):
+            for uname in (sub_name, domme_name, bot_name):
                 u = (uname or "").strip().lstrip("@")
                 if u and re.match(rf"^@?{re.escape(u)}\s*,\s*", s, re.I):
                     s = re.sub(rf"^@?{re.escape(u)}\s*,\s*", "", s, flags=re.I)
                     break
             else:
                 s = _LEADING_USERNAME.sub("", s)
+        # Drop trailing ", Keyholder." self-address leftovers
+        s = re.sub(r",\s*Keyholder\.?\s*$", ".", s, flags=re.I)
+        s = re.sub(r"\bKeyholder\s*,\s*$", "", s, flags=re.I).strip()
         if s:
             cleaned_lines.append(s)
         else:
             cleaned_lines.append("")
     out = "\n".join(cleaned_lines).strip()
-    # In spoken body, prefer role words over usernames
-    for uname, role_word in (
-        (sub_name, "lockee"),
-        (domme_name, "keyholder"),
-    ):
-        u = (uname or "").strip().lstrip("@")
-        if u and len(u) >= 3:
-            out = re.sub(rf"\b{re.escape(u)}\b", role_word, out, flags=re.I)
+    # Prefer lockee over Sub username; do NOT rewrite Domme username to Keyholder
+    # (bot is also named Keyholder — that causes self-talk).
+    u_sub = (sub_name or "").strip().lstrip("@")
+    if u_sub and len(u_sub) >= 3:
+        out = re.sub(rf"\b{re.escape(u_sub)}\b", "lockee", out, flags=re.I)
     out = re.sub(r"\bMistress\b", "keyholder", out)
-    return out
+    # Remove "You (@Keyholder)" style leftovers
+    out = re.sub(r"\bYou\s*\(@?Keyholder\)\s*:?\s*", "", out, flags=re.I)
+    return out.strip()
 
 
 def has_chat_chrome(reply: str) -> bool:
     text = reply or ""
     return bool(_CHAT_CHROME.search(text) or _IMPERSONATE.search(text))
+
+
+def domme_teasing_lockee(message: str) -> bool:
+    """True when Domme is naming/teasing the Sub (e.g. 'hey slut')."""
+    return bool(_DOMME_TEASE_LOCKEE.search((message or "").strip()))
+
+
+def repair_confused_domme_reply(*, message: str = "") -> str:
+    """Fallback when the model produces meta self-talk instead of a scene beat."""
+    if domme_teasing_lockee(message):
+        return (
+            "Got it - he's your slut.\n\n"
+            "Lockee: eyes down. Cage stays on. Hands off unless we say. "
+            "We want you used for our fun - kneel and wait."
+        )
+    return (
+        "I'm with you.\n\n"
+        "Lockee: stay denied. We decide what happens to you next - wait for the order."
+    )
 
 
 def demands_beg_unlock(reply: str) -> bool:

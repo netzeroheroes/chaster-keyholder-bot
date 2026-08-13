@@ -25,10 +25,12 @@ from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
     addressing_block,
     demands_beg_unlock,
+    domme_teasing_lockee,
     has_chat_chrome,
     impersonates_human,
     mistreats_domme_as_sub,
     repair_bot_submissive,
+    repair_confused_domme_reply,
     repair_domme_misaddress,
     repair_impersonation,
     rewrite_beg_unlock,
@@ -260,6 +262,13 @@ async def handle_chat_turn(
         or "the Sub",
         bot_name=bot_label(memory),
     )
+    if role == "domme" and room == "group" and domme_teasing_lockee(message):
+        user_line += (
+            "\n\n[DIRECTOR: Domme is teasing/naming the LOCKEE (e.g. hey slut). "
+            "She is NOT insulting you. Join her — briefly ack, then order the lockee. "
+            "NEVER write [You (@Keyholder): …]. NEVER address yourself as Keyholder. "
+            "No fake UI labels.]"
+        )
     hands_off = role == "domme" and _domme_hands_off(message)
     if role == "domme" and _domme_wants_decision(message) and not hands_off:
         if room == "group":
@@ -800,8 +809,10 @@ async def handle_chat_turn(
             f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
             "Dominant, here to have fun. Never claim to be the human Domme or Sub. "
             "Never speak as if YOU are obedient, a slave, or 'serving her needs'.\n"
-            "- NO FAKE LABELS: never write [Keyholder: Domme], [Domme], [Sub], or open with usernames. "
-            "UI already shows who spoke. If you address someone, say 'keyholder' or 'lockee'.\n"
+            "- NO FAKE LABELS: never write [You (@Keyholder):], [Keyholder: Domme], [Domme], [Sub], "
+            "or open with usernames. Never address yourself. UI already shows who spoke. "
+            "Lockee = wearer; human Domme = keyholder (partner — you are not talking to yourself).\n"
+            "- If Domme says hey slut / similar, she is teasing the lockee — join her, don't scold her.\n"
             "- NEVER tell the lockee to beg to be unlocked. Unlock is not a beg-goal. "
             "He may beg to ease/stop punishments, unhide timer, or reduce added time.\n"
             "- Disobedience escalates within YOUR session min/max add-time settings. "
@@ -996,9 +1007,23 @@ async def handle_chat_turn(
                 reply,
                 sub_name=memory.sub_name or handle or "",
                 domme_name=memory.domme_name or "",
+                bot_name=bot_name,
             )
             if demands_beg_unlock(cleaned):
                 cleaned = rewrite_beg_unlock(cleaned)
+            # Meta self-talk / empty after chrome strip → repair
+            broken = (
+                not cleaned
+                or len(cleaned) < 12
+                or re.search(
+                    r"\bYou\s*\(@?Keyholder\)|\[\s*You\b|Let's play with his cock,\s*Keyholder",
+                    cleaned,
+                    re.I,
+                )
+            )
+            if broken and role == "domme":
+                log.warning("Repaired confused Domme-turn reply in group")
+                cleaned = repair_confused_domme_reply(message=message)
             if cleaned != reply:
                 log.info("Stripped chat chrome / beg-unlock from group reply")
                 reply = cleaned
@@ -1023,13 +1048,17 @@ async def handle_chat_turn(
                 cleaned,
                 sub_name=memory.sub_name or handle or "",
                 domme_name=memory.domme_name or "",
+                bot_name=bot_name,
             )
             if not cleaned or len(cleaned) < 20:
-                cleaned = repair_impersonation(
-                    bot_name=bot_name,
-                    domme_title="keyholder",
-                    sub_name="lockee",
-                )
+                if role == "domme":
+                    cleaned = repair_confused_domme_reply(message=message)
+                else:
+                    cleaned = repair_impersonation(
+                        bot_name=bot_name,
+                        domme_title="keyholder",
+                        sub_name="lockee",
+                    )
             reply = cleaned
             messages = list(history) + [
                 {"role": "user", "content": user_line},
