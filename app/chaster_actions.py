@@ -29,6 +29,7 @@ ActionKind = Literal[
     "list_extensions",
     "activate_extension",
     "configure_share_links",
+    "configure_hygiene",
     "hygiene_open",
     "request_verification",
     "assign_task",
@@ -49,6 +50,7 @@ MUTATING = frozenset(
         "history_message",
         "activate_extension",
         "configure_share_links",
+        "configure_hygiene",
         "hygiene_open",
         "request_verification",
         "assign_task",
@@ -192,7 +194,48 @@ def parse_chaster_intent(
         if slug:
             return ChasterIntent(kind="activate_extension", reason=slug)
 
-    # Hygiene opening (temporary unlock)
+    # Configure hygiene opening duration (openingTime / penalty)
+    # e.g. "set hygiene to 10 mins", "hygiene opening time 10 minutes"
+    if re.search(
+        r"\b(hygiene|temporary opening|temp(?:orary)? (?:unlock|opening)|"
+        r"opening time|unlock time|clean(?:ing)? (?:time|window))\b",
+        low,
+    ) and re.search(rf"\d+(?:\.\d+)?\s*{_TIME_UNIT}", low) and not re.search(
+        r"\b(open|start|allow|grant|give)\b.*\b(hygiene|temporary opening)\b"
+        r"|\b(open hygiene|grant hygiene)\b",
+        low,
+    ):
+        parts: list[str] = []
+        pen_m = re.search(
+            rf"penalty\s*(?:time)?\s*(?:to|for|=|:)?\s*"
+            rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        )
+        open_m = re.search(
+            rf"(?:opening|unlock|clean(?:ing)?)\s*(?:time|window|duration)\s*"
+            rf"(?:to|for|=|:)?\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        ) or re.search(
+            rf"(?:set|change|update|make)\s+(?:the\s+)?(?:hygiene|opening|unlock)\s+"
+            rf"(?:time\s+)?(?:to\s+)?(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        ) or re.search(
+            rf"hygiene\s+(?:to|for|=|:)\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})",
+            low,
+        )
+        if open_m:
+            parts.append(f"opening:{_to_seconds(open_m.group(1), open_m.group(2))}")
+        if pen_m:
+            parts.append(f"penalty:{_to_seconds(pen_m.group(1), pen_m.group(2))}")
+        # "hygiene 10 mins" / "hygiene unlock 10 minutes" with no explicit opening/penalty label
+        if not parts:
+            dur = re.search(rf"(\d+(?:\.\d+)?)\s*({_TIME_UNIT})", low)
+            if dur:
+                parts.append(f"opening:{_to_seconds(dur.group(1), dur.group(2))}")
+        if parts:
+            return ChasterIntent(kind="configure_hygiene", reason="|".join(parts))
+
+    # Hygiene opening (temporary unlock) — start the window now
     if re.search(
         r"\b(hygiene|temporary opening|temp(?:orary)? unlock|open (him |the lock )?for (cleaning|hygiene))\b",
         low,
@@ -378,16 +421,22 @@ def parse_chaster_intent(
     if add:
         return ChasterIntent(kind="add_time", seconds=_to_seconds(add.group(1), add.group(2)))
 
-    # Bare duration replies: "10 mins", "+10m", "2 hours." → add that much
-    # (common after "add some time" / "how much?" — must hit Chaster, not just chat)
+    # Bare duration replies: "10 mins", "+10m", "2 hours."
     bare = re.fullmatch(
         rf"\s*[+]?\s*(\d+(?:\.\d+)?)\s*({_TIME_UNIT})\s*[.!]?\s*",
         low,
     )
+    ctx_low = (context or "").lower()
     if bare:
-        return ChasterIntent(
-            kind="add_time", seconds=_to_seconds(bare.group(1), bare.group(2))
-        )
+        secs = _to_seconds(bare.group(1), bare.group(2))
+        # If recent chat was about hygiene opening, set openingTime — not lock add
+        if re.search(
+            r"\b(hygiene|temporary opening|opening time|unlock time|"
+            r"clean(?:ing)? (?:time|window)|how long .{0,20}hygiene)\b",
+            ctx_low,
+        ):
+            return ChasterIntent(kind="configure_hygiene", reason=f"opening:{secs}")
+        return ChasterIntent(kind="add_time", seconds=secs)
 
     # "add that time" / "add the time for him" — resolve duration from recent chat
     if re.search(
@@ -408,10 +457,19 @@ def parse_chaster_intent(
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))
 
+    # Follow-up duration after hygiene discussion
+    if extract_duration_seconds(message) and re.search(
+        r"\b(hygiene|temporary opening|opening time|unlock time)\b",
+        ctx_low,
+    ):
+        secs = extract_duration_seconds(message)
+        if secs and secs > 0:
+            return ChasterIntent(kind="configure_hygiene", reason=f"opening:{secs}")
+
     # Follow-up: Domme answers with a duration after someone asked to add/extend time
     if extract_duration_seconds(message) and re.search(
         r"\b(add|added|adding|extend|extended|how much|how long|time)\b",
-        (context or "").lower(),
+        ctx_low,
     ):
         secs = extract_duration_seconds(message)
         if secs and secs > 0:
@@ -986,6 +1044,78 @@ async def run_chaster_intent(
                 before=before,
             )
 
+        if intent.kind == "configure_hygiene":
+            lock_id = str(before.get("lock_id") or "")
+            updates: dict[str, Any] = {}
+            for part in (intent.reason or "").split("|"):
+                if part.startswith("opening:"):
+                    # Chaster openingTime is typically 60–3600+ seconds
+                    updates["openingTime"] = max(
+                        60, min(86400, int(part.split(":", 1)[1]))
+                    )
+                elif part.startswith("penalty:"):
+                    updates["penaltyTime"] = max(
+                        60, min(7 * 86400, int(part.split(":", 1)[1]))
+                    )
+            if not updates:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        'Say how long, e.g. "set hygiene to 10 minutes" '
+                        'or "hygiene opening time 15 mins".'
+                    ),
+                )
+            try:
+                after_exts = await chaster.update_extension_config(
+                    lock_id, "temporary-opening", updates
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "not on the lock" in msg.lower() or "activate" in msg.lower():
+                    return ChasterActionResult(
+                        ok=True,
+                        blocked=True,
+                        before=before,
+                        lock=before,
+                        facts=(
+                            "Hygiene opening is not on the lock. "
+                            'Say: "activate hygiene" first.'
+                        ),
+                    )
+                return ChasterActionResult(
+                    ok=False,
+                    error=msg,
+                    before=before,
+                    lock=before,
+                    facts=f"Could not configure hygiene: {msg}",
+                )
+            hyg = next(
+                (e for e in after_exts if e.get("slug") == "temporary-opening"),
+                {},
+            )
+            cfg = hyg.get("config") if isinstance(hyg, dict) else {}
+            after = summarize_lock(await refresh_lock(chaster, lock))
+            open_label = format_duration(int(cfg.get("openingTime") or 0))
+            pen_label = format_duration(int(cfg.get("penaltyTime") or 0))
+            return ChasterActionResult(
+                ok=True,
+                facts=(
+                    f"CHASTER ACTION DONE (hygiene opening config):\n"
+                    f"- Requested by: {requested_by}\n"
+                    f"- Opening window: {open_label} ({cfg.get('openingTime')}s)\n"
+                    f"- Penalty if overtime: {pen_label} ({cfg.get('penaltyTime')}s)\n"
+                    f"- Keyholder-only open: {cfg.get('allowOnlyKeyholderToOpen')}\n"
+                    "This changes how long he may stay unlocked for hygiene — "
+                    "it does NOT add time to his main lock timer.\n"
+                    f"{_status_lines('AFTER', after)}"
+                ),
+                lock=after,
+                before=before,
+            )
+
         if intent.kind == "configure_share_links":
             lock_id = str(before.get("lock_id") or "")
             updates: dict[str, Any] = {}
@@ -1359,8 +1489,8 @@ def _activation_followup(slug: str) -> str:
             "The wearer shares the Chaster link UI — this bot cannot mint a new URL."
         ),
         "temporary-opening": (
-            'Hygiene opening is ready. Domme can say: "open hygiene" / '
-            '"grant hygiene opening".'
+            'Hygiene opening is ready. Set window: "set hygiene to 10 minutes". '
+            'Start it: "open hygiene".'
         ),
         "verification-picture": (
             'Verification picture is ready. Domme can say: '
@@ -1421,7 +1551,10 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
             f"keyholderOnly={config.get('allowOnlyKeyholderToOpen')}, "
             f"verifyBefore={config.get('requireVerificationPictureBefore')}."
         )
-        lines.append('Say: "open hygiene" / "grant hygiene opening".')
+        lines.append(
+            'Say: "set hygiene to 10 minutes" (opening window), '
+            '"hygiene penalty 12 hours", or "open hygiene" to start now.'
+        )
         return lines
     if s == "verification-picture":
         lines.append(
@@ -1569,7 +1702,7 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '• Activate plugins — "activate share links", "activate hygiene", '
             '"activate tasks", "activate verification picture", "activate jigsaw"',
             '• Share links config — "set share links add 2 hours remove 30 minutes"',
-            '• Hygiene opening — "open hygiene" (needs temporary-opening)',
+            '• Hygiene opening — "set hygiene to 10 minutes" / "open hygiene"',
             '• Verification picture — "request verification picture"',
             '• Tasks — "assign task: edge twice" (needs tasks)',
             "",
