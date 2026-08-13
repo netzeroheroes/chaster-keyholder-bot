@@ -185,6 +185,8 @@ async def handle_chat_turn(
     role: Role,
     room: Room,
     message: str,
+    chaster_role: str | None = None,
+    chaster_username: str | None = None,
 ) -> dict[str, Any]:
     sid = session_id_for(room)
     raw_history = store.get(sid)
@@ -199,8 +201,22 @@ async def handle_chat_turn(
         history = _sanitize_history(_strip_looping_assistants(history))
         log.warning("Stripped looping assistant turns from %s history", room)
 
-    speaker = speaker_label(role, memory)
-    user_line = format_user_line(role, message, memory)
+    handle = (chaster_username or "").strip().lstrip("@")
+    if handle:
+        # Keep memory names aligned with live Chaster handles when empty
+        if role == "domme" and not (memory.domme_name or "").strip():
+            memory.update_fields(domme_name=handle)
+        if role == "sub" and not (memory.sub_name or "").strip():
+            memory.update_fields(sub_name=handle)
+
+    speaker = speaker_label(role, memory, chaster_username=handle or None)
+    user_line = format_user_line(
+        role,
+        message,
+        memory,
+        chaster_role=chaster_role,
+        chaster_username=handle or None,
+    )
     hands_off = role == "domme" and _domme_hands_off(message)
     if role == "domme" and _domme_wants_decision(message) and not hands_off:
         user_line += (

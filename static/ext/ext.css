@@ -51,6 +51,36 @@ html, body {
   color: var(--muted);
 }
 h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
+.room-tabs {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.55rem 0.75rem 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.room-tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.room-tab.active {
+  color: #1a100c;
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  border-color: transparent;
+}
+.room-hint {
+  margin: 0;
+  padding: 0.45rem 0.9rem 0.2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--panel);
+}
 .messages {
   flex: 1;
   overflow-y: auto;

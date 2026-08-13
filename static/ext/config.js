@@ -20,6 +20,18 @@
 
   let configurationToken = "";
 
+  function apiDetail(data, fallback) {
+    const d = data && data.detail;
+    if (typeof d === "string" && d.trim()) return d;
+    if (Array.isArray(d)) {
+      return d
+        .map((x) => (x && (x.msg || x.message)) || JSON.stringify(x))
+        .join("; ");
+    }
+    if (d && typeof d === "object") return JSON.stringify(d);
+    return fallback;
+  }
+
   function parseConfigToken() {
     const raw = (window.location.hash || "").replace(/^#/, "");
     if (!raw) return "";
@@ -27,7 +39,12 @@
       const params = JSON.parse(decodeURIComponent(raw));
       return String(params.partnerConfigurationToken || "").trim();
     } catch {
-      return "";
+      try {
+        const params = JSON.parse(raw);
+        return String(params.partnerConfigurationToken || "").trim();
+      } catch {
+        return "";
+      }
     }
   }
 
@@ -76,7 +93,14 @@
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Config rejected");
+    if (!res.ok) {
+      throw new Error(
+        apiDetail(
+          data,
+          `Config rejected (HTTP ${res.status}). Check CHASTER_ACCESS_TOKEN on Render.`
+        )
+      );
+    }
     fillForm(data.config || {});
     els.gate.classList.add("hidden");
     els.form.classList.remove("hidden");
@@ -98,7 +122,7 @@
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || "Save failed");
+      if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
       els.status.textContent = "Saved.";
       postParent({ type: "partner_configuration", event: "save_success" });
     } catch (err) {

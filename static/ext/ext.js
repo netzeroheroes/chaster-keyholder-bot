@@ -6,6 +6,9 @@
     roleLabel: document.getElementById("roleLabel"),
     heading: document.getElementById("heading"),
     sessionMeta: document.getElementById("sessionMeta"),
+    roomTabs: document.getElementById("roomTabs"),
+    privateTab: document.getElementById("privateTab"),
+    roomHint: document.getElementById("roomHint"),
     messages: document.getElementById("messages"),
     form: document.getElementById("chatForm"),
     input: document.getElementById("input"),
@@ -15,11 +18,25 @@
 
   const state = {
     mainToken: "",
-    role: null,
+    role: null, // app role: domme | sub
+    chasterRole: null, // keyholder | wearer
+    room: "group",
     lastCount: 0,
     stickToBottom: true,
     pollTimer: null,
   };
+
+  function apiDetail(data, fallback) {
+    const d = data && data.detail;
+    if (typeof d === "string" && d.trim()) return d;
+    if (Array.isArray(d)) {
+      return d
+        .map((x) => (x && (x.msg || x.message)) || JSON.stringify(x))
+        .join("; ");
+    }
+    if (d && typeof d === "object") return JSON.stringify(d);
+    return fallback;
+  }
 
   function parseHashToken() {
     const raw = (window.location.hash || "").replace(/^#/, "");
@@ -39,6 +56,23 @@
   function nearBottom() {
     const el = els.messages;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  function updateRoomUi() {
+    els.roomTabs.querySelectorAll(".room-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.room === state.room);
+    });
+    if (state.room === "private") {
+      els.roomHint.textContent =
+        "Private: keyholder ↔ AI only (lockee cannot see this)";
+      els.input.placeholder = "Plan with the AI…";
+    } else {
+      els.roomHint.textContent = "Group: Domme + Sub + AI";
+      els.input.placeholder =
+        state.chasterRole === "keyholder"
+          ? "Message as keyholder…"
+          : "Message as lockee…";
+    }
   }
 
   function renderMessages(messages) {
@@ -71,11 +105,16 @@
       body: JSON.stringify({ main_token: state.mainToken }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Session rejected");
+    if (!res.ok) throw new Error(apiDetail(data, "Session rejected"));
     const s = data.session || {};
     state.role = s.app_role;
+    state.chasterRole = s.role;
+    const handle =
+      s.role === "keyholder" ? s.keyholder_username : s.wearer_username;
     els.roleLabel.textContent =
-      s.role === "keyholder" ? "Keyholder" : "Lockee";
+      s.role === "keyholder"
+        ? `Keyholder${handle ? " @" + handle : ""}`
+        : `Lockee${handle ? " @" + handle : ""}`;
     els.heading.textContent = data.bot_name || "Chat";
     els.sessionMeta.textContent = [
       s.wearer_username && `Lockee: ${s.wearer_username}`,
@@ -83,6 +122,14 @@
     ]
       .filter(Boolean)
       .join(" · ");
+
+    if (s.app_role === "domme" || s.role === "keyholder") {
+      els.privateTab.classList.remove("hidden");
+    } else {
+      els.privateTab.classList.add("hidden");
+      state.room = "group";
+    }
+    updateRoomUi();
     els.gate.classList.add("hidden");
     els.app.classList.remove("hidden");
   }
@@ -91,7 +138,10 @@
     const res = await fetch("/api/ext/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ main_token: state.mainToken }),
+      body: JSON.stringify({
+        main_token: state.mainToken,
+        room: state.room,
+      }),
     });
     if (!res.ok) return;
     const data = await res.json();
@@ -110,10 +160,14 @@
       const res = await fetch("/api/ext/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ main_token: state.mainToken, message }),
+        body: JSON.stringify({
+          main_token: state.mainToken,
+          message,
+          room: state.room,
+        }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || res.statusText);
+      if (!res.ok) throw new Error(apiDetail(data, res.statusText));
       state.lastCount = -1;
       state.stickToBottom = true;
       await loadHistory();
@@ -125,6 +179,26 @@
       els.input.focus();
     }
   }
+
+  async function switchRoom(room) {
+    if (room === state.room) return;
+    if (room === "private" && state.role !== "domme") {
+      setStatus("Only the keyholder can use private chat.");
+      return;
+    }
+    state.room = room;
+    state.lastCount = -1;
+    state.stickToBottom = true;
+    updateRoomUi();
+    setStatus("");
+    await loadHistory();
+  }
+
+  els.roomTabs.addEventListener("click", (e) => {
+    const btn = e.target.closest(".room-tab");
+    if (!btn || btn.classList.contains("hidden")) return;
+    switchRoom(btn.dataset.room);
+  });
 
   els.messages.addEventListener("scroll", () => {
     state.stickToBottom = nearBottom();

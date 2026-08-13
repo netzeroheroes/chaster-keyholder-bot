@@ -31,6 +31,14 @@ class ExtSession:
     def app_role(self) -> Literal["domme", "sub"]:
         return "domme" if self.role == "keyholder" else "sub"
 
+    @property
+    def speaker_username(self) -> str:
+        if self.role == "keyholder":
+            return self.keyholder_username
+        if self.role == "wearer":
+            return self.wearer_username
+        return ""
+
 
 class ExtensionAuthCache:
     """Short-lived cache so we don't hit Chaster on every poll."""
@@ -80,12 +88,18 @@ async def resolve_main_token(
         raise RuntimeError("Invalid mainToken response")
 
     session = data.get("session") or {}
-    lock = session.get("lock") or {}
+    lock = session.get("lock") or data.get("lockForUser") or {}
+    if not isinstance(lock, dict):
+        lock = {}
     user = lock.get("user") or {}
     kh = lock.get("keyholder") or {}
+    role = parse_ext_role(str(data.get("role") or ""))
+    # Some payloads nest role under session; accept either
+    if role == "unknown":
+        role = parse_ext_role(str(session.get("role") or ""))
     sess = ExtSession(
         main_token=token,
-        role=parse_ext_role(str(data.get("role") or "")),
+        role=role,
         user_id=str(data.get("userId") or ""),
         session_id=str(session.get("_id") or session.get("sessionId") or ""),
         lock_id=str(lock.get("_id") or lock.get("id") or ""),

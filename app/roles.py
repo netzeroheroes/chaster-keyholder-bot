@@ -24,9 +24,17 @@ def can_access(role: Role, room: Room) -> bool:
     return True
 
 
-def speaker_label(role: Role, memory: LongTermMemory | None = None) -> str:
+def speaker_label(
+    role: Role,
+    memory: LongTermMemory | None = None,
+    *,
+    chaster_username: str | None = None,
+) -> str:
     """Human-readable speaker tag used in UI + model context."""
     base = SPEAKER[role]
+    handle = (chaster_username or "").strip().lstrip("@")
+    if handle:
+        return f"{base} (@{handle})"
     if memory is None:
         return base
     if role == "domme":
@@ -47,12 +55,24 @@ def format_user_line(
     role: Role,
     message: str,
     memory: LongTermMemory | None = None,
+    *,
+    chaster_role: str | None = None,
+    chaster_username: str | None = None,
 ) -> str:
-    label = speaker_label(role, memory)
-    who = "human Domme" if role == "domme" else "human Sub"
+    label = speaker_label(role, memory, chaster_username=chaster_username)
+    if role == "domme":
+        who = "human Domme / Chaster keyholder"
+    else:
+        who = "human Sub / Chaster wearer (lockee)"
+    chaster_bit = ""
+    cr = (chaster_role or "").strip().lower()
+    handle = (chaster_username or "").strip().lstrip("@")
+    if cr or handle:
+        bits = [b for b in (cr or None, f"@{handle}" if handle else None) if b]
+        chaster_bit = f" Chaster identity: {', '.join(bits)}."
     return (
         f"[{label}]: {message}\n"
-        f"[IDENTITY: This message is from the {who}. "
+        f"[IDENTITY: This message is from the {who}.{chaster_bit} "
         f"You are the AI Domme/keyholder — a separate person. "
-        f"Never confuse yourself with {SPEAKER[role]}.]"
+        f"Never confuse yourself with {SPEAKER[role]} or speak as if you are them.]"
     )

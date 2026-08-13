@@ -22,6 +22,7 @@ from app.extension_auth import (
 )
 from app.images import ImageService
 from app.memory import LongTermMemory
+from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
 from app.sessions import SessionStore
@@ -50,10 +51,12 @@ _CONFIG_KEYS = (
 class ExtChatBody(BaseModel):
     main_token: str = Field(min_length=8)
     message: str = Field(min_length=1)
+    room: Room = "group"
 
 
 class ExtSessionBody(BaseModel):
     main_token: str = Field(min_length=8)
+    room: Room = "group"
 
 
 class ExtConfigGetBody(BaseModel):
@@ -63,6 +66,22 @@ class ExtConfigGetBody(BaseModel):
 class ExtConfigSaveBody(BaseModel):
     partner_configuration_token: str = Field(min_length=8)
     config: dict[str, Any]
+
+
+def _api_detail(exc: BaseException) -> str:
+    text = str(exc).strip() or exc.__class__.__name__
+    if "not linked" in text.lower() or "CHASTER_ACCESS_TOKEN" in text:
+        return (
+            "Chaster developer token missing on the server. "
+            "In Render, set CHASTER_ACCESS_TOKEN to Developer → your app → Tokens "
+            "(same application as this extension — not a random user OAuth token)."
+        )
+    if "401" in text or "403" in text:
+        return (
+            f"{text} — Use Configure on YOUR partner extension (the one whose "
+            "Main/Config URLs point here). Duo Domme lock actions are separate."
+        )
+    return text[:500]
 
 
 def _ext_csp(settings: Settings) -> str:
@@ -160,16 +179,28 @@ def register_extension_routes(
     @api.post("/api/ext/history")
     async def ext_history_post(body: ExtSessionBody) -> dict:
         sess = await _require_session(chaster, cache, settings, body.main_token)
-        # Shared group room only inside Chaster
+        room: Room = body.room
+        if not can_access(sess.app_role, room):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the Chaster keyholder can open private chat.",
+            )
         return {
-            "room": "group",
+            "room": room,
             "role": sess.app_role,
-            "messages": store.get_display("group"),
+            "chaster_role": sess.role,
+            "messages": store.get_display(room),
         }
 
     @api.post("/api/ext/chat")
     async def ext_chat(body: ExtChatBody) -> dict:
         sess = await _require_session(chaster, cache, settings, body.main_token)
+        room: Room = body.room
+        if not can_access(sess.app_role, room):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the Chaster keyholder can use private chat.",
+            )
         try:
             result = await handle_chat_turn(
                 agent=agent,
@@ -180,8 +211,10 @@ def register_extension_routes(
                 images=images,
                 chaster=chaster,
                 role=sess.app_role,
-                room="group",
+                room=room,
                 message=body.message,
+                chaster_role=sess.role,
+                chaster_username=sess.speaker_username,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -194,10 +227,7 @@ def register_extension_routes(
                 body.partner_configuration_token
             )
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=401,
-                detail="Open Configure from Chaster (invalid configuration token).",
-            ) from exc
+            raise HTTPException(status_code=401, detail=_api_detail(exc)) from exc
         cfg = dict(raw.get("config") or {})
         # Merge live runtime defaults for missing keys
         live = controls.snapshot()
@@ -225,7 +255,7 @@ def register_extension_routes(
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=401,
-                detail=f"Could not save Chaster config: {exc}",
+                detail=f"Could not save Chaster config: {_api_detail(exc)}",
             ) from exc
 
         # Sync timings into live runtime controls (no restart)
