@@ -191,7 +191,6 @@ class RadLockboxClient:
             "sync_enabled": bool(
                 getattr(self.settings, "rad_lockbox_sync_enabled", False)
             ),
-            "time_source": "chaster",
             "target_user_id": self.target_user_id,
             "lock_settings_id": self.lock_settings_id,
             "keyholder_ids": list(self.keyholder_ids),
@@ -201,6 +200,14 @@ class RadLockboxClient:
             ),
             "session_sync": bool(
                 getattr(self.settings, "rad_sync_session_lock", False)
+            ),
+            "manual_only": bool(
+                getattr(self.settings, "rad_manual_only", False)
+            ),
+            "time_source": (
+                "manual"
+                if getattr(self.settings, "rad_manual_only", False)
+                else "chaster"
             ),
             "session": None,
             "error": None,

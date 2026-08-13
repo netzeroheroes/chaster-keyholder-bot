@@ -244,8 +244,13 @@
       ? `${sess.lockState || "?"}${sess.isActive ? " (active)" : ""}`
       : "no active session";
     const sync = st.sync_enabled ? "sync ON" : "sync OFF";
+    const mode = st.manual_only
+      ? "MANUAL (no timer)"
+      : st.time_source === "chaster"
+        ? "time from Chaster"
+        : "time ?";
     const hyg = st.hygiene_unlock ? "hygiene→unlock" : "hygiene off";
-    const bits = [sync, "time from Chaster", hyg, state];
+    const bits = [sync, mode, hyg, state];
     if (st.last_sync && st.last_sync.chaster_frozen) bits.push("Chaster FROZEN");
     if (st.last_sync && st.last_sync.chaster_time_hidden)
       bits.push("Chaster timer HIDDEN");

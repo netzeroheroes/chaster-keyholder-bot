@@ -305,13 +305,15 @@ async def lock_watch_loop(
                         events=events,
                         rad=rad,
                     )
-    // Periodic Chaster → R+D duration sync (freeze soft-sync + hidden timer)
+                # Periodic Chaster → R+D duration sync (skip in manual-only mode)
                 ticks += 1
-                if rad is not None:
+                if (
+                    rad is not None
+                    and not getattr(settings, "rad_manual_only", False)
+                ):
                     try:
                         from app.lockbox_sync import sync_duration_from_chaster
 
-                        # Every tick while sync enabled — freeze needs frequent rewind
                         await sync_duration_from_chaster(
                             rad, chaster, reason="periodic"
                         )

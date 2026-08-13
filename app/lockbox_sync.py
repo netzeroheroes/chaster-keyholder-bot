@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# R+D firmware allows ~30s .. years; keep a sane floor for API calls
+# R+D firmware allows ~30s .. API max 10 years
 _MIN_DURATION = 60
-_MAX_DURATION = 86400 * 365 * 10  # 10 years
+_MAX_DURATION = 315_360_000  # 10 years — API hard cap (= "no practical timer")
 
 _LAST: dict[str, Any] = {
     "action": None,
@@ -186,6 +186,10 @@ async def ensure_template_id(rad: RadLockboxClient) -> int | None:
         return None
 
 
+def _manual_only(rad: RadLockboxClient) -> bool:
+    return bool(getattr(rad.settings, "rad_manual_only", False))
+
+
 async def sync_duration_from_chaster(
     rad: RadLockboxClient,
     chaster: ChasterClient | None,
@@ -194,6 +198,13 @@ async def sync_duration_from_chaster(
     force: bool = False,
 ) -> dict[str, Any]:
     """PATCH active R+D session duration from Chaster (handles freeze + hidden timer)."""
+    if _manual_only(rad) and not force:
+        return _stamp(
+            action="set_duration",
+            ok=True,
+            detail="Manual-only mode — Chaster timer sync skipped",
+            chaster_type=reason,
+        )
     if not rad.configured:
         return _stamp(
             action="set_duration",
@@ -378,14 +389,17 @@ async def relock_from_chaster(
             chaster_type=reason,
         )
 
-    snap = await chaster_lock_snapshot(chaster)
+    snap = await chaster_lock_snapshot(chaster) if not _manual_only(rad) else None
     rem = snap.get("remaining") if snap else None
     frozen = bool(snap.get("frozen")) if snap else False
     hidden = bool(snap.get("time_hidden")) if snap else False
-    duration: int | None = None
-    mode = "chaster remaining"
-    if snap:
+    if _manual_only(rad):
+        duration = _MAX_DURATION
+        mode = "manual (no timer — 10y park)"
+    elif snap:
         duration, mode = _target_duration_from_chaster(snap)
+    else:
+        duration, mode = None, "chaster remaining"
 
     template_id = await ensure_template_id(rad)
     if template_id is None:
@@ -560,6 +574,7 @@ async def handle_chaster_events(
 
     hygiene = bool(getattr(rad.settings, "rad_sync_hygiene", True))
     session_sync = bool(getattr(rad.settings, "rad_sync_session_lock", False))
+    manual = _manual_only(rad)
     results: list[dict[str, Any]] = []
     synced_time = False
 
@@ -579,7 +594,11 @@ async def handle_chaster_events(
                 await relock_from_chaster(rad, chaster, reason=etype)
             )
             synced_time = True
-        elif etype in _TIME_SYNC_TYPES and not synced_time:
+        elif (
+            not manual
+            and etype in _TIME_SYNC_TYPES
+            and not synced_time
+        ):
             results.append(
                 await sync_duration_from_chaster(rad, chaster, reason=etype)
             )
