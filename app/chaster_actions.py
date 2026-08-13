@@ -272,12 +272,13 @@ def parse_chaster_intent(
         try:
             from app.runtime_controls import get_controls
 
-            secs = int(get_controls().default_add_time_seconds or 3600)
+            c = get_controls()
+            secs = int(c.max_add_time_seconds or c.default_add_time_seconds or 3600)
         except Exception:  # noqa: BLE001
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))
 
-    # Bare "add time" / "add some time" / soft|hard add — use session settings sizes
+    # Bare "add time" / soft|hard — session min/max
     if re.search(r"\b(lock|cage|chaster|him|timer)\b", low) and re.search(
         r"\b(add|plus|\+)\b.*\btime\b|\bextend (him|the lock|his (lock|cage))\b",
         low,
@@ -286,12 +287,12 @@ def parse_chaster_intent(
             from app.runtime_controls import get_controls
 
             c = get_controls()
-            if re.search(r"\b(soft|small|little|gentle)\b", low):
-                secs = int(c.soft_add_time_seconds or 900)
-            elif re.search(r"\b(hard|harsh|big|serious|mean)\b", low):
-                secs = int(c.hard_add_time_seconds or 7200)
+            lo = int(c.min_add_time_seconds or c.soft_add_time_seconds or 900)
+            hi = int(c.max_add_time_seconds or c.hard_add_time_seconds or 86400)
+            if re.search(r"\b(soft|small|little|gentle|minimum|min)\b", low):
+                secs = lo
             else:
-                secs = int(c.default_add_time_seconds or 3600)
+                secs = hi
         except Exception:  # noqa: BLE001
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))

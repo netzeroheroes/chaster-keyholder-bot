@@ -274,3 +274,18 @@ textarea, input[type="text"], input[type="number"] {
 .settings-lede { margin: 0 0 0.75rem; }
 .settings-actions { margin-top: 0.35rem; }
 .settings-card .cfg { max-width: none; margin: 0; }
+.duration-field { gap: 0.4rem; }
+.duration-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.duration-row select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+}

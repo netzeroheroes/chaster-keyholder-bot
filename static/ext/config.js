@@ -48,13 +48,39 @@
     }
   }
 
+  const UNIT_SEC = { minutes: 60, hours: 3600, days: 86400 };
+
+  function secondsToParts(sec, fallbackUnit) {
+    const s = Math.max(60, Number(sec) || 60);
+    if (s % 86400 === 0) return { value: s / 86400, unit: "days" };
+    if (s % 3600 === 0) return { value: s / 3600, unit: "hours" };
+    if (s % 60 === 0) return { value: s / 60, unit: "minutes" };
+    return {
+      value: Math.max(1, Math.round(s / (UNIT_SEC[fallbackUnit] || 60))),
+      unit: fallbackUnit || "minutes",
+    };
+  }
+
+  function partsToSeconds(value, unit) {
+    const n = Math.max(1, Number(value) || 1);
+    return Math.max(60, Math.round(n * (UNIT_SEC[unit] || 60)));
+  }
+
   function readForm() {
     const g = (id) => document.getElementById(id);
+    let minSec = partsToSeconds(g("minAddValue").value, g("minAddUnit").value);
+    let maxSec = partsToSeconds(g("maxAddValue").value, g("maxAddUnit").value);
+    if (minSec > maxSec) {
+      const tmp = minSec;
+      minSec = maxSec;
+      maxSec = tmp;
+    }
     return {
-      default_add_time_seconds: Number(g("defaultAdd").value) || 3600,
-      default_remove_time_seconds: Number(g("defaultRemove").value) || 1800,
-      soft_add_time_seconds: Number(g("softAdd").value) || 900,
-      hard_add_time_seconds: Number(g("hardAdd").value) || 7200,
+      min_add_time_seconds: minSec,
+      max_add_time_seconds: maxSec,
+      soft_add_time_seconds: minSec,
+      hard_add_time_seconds: maxSec,
+      default_add_time_seconds: maxSec,
       auto_punish_enabled: els.autoPunishEnabled.checked,
       auto_punish_seconds: Number(els.autoPunishSeconds.value) || 600,
       autopilot_enabled: els.autopilotEnabled.checked,
@@ -72,10 +98,21 @@
 
   function fillForm(cfg) {
     const g = (id) => document.getElementById(id);
-    g("defaultAdd").value = cfg.default_add_time_seconds ?? 3600;
-    g("defaultRemove").value = cfg.default_remove_time_seconds ?? 1800;
-    g("softAdd").value = cfg.soft_add_time_seconds ?? 900;
-    g("hardAdd").value = cfg.hard_add_time_seconds ?? 7200;
+    const minP = secondsToParts(
+      cfg.min_add_time_seconds ?? cfg.soft_add_time_seconds ?? 900,
+      "minutes"
+    );
+    const maxP = secondsToParts(
+      cfg.max_add_time_seconds ??
+        cfg.hard_add_time_seconds ??
+        cfg.default_add_time_seconds ??
+        86400,
+      "hours"
+    );
+    g("minAddValue").value = minP.value;
+    g("minAddUnit").value = minP.unit;
+    g("maxAddValue").value = maxP.value;
+    g("maxAddUnit").value = maxP.unit;
     els.autoPunishEnabled.checked = !!cfg.auto_punish_enabled;
     els.autoPunishSeconds.value = cfg.auto_punish_seconds ?? 600;
     els.autopilotEnabled.checked = !!cfg.autopilot_enabled;

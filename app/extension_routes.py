@@ -43,6 +43,8 @@ _CONFIG_KEYS = (
     "autopilot_allow_chaster",
     "autopilot_chaster_chance",
     "autopilot_punish_seconds",
+    "min_add_time_seconds",
+    "max_add_time_seconds",
     "default_add_time_seconds",
     "default_remove_time_seconds",
     "soft_add_time_seconds",

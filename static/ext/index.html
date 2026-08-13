@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css?v=5" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=6" />
 </head>
 <body>
   <div id="gate" class="gate">
@@ -61,14 +61,29 @@
       </p>
       <form id="settingsForm" class="cfg">
         <p class="title">Time adjustments</p>
-        <div class="row">
-          <label class="field"><span>Default add (sec)</span><input id="defaultAdd" type="number" min="60" step="60" /></label>
-          <label class="field"><span>Default remove (sec)</span><input id="defaultRemove" type="number" min="60" step="60" /></label>
-        </div>
-        <div class="row">
-          <label class="field"><span>Soft add (sec)</span><input id="softAdd" type="number" min="60" step="60" /></label>
-          <label class="field"><span>Hard add (sec)</span><input id="hardAdd" type="number" min="60" step="60" /></label>
-        </div>
+        <p class="meta">Soft / “a little” uses the minimum. Default and hard adds use the maximum.</p>
+        <label class="field duration-field">
+          <span>Minimum add</span>
+          <div class="duration-row">
+            <input id="minAddValue" type="number" min="1" step="1" />
+            <select id="minAddUnit" aria-label="Minimum unit">
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+        </label>
+        <label class="field duration-field">
+          <span>Maximum add</span>
+          <div class="duration-row">
+            <input id="maxAddValue" type="number" min="1" step="1" />
+            <select id="maxAddUnit" aria-label="Maximum unit">
+              <option value="minutes">minutes</option>
+              <option value="hours" selected>hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+        </label>
 
         <p class="title">Auto-punish</p>
         <label class="check"><input type="checkbox" id="setAutoPunishEnabled" /> Auto-punish rule breaks</label>
@@ -96,6 +111,6 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=5"></script>
+  <script src="/static/ext/ext.js?v=6"></script>
 </body>
 </html>

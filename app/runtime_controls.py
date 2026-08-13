@@ -28,11 +28,14 @@ class RuntimeControls:
     autopilot_allow_chaster: bool = True
     autopilot_chaster_chance: float = 0.35
     autopilot_punish_seconds: int = 600
-    # Session defaults when Domme/AI says "add time" without a size
-    default_add_time_seconds: int = 3600
+    # Session min/max when Domme/AI adds time (soft→min, hard/default→max)
+    min_add_time_seconds: int = 900
+    max_add_time_seconds: int = 86400
+    # Kept in sync for older config keys
+    default_add_time_seconds: int = 86400
     default_remove_time_seconds: int = 1800
     soft_add_time_seconds: int = 900
-    hard_add_time_seconds: int = 7200
+    hard_add_time_seconds: int = 86400
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -99,6 +102,24 @@ class RuntimeControls:
                     setattr(self, key, float(value))  # type: ignore[arg-type]
                 else:
                     setattr(self, key, str(value))
+            # Keep legacy soft/hard/default aliases aligned with min/max
+            if "min_add_time_seconds" in kwargs or "soft_add_time_seconds" in kwargs:
+                lo = int(self.min_add_time_seconds or self.soft_add_time_seconds or 900)
+                self.min_add_time_seconds = lo
+                self.soft_add_time_seconds = lo
+            if "max_add_time_seconds" in kwargs or "hard_add_time_seconds" in kwargs:
+                hi = int(self.max_add_time_seconds or self.hard_add_time_seconds or 86400)
+                self.max_add_time_seconds = hi
+                self.hard_add_time_seconds = hi
+                self.default_add_time_seconds = hi
+            if self.min_add_time_seconds > self.max_add_time_seconds:
+                self.min_add_time_seconds, self.max_add_time_seconds = (
+                    self.max_add_time_seconds,
+                    self.min_add_time_seconds,
+                )
+                self.soft_add_time_seconds = self.min_add_time_seconds
+                self.hard_add_time_seconds = self.max_add_time_seconds
+                self.default_add_time_seconds = self.max_add_time_seconds
             self.save()
             return self.snapshot()
 
