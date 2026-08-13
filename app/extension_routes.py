@@ -24,7 +24,12 @@ from app.extension_auth import (
     resolve_main_token,
 )
 from app.images import ImageService
-from app.lockbox_sync import last_sync_status, relock_after_hygiene, unlock_for_hygiene
+from app.lockbox_sync import (
+    last_sync_status,
+    relock_after_hygiene,
+    sync_duration_from_chaster,
+    unlock_for_hygiene,
+)
 from app.memory import LongTermMemory
 from app.rad_lockbox import RadLockboxClient
 from app.roles import Room, can_access
@@ -566,9 +571,18 @@ def register_extension_routes(
         if action == "unlock":
             result = await unlock_for_hygiene(rad, reason="manual_ext", force=True)
         elif action == "lock":
-            result = await relock_after_hygiene(rad, reason="manual_ext", force=True)
+            result = await relock_after_hygiene(
+                rad, chaster, reason="manual_ext", force=True
+            )
+        elif action == "sync_time":
+            result = await sync_duration_from_chaster(
+                rad, chaster, reason="manual_ext", force=True
+            )
         else:
-            raise HTTPException(status_code=400, detail="action must be lock or unlock")
+            raise HTTPException(
+                status_code=400,
+                detail="action must be lock, unlock, or sync_time",
+            )
         snap = await rad.status_snapshot()
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result

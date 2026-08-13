@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     rad_sync_session_lock: bool = False
     # Lockee's R+D user id (keyholder token acting on linked user)
     rad_target_user_id: int = 0
-    # Lock template id used when re-locking after hygiene (GET /lkbx/templates)
+    # Lock template id — only used to *start* a session; duration comes from Chaster.
+    # Leave 0 to auto-pick the first available template.
     rad_lock_settings_id: int = 0
     # Comma-separated R+D user ids assigned as keyholders on re-lock
     rad_keyholder_ids: str = ""

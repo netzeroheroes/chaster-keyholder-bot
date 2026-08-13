@@ -245,7 +245,10 @@
       : "no active session";
     const sync = st.sync_enabled ? "sync ON" : "sync OFF";
     const hyg = st.hygiene_unlock ? "hygiene→unlock" : "hygiene off";
-    const bits = [sync, hyg, state];
+    const bits = [sync, "time from Chaster", hyg, state];
+    if (st.last_sync && st.last_sync.chaster_remaining != null) {
+      bits.push(`Chaster ~${st.last_sync.chaster_remaining}s`);
+    }
     if (st.last_sync && st.last_sync.detail) {
       bits.push(
         `last ${st.last_sync.action || "?"}: ${st.last_sync.detail}` +
@@ -598,9 +601,11 @@
 
   const lbUnlock = document.getElementById("lockboxUnlock");
   const lbLock = document.getElementById("lockboxLock");
+  const lbSync = document.getElementById("lockboxSyncTime");
   const lbRefresh = document.getElementById("lockboxRefresh");
   if (lbUnlock) lbUnlock.addEventListener("click", () => lockboxAction("unlock"));
   if (lbLock) lbLock.addEventListener("click", () => lockboxAction("lock"));
+  if (lbSync) lbSync.addEventListener("click", () => lockboxAction("sync_time"));
   if (lbRefresh) lbRefresh.addEventListener("click", () => refreshLockboxStatus());
 
   els.messages.addEventListener("scroll", () => {

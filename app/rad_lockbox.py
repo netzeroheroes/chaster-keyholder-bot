@@ -160,14 +160,35 @@ class RadLockboxClient:
             body["targetUserId"] = int(tid)
         return await self._request("POST", "/lkbx/session/current", json_body=body)
 
+    async def set_duration(
+        self,
+        duration_seconds: int,
+        *,
+        target_user_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Set absolute remaining duration on the active session (from Chaster)."""
+        body: dict[str, Any] = {"duration": max(30, int(duration_seconds))}
+        tid = target_user_id if target_user_id is not None else self.target_user_id
+        # Some deployments accept target on query; body is unused by PATCH per docs
+        params: dict[str, Any] = {}
+        if tid is not None:
+            params["targetUserId"] = int(tid)
+        return await self._request(
+            "PATCH",
+            "/lkbx/session/current",
+            json_body=body,
+            params=params or None,
+        )
+
     async def status_snapshot(self) -> dict[str, Any]:
         """Safe status for UI / /api/meta (never includes the token)."""
         out: dict[str, Any] = {
             "configured": self.configured,
-            "sync_ready": self.sync_ready,
+            "sync_ready": self.sync_ready or self.configured,
             "sync_enabled": bool(
                 getattr(self.settings, "rad_lockbox_sync_enabled", False)
             ),
+            "time_source": "chaster",
             "target_user_id": self.target_user_id,
             "lock_settings_id": self.lock_settings_id,
             "keyholder_ids": list(self.keyholder_ids),

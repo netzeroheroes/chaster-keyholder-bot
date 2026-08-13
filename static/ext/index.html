@@ -111,12 +111,13 @@
 
         <p class="title">R+D Lockbox</p>
         <p class="meta">
-          Temporary Chaster ↔ physical box bridge (hygiene unlock/re-lock). Configured via server env.
+          Physical box only — timer comes from Chaster (not the R+D dashboard). Hygiene opens unlock; close re-locks with Chaster remaining time.
         </p>
         <p id="lockboxLive" class="meta">Lockbox: —</p>
         <div class="row">
           <button type="button" class="btn" id="lockboxUnlock">Unlock box</button>
-          <button type="button" class="btn" id="lockboxLock">Lock box</button>
+          <button type="button" class="btn" id="lockboxLock">Lock from Chaster</button>
+          <button type="button" class="btn ghost" id="lockboxSyncTime">Sync time</button>
           <button type="button" class="btn ghost" id="lockboxRefresh">Refresh</button>
         </div>
 
@@ -132,6 +133,6 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=13"></script>
+  <script src="/static/ext/ext.js?v=14"></script>
 </body>
 </html>

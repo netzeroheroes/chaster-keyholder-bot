@@ -13,7 +13,12 @@ from pydantic import BaseModel, Field
 from app.autopilot import autopilot_loop, autopilot_status, in_window
 from app.extension_routes import register_extension_routes
 from app.lock_watch import lock_watch_loop
-from app.lockbox_sync import last_sync_status, relock_after_hygiene, unlock_for_hygiene
+from app.lockbox_sync import (
+    last_sync_status,
+    relock_after_hygiene,
+    sync_duration_from_chaster,
+    unlock_for_hygiene,
+)
 from app.rad_lockbox import RadLockboxClient, get_rad_client
 from app.runtime_controls import init_controls
 
@@ -339,9 +344,18 @@ def create_api(
         if action == "unlock":
             result = await unlock_for_hygiene(rad_client, reason="manual", force=True)
         elif action == "lock":
-            result = await relock_after_hygiene(rad_client, reason="manual", force=True)
+            result = await relock_after_hygiene(
+                rad_client, chaster, reason="manual", force=True
+            )
+        elif action == "sync_time":
+            result = await sync_duration_from_chaster(
+                rad_client, chaster, reason="manual", force=True
+            )
         else:
-            raise HTTPException(status_code=400, detail="action must be lock or unlock")
+            raise HTTPException(
+                status_code=400,
+                detail="action must be lock, unlock, or sync_time",
+            )
         snap = await rad_client.status_snapshot()
         snap["last_sync"] = result
         return snap

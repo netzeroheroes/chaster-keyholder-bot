@@ -202,12 +202,12 @@ async def react_to_lock_events(
     if not events:
         return 0
 
-    # Physical lockbox bridge — no AI, just API sync
+    # Physical lockbox bridge — no AI, just API sync (time from Chaster)
     if rad is not None:
         try:
             from app.lockbox_sync import handle_chaster_events
 
-            await handle_chaster_events(rad, events)
+            await handle_chaster_events(rad, events, chaster=chaster)
         except Exception:  # noqa: BLE001
             log.exception("R+D lockbox sync from Chaster events failed")
 
@@ -287,6 +287,7 @@ async def lock_watch_loop(
 ) -> None:
     """Background poll of Chaster lock history."""
     interval = max(15, int(getattr(settings, "lock_watch_seconds", 45) or 45))
+    ticks = 0
     while True:
         try:
             if (
@@ -304,6 +305,17 @@ async def lock_watch_loop(
                         events=events,
                         rad=rad,
                     )
+                # Periodic Chaster → R+D duration sync (even without new events)
+                ticks += 1
+                if rad is not None and ticks % 2 == 0:
+                    try:
+                        from app.lockbox_sync import sync_duration_from_chaster
+
+                        await sync_duration_from_chaster(
+                            rad, chaster, reason="periodic"
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.debug("Periodic R+D duration sync skipped", exc_info=True)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
