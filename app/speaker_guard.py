@@ -282,6 +282,17 @@ def looks_like_image_dump(text: str) -> bool:
     return hits >= 3
 
 
+_STAGE_DIR = re.compile(r"\*[^*]{1,48}\*")
+
+
+def strip_stage_directions(text: str) -> str:
+    """Drop *smirks* / *leans in* RP stage directions."""
+    cleaned = _STAGE_DIR.sub("", text or "")
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def user_said_night_out(message: str) -> bool:
     return bool(_USER_SAID_NIGHT_OUT.search(message or ""))
 

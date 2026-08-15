@@ -236,7 +236,7 @@ function updateRoomChrome() {
     "hidden",
     !(state.role === "domme" && state.room === "private")
   );
-  els.imagePanel.classList.toggle("hidden", state.role !== "domme");
+  if (els.imagePanel) els.imagePanel.classList.add("hidden");
   els.chasterPanel.classList.toggle("hidden", state.role !== "domme");
 }
 
@@ -1028,7 +1028,7 @@ els.input.addEventListener("input", () => {
 
 els.chasterRefresh.addEventListener("click", () => loadChaster());
 
-els.imageGen.addEventListener("click", async () => {
+if (els.imageGen) els.imageGen.addEventListener("click", async () => {
   if (state.role !== "domme") return;
   const prompt = els.imagePrompt.value.trim();
   if (!prompt) {
@@ -1068,10 +1068,8 @@ fetch("/api/meta")
   .then((meta) => {
     pinsRequired = meta.pins_required || pinsRequired;
     els.modelMeta.textContent = meta.model || "";
-    if (meta.image_enabled === false) {
-      els.imageStatus.textContent = "Image generation disabled in .env";
-    } else if (meta.image_model) {
-      els.imageStatus.textContent = `Model: ${meta.image_model}`;
+    if (els.imageStatus) {
+      els.imageStatus.textContent = "Image generation is parked.";
     }
     if (pinsRequired.domme || pinsRequired.sub) {
       els.pinField.classList.remove("hidden");

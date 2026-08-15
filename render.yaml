@@ -15,7 +15,9 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: "gryphe/mythomax-l2-13b"
+        value: "cognitivecomputations/dolphin-mistral-24b-venice-edition"
+      - key: IMAGE_ENABLED
+        value: "false"
       - key: LLM_MAX_TOKENS
         value: "768"
       - key: CHASTER_ACCESS_TOKEN

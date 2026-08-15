@@ -44,6 +44,7 @@ from app.speaker_guard import (
     strip_impersonation,
     strip_invented_night_out,
     strip_scripted_dialogue,
+    strip_stage_directions,
     writes_scripted_dialogue,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
@@ -845,7 +846,7 @@ async def handle_chat_turn(
             "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn.\n"
             "- If YOU change the lock, emit [[[LOCK]]]…[[[/LOCK]]].\n"
             "- Never invent that she is out. Never invent what he is doing unless she typed it.\n"
-            "- If she wants a picture for him, emit [[[IMAGE]]] only — do not describe the outfit in chat.\n"
+            "- Pictures are off. Do not offer or fake sending a photo.\n"
         )
     else:
         if role == "domme":
@@ -1146,6 +1147,7 @@ async def handle_chat_turn(
         domme_name=memory.domme_name or "",
         sub_name=memory.sub_name or "",
     )
+    visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_chat_chrome(
         visible_reply,
         sub_name=memory.sub_name or "",
@@ -1242,8 +1244,12 @@ async def handle_chat_turn(
         if messages and messages[-1].get("role") == "assistant":
             messages[-1] = {"role": "assistant", "content": visible_reply}
 
-    # Optional [[[IMAGE]]] prompts from the model (or Domme asking for a tease pic)
+    # Image generation is parked (filters). Still strip leftover [[[IMAGE]]] tags.
     image_errors: list[str] = []
+    if images:
+        cleaned, _img_tags = images.extract_prompts(visible_reply)
+        if _img_tags:
+            visible_reply = cleaned
     if images and images.enabled:
         cleaned, img_prompts = images.extract_prompts(visible_reply)
         wants_pic = role == "domme" and bool(
@@ -1306,15 +1312,6 @@ async def handle_chat_turn(
                 )
                 # She asked for a pic — don't keep "I sent it" fiction if nothing attached
                 visible_reply = fail if wants_pic else (f"{leftover}\n\n{fail}".strip() if leftover else fail)
-    elif images is not None and not images.enabled and role == "domme" and re.search(
-        r"\b(pic|picture|image|photo)\b", message, re.I
-    ):
-        visible_reply = (
-            f"{visible_reply}\n\n(Image generation is disabled — set IMAGE_ENABLED=true)".strip()
-            if visible_reply
-            else "(Image generation is disabled — set IMAGE_ENABLED=true)"
-        )
-
     # Persist sanitized history + new turn (don't keep feeding duplicates)
     store.set(sid, _sanitize_history(messages))
     if visible_reply:
