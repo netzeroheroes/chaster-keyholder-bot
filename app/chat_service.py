@@ -23,7 +23,6 @@ from app.chaster_actions import (
 )
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
-    addressing_block,
     demands_beg_unlock,
     domme_teasing_lockee,
     fill_placeholders,
@@ -53,7 +52,7 @@ from app.speaker_guard import (
 )
 from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
-from app.extension_games import extension_punish_intents, games_prompt_block
+from app.extension_games import extension_punish_intents
 from app.punish import (
     RuleBreak,
     bump_disobey_streak,
@@ -353,15 +352,6 @@ async def handle_chat_turn(
     extra_notes: list[str] = [
         f"Speaker this turn: {speaker} "
         f"({'keyholder' if role == 'domme' else 'lockee'}).",
-        addressing_block(
-            role=role,
-            speaker=speaker,
-            domme_title=her,
-            sub_name=memory.sub_name
-            or (handle if role == "sub" else "")
-            or "the Sub",
-            bot_name=bot_label(memory),
-        ).strip(),
     ]
     user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
@@ -1005,93 +995,27 @@ async def handle_chat_turn(
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
     if room == "private":
         anti_loop = (
-            "\n\nHARD RULES THIS TURN (PRIVATE CHANNEL):\n"
-            f"- You are ONLY talking to {title}. She is the keyholder — she has the keys. "
-            f"The lockee ({sub_nm}) cannot see this.\n"
-            f"- Your name is '{bot_name}'. You are her friend helping her run the lock. "
-            "Talk like a real person. Encourage her. Do not lecture.\n"
-            f"- NEVER treat {title} as locked. NEVER give her hygiene or cage-wearer orders.\n"
-            "- If she asks for ideas or hints: one or two short lines, or emit ONE [[[GROUP]]] tease. "
-            "No numbered lists. No 'Certainly! Here are some hints'.\n"
-            "- Never write the words HUMAN DOMME, keyee, or her username plus a colon.\n"
-            "- Plan with her. Do not perform at him here.\n"
-            "- To speak to him, emit [[[GROUP]]]…[[[/GROUP]]].\n"
-            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn.\n"
-            "- If YOU change the lock, emit [[[LOCK]]]…[[[/LOCK]]].\n"
-            "- Never invent that she is out. Never invent what he is doing unless she typed it.\n"
-            "- Pictures are off. Do not offer or fake sending a photo.\n"
-            "- He is caged. Do not plan stroke/touch-yourself rewards; use tease/denial.\n"
-            "- Hygiene is UI buttons only. Never [[[LOCK]]] / pillory / 'open his hygiene window'.\n"
-            "- When he requests hygiene, ask her how many minutes. She Approves in the Hygiene controls.\n"
+            "\nTHIS TURN — PRIVATE:\n"
+            f"Talk to {title} only. Answer what she just said.\n"
+            "Hints: one line, or one [[[GROUP]]] tease — no lists.\n"
+            "You cannot touch him. Tease, advise her, or change the lock.\n"
         )
     else:
-        if role == "domme":
-            who_rules = (
-                f"- SPEAKER THIS TURN: {title} is the keyholder (she has the keys). "
-                f"Answer HER. Help and encourage her.\n"
-                f"- The lockee is {sub_nm} (he/him). Never call him keyee. "
-                f"Do NOT speak to {title} as if she wears the cage.\n"
-                f"- Hygiene is not a lock order. If she is answering a request, "
-                f"she sets the time in Hygiene controls — do not emit LOCK tags.\n"
-                f"- Rephrase her beat as a short tease for him. Do not reveal her plan "
-                f"or what she will do to him. You cannot touch him — only tease, "
-                f"talk to her, or change the lock.\n"
-            )
-        else:
-            who_rules = (
-                f"- SPEAKER THIS TURN: {speaker} = HUMAN SUB / WEARER. Speak to him.\n"
-                f"- {title} is the human Domme (separate). You are '{bot_name}' — Dominant.\n"
-            )
+        who = (
+            f"She ({title}) just spoke — rephrase her beat as a short tease. Do not spoil the plan."
+            if role == "domme"
+            else f"He ({speaker}) just spoke — answer him. {title} is the keyholder."
+        )
         anti_loop = (
-            "\n\nHARD RULES THIS TURN (GROUP CHANNEL):\n"
-            f"{who_rules}"
-            f"- Your name in chat is '{bot_name}'. You help the keyholder. "
-            "You are not her and not the lockee. Never write HUMAN DOMME or keyee.\n"
-            "- NO FAKE LABELS: never write [You (@Keyholder):], [Keyholder: Domme], [Domme], [Sub], "
-            "or open with usernames. Never address yourself. UI already shows who spoke. "
-            "Lockee = wearer; human Domme = keyholder (partner — you are not talking to yourself).\n"
-            "- If Domme says hey slut / similar, she is teasing the lockee — join her, don't scold her.\n"
-            "- NEVER tell the lockee to beg to be unlocked. Unlock is not a beg-goal. "
-            "He may beg to ease/stop punishments, unhide timer, or reduce added time.\n"
-            "- Disobedience escalates within YOUR session min/max add-time settings. "
-            "Later strikes also use extensions (harden share links, assign tasks, pillory, "
-            "verification) when those plugins are on the lock.\n"
-            "- Short dismissals get a real consequence; keep stacking if he continues.\n"
-            f"{games_prompt_block()}\n"
-            "- Femdom/matriarchal: female Dominants hold power; the locked Sub serves.\n"
-            "- Sub slurs or bratting auto-punish (escalating). Domme naming HIM slut is fine.\n"
-            "- Never remove time, never tease-reward, never play along with Sub insolence.\n"
-            "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
-            "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
-            "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
-            "- Do not assume he obeyed, missed someone, or how he feels unless he typed it.\n"
-            "- Never paste [ADDRESS] / [IDENTITY] / instruction text into the reply.\n"
-            "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
-            "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
-            "- Sub may BEG either Dominant for mercy on punishments. Never scold him for that.\n"
-            "- Sub may NOT give direct lock orders (e.g. 'add some time'). Refuse; he begs.\n"
-            "- Never ask the Sub what punishment they want when Dommes are deciding.\n"
-            "- If YOU grant a lock change, emit [[[LOCK]]]…[[[/LOCK]]] so Chaster actually runs.\n"
-            "- Never claim lock changes without LOCK tags or confirmed facts this turn.\n"
-            "- Lock history messages (custom logs) are real and may push-notify him — use them.\n"
-            "- Reminder schedules still cannot be set via API; don't invent those.\n"
-            "- MEMORY: recall stored facts when relevant; never invent past events.\n"
-            "- Never repeat a previous bot message.\n"
-            "- One short tease beat. Do not give interview homework or spoil her plans.\n"
-            "- You cannot do anything physical. Only tease, convince her in private, or change the lock.\n"
-            "- Do not workshop private strategy out loud.\n"
-            "- Speak only as yourself. NEVER write BOY: / Sub: / Keyholder: lines for other people.\n"
-            "- NEVER invent what he is doing (toilet, meals, location, touching) unless HE typed it this turn.\n"
-            "- CAGE: he cannot stroke or touch himself. Never order that. Tease the cage / deny him.\n"
-            "- HYGIENE: never emit LOCK tags or pillory for hygiene. "
-            "He taps Hygiene → she sets a time and Approves → he taps Unlock, then Lock. "
-            "Timer starts on Unlock. Late Lock can be punished.\n"
-            "- If he wants to be free: do NOT dump lock numbers. Tease — maybe if he earns it. "
-            "Continue a short journey beat. Say you'll discuss it with the keyholder. Never unlock.\n"
+            "\nTHIS TURN — GROUP:\n"
+            f"{who}\n"
+            f"You are {bot_name}. Short. No labels. No lock-number lectures.\n"
+            "Physical play is hers. You tease, talk to her in private, or change the lock.\n"
+            "Hygiene is buttons. Cage: no stroke/touch-yourself orders.\n"
         )
     if recent:
-        listed = "\n".join(f"- {t[:200]}" for t in recent)
-        anti_loop += f"Banned recent bot lines (do not reuse):\n{listed}\n"
+        listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
+        anti_loop += f"Don't repeat:\n{listed}\n"
 
     system_prompt = (
         "READ THE HUMAN. The latest spoken words are in THEY SAID. "
