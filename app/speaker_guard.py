@@ -161,6 +161,11 @@ _CHAT_CHROME = re.compile(
     r"(?:\s*:\s*(?:Domme|Sub|Keyholder))?[^\]\n]*\]\s*:?\s*",
     re.I,
 )
+# Invented lock labels: [LOCK] Chastityguy80:
+_LOCK_CHROME = re.compile(
+    r"\[\s*LOCK\s*\]\s*@?[A-Za-z0-9_\-]{2,32}\s*:?\s*",
+    re.I,
+)
 _LEADING_USERNAME = re.compile(
     r"^@?[A-Za-z0-9_\-]{3,32}\s*,\s*",
 )
@@ -359,6 +364,7 @@ def strip_chat_chrome(
             cleaned_lines.append("")
             continue
         s = _CHAT_CHROME.sub("", s).strip()
+        s = _LOCK_CHROME.sub("", s).strip()
         s = _IMPERSONATE.sub("", s).strip()
         # Strip username openers on the first few lines
         if i < 3:
@@ -390,7 +396,11 @@ def strip_chat_chrome(
 
 def has_chat_chrome(reply: str) -> bool:
     text = reply or ""
-    return bool(_CHAT_CHROME.search(text) or _IMPERSONATE.search(text))
+    return bool(
+        _CHAT_CHROME.search(text)
+        or _LOCK_CHROME.search(text)
+        or _IMPERSONATE.search(text)
+    )
 
 
 def domme_teasing_lockee(message: str) -> bool:

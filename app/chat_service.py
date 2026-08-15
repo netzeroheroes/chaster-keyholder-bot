@@ -78,7 +78,12 @@ _READ_ONLY_INTENTS = frozenset(
         "status",
     }
 )
-from app.images import ImageService
+from app.images import (
+    ImageService,
+    prompt_from_request,
+    strip_unsent_image_claims,
+    user_facing_image_error,
+)
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
 from app.roles import (
@@ -1241,16 +1246,18 @@ async def handle_chat_turn(
         cleaned, img_prompts = images.extract_prompts(visible_reply)
         wants_pic = role == "domme" and bool(
             re.search(
-                r"\b(send|generate|make|create)\b.*\b(pic|picture|image|photo)\b",
+                r"\b(send|generate|make|create|draw|post)\b.*\b(pic|picture|image|photo)\b",
                 message,
                 re.I,
             )
         )
         if not img_prompts and wants_pic:
-            img_prompts = [
-                "Adult 18+ tease photo: dominant woman, locked male chastity theme, "
-                "sensual denial mood, no underage, no invented date-night story"
-            ]
+            img_prompts = [prompt_from_request(message)]
+        elif img_prompts and wants_pic:
+            # Keep her requested subject if the model emitted a vague IMAGE tag
+            her_prompt = prompt_from_request(message, fallback="")
+            if her_prompt and "photograph:" in her_prompt.lower():
+                img_prompts = [her_prompt, *img_prompts]
         if img_prompts:
             # Always strip tags once we intend to generate (even if cleaned is empty)
             visible_reply = cleaned
@@ -1273,17 +1280,21 @@ async def handle_chat_turn(
                             if visible_reply
                             else "— Sent tease picture to group —"
                         )
+                    break
                 except Exception as exc:  # noqa: BLE001
                     log.exception("Image generation failed for prompt")
                     image_errors.append(str(exc))
 
             if image_errors and not image_urls:
-                err = image_errors[0]
-                visible_reply = (
-                    f"{visible_reply}\n\n(Image failed: {err})".strip()
-                    if visible_reply
-                    else f"(Image failed: {err})"
+                fail = user_facing_image_error(RuntimeError(image_errors[0]))
+                leftover = strip_chat_chrome(
+                    strip_unsent_image_claims(visible_reply),
+                    sub_name=memory.sub_name or "",
+                    domme_name=memory.domme_name or "",
+                    bot_name=bot_name,
                 )
+                # She asked for a pic — don't keep "I sent it" fiction if nothing attached
+                visible_reply = fail if wants_pic else (f"{leftover}\n\n{fail}".strip() if leftover else fail)
     elif images is not None and not images.enabled and role == "domme" and re.search(
         r"\b(pic|picture|image|photo)\b", message, re.I
     ):

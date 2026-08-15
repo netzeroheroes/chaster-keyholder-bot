@@ -34,9 +34,14 @@ class Settings(BaseSettings):
     domme_pin: str = ""
     sub_pin: str = ""
 
-    # Image generation via OpenRouter
+    # Image generation via OpenRouter /api/v1/images (Flux is not a chat model)
     image_enabled: bool = True
     image_model: str = "black-forest-labs/flux.2-pro"
+    image_fallback_models: str = (
+        "black-forest-labs/flux.2-klein-4b,"
+        "bytedance-seed/seedream-4.5,"
+        "google/gemini-2.5-flash-image"
+    )
     image_aspect_ratio: str = "3:4"
 
     # Chaster Public API (keyholder)
