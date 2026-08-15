@@ -118,6 +118,11 @@ def request_hygiene(*, allowed_seconds: int) -> dict[str, Any]:
         return _public(state)
 
 
+def reset_hygiene() -> dict[str, Any]:
+    """Force idle so the lockee can request again after a deny or stuck state."""
+    return _set("idle", **{k: v for k, v in _IDLE.items() if k != "status"})
+
+
 def approve_hygiene(*, allowed_seconds: int) -> dict[str, Any]:
     with _lock:
         state = _load_raw()
@@ -133,7 +138,15 @@ def approve_hygiene(*, allowed_seconds: int) -> dict[str, Any]:
 
 
 def deny_hygiene() -> dict[str, Any]:
-    return _set("idle", **{k: v for k, v in _IDLE.items() if k != "status"})
+    return _set(
+        "denied",
+        requested_at="",
+        approved_at="",
+        unlocked_at="",
+        deadline_at="",
+        punished=False,
+        last_error="",
+    )
 
 
 def mark_unlocked(*, allowed_seconds: int) -> dict[str, Any]:
@@ -141,7 +154,7 @@ def mark_unlocked(*, allowed_seconds: int) -> dict[str, Any]:
         state = _load_raw()
         if state["status"] != "approved":
             raise ValueError("Hygiene is not approved yet")
-        allowed = max(60, int(allowed_seconds or state.get("allowed_seconds") or 600))
+        allowed = max(60, int(state.get("allowed_seconds") or allowed_seconds or 600))
         start = _now()
         state["status"] = "unlocked"
         state["unlocked_at"] = _iso(start)
@@ -154,7 +167,7 @@ def mark_unlocked(*, allowed_seconds: int) -> dict[str, Any]:
 
 
 def mark_relocked() -> dict[str, Any]:
-    return deny_hygiene()
+    return reset_hygiene()
 
 
 def mark_error(message: str) -> dict[str, Any]:
@@ -168,6 +181,45 @@ def mark_error(message: str) -> dict[str, Any]:
 def should_punish() -> bool:
     view = snapshot()
     return bool(view["status"] == "unlocked" and view["late"] and not view["punished"])
+
+
+def format_hygiene_director(view: dict[str, Any] | None = None) -> str:
+    """Tell the model hygiene is buttons-only — never LOCK tags."""
+    st = view if isinstance(view, dict) else snapshot()
+    status = str(st.get("status") or "idle")
+    mins = max(1, int(st.get("allowed_seconds") or 600) // 60)
+    remain = st.get("remaining_seconds")
+    late = bool(st.get("late"))
+    lines = [
+        "[HYGIENE FLOW — buttons only, never [[[LOCK]]] tags, never pillory, "
+        "never Chaster temporary-opening]",
+    ]
+    if status == "requested":
+        lines.append(
+            "Lockee requested hygiene. Ask the keyholder how many minutes. "
+            "She sets the time and taps Approve or Deny in the Hygiene controls. "
+            "Do not open anything yourself."
+        )
+    elif status == "approved":
+        lines.append(
+            f"Approved for {mins} min after he unlocks. "
+            "Tell the lockee to tap Unlock, then Lock in this chat. Timer starts on Unlock."
+        )
+    elif status == "unlocked":
+        if late:
+            lines.append("He is LATE relocking. Tell him to tap Lock now. Punishment may apply.")
+        else:
+            left = f"{max(0, int(remain or 0)) // 60}m" if remain is not None else f"{mins}m"
+            lines.append(
+                f"Box is open. He must tap Lock within {left}. Do not invent a Chaster unlock."
+            )
+    elif status == "denied":
+        lines.append("Last request was denied. He may tap Hygiene to request again.")
+    else:
+        lines.append(
+            "Idle. Lockee taps Hygiene next to Group. Keyholder then sets a timescale."
+        )
+    return "\n".join(lines)
 
 
 def mark_punished() -> dict[str, Any]:

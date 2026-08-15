@@ -277,5 +277,41 @@ def init_rad_client(settings: Settings) -> RadLockboxClient:
     return _RAD
 
 
+def summarize_lockbox(snap: dict[str, Any] | None) -> dict[str, Any]:
+    """Short UI/model view: is the physical box locked?"""
+    data = snap if isinstance(snap, dict) else {}
+    configured = bool(data.get("configured"))
+    sess = data.get("session") if isinstance(data.get("session"), dict) else None
+    state = str((sess or {}).get("lockState") or "").lower()
+    active = bool((sess or {}).get("isActive"))
+    open_states = {
+        "unlocked",
+        "completed",
+        "abandoned",
+        "open",
+        "idle",
+    }
+    if not configured:
+        label = "not configured"
+        locked = None
+    elif not sess:
+        label = "no session"
+        locked = None
+    elif active and state not in open_states and state:
+        label = "LOCKED"
+        locked = True
+    else:
+        label = "OPEN"
+        locked = False
+    return {
+        "configured": configured,
+        "locked": locked,
+        "lock_state": state or "unknown",
+        "active": active,
+        "label": label,
+        "error": data.get("error"),
+    }
+
+
 def get_rad_client() -> RadLockboxClient | None:
     return _RAD

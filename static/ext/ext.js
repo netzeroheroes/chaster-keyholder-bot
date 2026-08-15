@@ -6,6 +6,7 @@
     roleLabel: document.getElementById("roleLabel"),
     heading: document.getElementById("heading"),
     sessionMeta: document.getElementById("sessionMeta"),
+    boxStatus: document.getElementById("boxStatus"),
     settingsBtn: document.getElementById("settingsBtn"),
     kinksBtn: document.getElementById("kinksBtn"),
     settingsPanel: document.getElementById("settingsPanel"),
@@ -32,6 +33,10 @@
     hygDenyBtn: document.getElementById("hygDenyBtn"),
     hygUnlockBtn: document.getElementById("hygUnlockBtn"),
     hygRelockBtn: document.getElementById("hygRelockBtn"),
+    hygResetBtn: document.getElementById("hygResetBtn"),
+    hygKhAsk: document.getElementById("hygKhAsk"),
+    hygTimeValue: document.getElementById("hygTimeValue"),
+    hygTimeUnit: document.getElementById("hygTimeUnit"),
     openKinks: document.getElementById("openKinks"),
     kinksPanel: document.getElementById("kinksPanel"),
     kinksClose: document.getElementById("kinksClose"),
@@ -217,6 +222,7 @@
     els.heading.textContent = data.bot_name || "Chat";
     renderAutopilotStatus(data.autopilot);
     renderHygiene(data.hygiene);
+    renderBoxStatus(data.lockbox);
     els.sessionMeta.textContent = [
       s.wearer_username && `Lockee: ${s.wearer_username}`,
       s.keyholder_username && `KH: ${s.keyholder_username}`,
@@ -281,6 +287,20 @@
     el.textContent = bits.join(" · ");
   }
 
+  function renderBoxStatus(st) {
+    const el = els.boxStatus;
+    if (!el) return;
+    if (!st || typeof st !== "object") {
+      el.textContent = "Box: —";
+      el.classList.remove("locked", "open");
+      return;
+    }
+    const label = st.label || "unknown";
+    el.textContent = `Box: ${label}`;
+    el.classList.toggle("locked", st.locked === true);
+    el.classList.toggle("open", st.locked === false);
+  }
+
   function formatRemain(sec) {
     const s = Math.max(0, Number(sec) || 0);
     const m = Math.floor(s / 60);
@@ -299,16 +319,18 @@
     let text = "Hygiene: idle";
     if (status === "requested") {
       text = kh
-        ? "Lockee requested hygiene — approve or deny."
-        : "Hygiene requested. Waiting for the keyholder.";
+        ? "Lockee requested hygiene — how long may he be unlocked?"
+        : "Hygiene requested. Waiting for the keyholder to set a time.";
     } else if (status === "approved") {
       text = sub
-        ? `Approved. Unlock, then relock within ${allowed} min.`
-        : `Approved. He has ${allowed} min after he unlocks.`;
+        ? `Approved. Tap Unlock, then Lock within ${allowed} min.`
+        : `Approved. He has ${allowed} min after he taps Unlock.`;
     } else if (status === "unlocked") {
       text = late
-        ? "LATE — relock now. Time is being added."
-        : `Unlocked. Relock in ${formatRemain(remain)}.`;
+        ? "LATE — tap Lock now. Time is being added."
+        : `Unlocked. Tap Lock in ${formatRemain(remain)}.`;
+    } else if (status === "denied") {
+      text = "Denied. Lockee may request again.";
     }
     if (copy) {
       copy.textContent = text;
@@ -317,24 +339,45 @@
     const show = (el, on) => {
       if (el) el.classList.toggle("hidden", !on);
     };
-    show(els.hygRequestBtn, sub && status === "idle");
-    show(els.hygApproveBtn, kh && status === "requested");
-    show(els.hygDenyBtn, kh && status === "requested");
+    const busy = status === "requested" || status === "approved" || status === "unlocked";
+    show(els.hygieneBar, busy || status === "denied");
+    show(els.hygRequestBtn, sub && (status === "idle" || status === "denied"));
+    if (els.hygRequestBtn) {
+      els.hygRequestBtn.classList.toggle("pending", status === "requested");
+      els.hygRequestBtn.textContent =
+        status === "denied" ? "Hygiene" : "Hygiene";
+    }
+    show(els.hygKhAsk, kh && status === "requested");
     show(els.hygUnlockBtn, sub && status === "approved");
     show(els.hygRelockBtn, sub && status === "unlocked");
+    if (els.hygRelockBtn && status === "unlocked" && remain != null && !late) {
+      els.hygRelockBtn.textContent = `Lock ${formatRemain(remain)}`;
+    } else if (els.hygRelockBtn) {
+      els.hygRelockBtn.textContent = late ? "Lock (late)" : "Lock";
+    }
+    show(els.hygResetBtn, kh && status !== "idle");
+  }
+
+  function hygieneAllowedSeconds() {
+    const value = els.hygTimeValue ? els.hygTimeValue.value : 10;
+    const unit = els.hygTimeUnit ? els.hygTimeUnit.value : "minutes";
+    return partsToSeconds(value, unit);
   }
 
   async function hygieneAction(action) {
     setStatus(`${action}…`);
     try {
+      const body = { main_token: state.mainToken, action };
+      if (action === "approve") body.allowed_seconds = hygieneAllowedSeconds();
       const res = await fetch("/api/ext/hygiene", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ main_token: state.mainToken, action }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Hygiene action failed"));
       renderHygiene(data.hygiene);
+      if (data.lockbox && data.lockbox.label) renderBoxStatus(data.lockbox);
       state.lastCount = -1;
       await loadHistory();
       setStatus("");
@@ -418,6 +461,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Lockbox action failed"));
       renderLockboxStatus(data);
+      if (data.lockbox) renderBoxStatus(data.lockbox);
       const ls = data.last_sync || {};
       const done = ls.detail || `Lockbox ${action} done.`;
       if (statusEl) statusEl.textContent = done;
@@ -465,6 +509,10 @@
     if (g("hygAllowValue")) {
       g("hygAllowValue").value = allowP.value;
       g("hygAllowUnit").value = allowP.unit === "days" ? "hours" : allowP.unit;
+    }
+    if (els.hygTimeValue) els.hygTimeValue.value = allowP.value;
+    if (els.hygTimeUnit) {
+      els.hygTimeUnit.value = allowP.unit === "days" ? "hours" : allowP.unit;
     }
     if (g("hygPunishValue")) {
       g("hygPunishValue").value = lateP.value;
@@ -769,6 +817,7 @@
       renderMessages(data.messages || []);
     }
     if (data.hygiene) renderHygiene(data.hygiene);
+    if (data.lockbox) renderBoxStatus(data.lockbox);
   }
 
   async function sendMessage(text) {
@@ -938,6 +987,9 @@
   }
   if (els.hygDenyBtn) {
     els.hygDenyBtn.addEventListener("click", () => hygieneAction("deny"));
+  }
+  if (els.hygResetBtn) {
+    els.hygResetBtn.addEventListener("click", () => hygieneAction("reset"));
   }
   if (els.hygUnlockBtn) {
     els.hygUnlockBtn.addEventListener("click", () => hygieneAction("unlock"));

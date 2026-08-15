@@ -27,6 +27,8 @@ DEFAULT_SCOPES = "profile locks keyholder"
 # Free (non-Plus) locks: max 3 extensions. Duo Domme must always stay.
 FREE_EXTENSION_LIMIT = 3
 PROTECTED_EXTENSION_SLUGS = frozenset({"duo-domme"})
+# Physical box + in-app hygiene request replace Chaster's hygiene plugin
+BLOCKED_EXTENSION_SLUGS = frozenset({"temporary-opening"})
 # Park first when we need a free slot for a punishment plugin
 PARK_PRIORITY = (
     "jigsaw-puzzle",
@@ -721,6 +723,11 @@ class ChasterClient:
         want = (slug or "").strip()
         if not lid or not want:
             raise RuntimeError("lock_id and slug required")
+        if want in BLOCKED_EXTENSION_SLUGS:
+            raise RuntimeError(
+                "Chaster hygiene (temporary-opening) is blocked — "
+                "use Request hygiene in this extension instead."
+            )
         current = await self.list_lock_extensions(lid)
         if any(str(e.get("slug") or "") == want for e in current):
             return {"extensions": current, "parked": [], "already": True}
@@ -852,7 +859,7 @@ class ChasterClient:
         restored: list[str] = []
         for p in parked:
             slug = str(p.get("slug") or "")
-            if not slug or slug in have:
+            if not slug or slug in have or slug in BLOCKED_EXTENSION_SLUGS:
                 continue
             # If still at free limit, stop (Plus would allow more)
             if len(body) >= FREE_EXTENSION_LIMIT:

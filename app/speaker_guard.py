@@ -4,21 +4,26 @@ from __future__ import annotations
 
 import re
 
-# Phrases that imply the addressee is the locked Sub
+# Hard: talking TO the keyholder as if SHE wears the cage
 _SUB_AS_YOU = re.compile(
     r"("
-    r"\byour\s+(chastity|cage|lock|device|keyholder)\b|"
     r"\bhygiene\s+unlock\s+for\s+you\b|"
     r"\bgave\s+you\s+a\s+hygiene\b|"
     r"\buse\s+that\s+time\s+wisely\b|"
-    r"\bstay\s+locked\b|"
-    r"\byou\s+should\s+be\s+grateful\b|"
     r"\bwho'?s\s+in\s+charge\s+of\s+your\s+chastity\b|"
-    r"\byour\s+pleasure\b|"
-    r"\bbe\s+a\s+good\s+boy\b|"
-    r"\bBOY\b.*\byou\b|"
-    r"\bkneel\b"
+    r"\byour\s+(chastity device|cage|lock|keyholder)\b"
     r")",
+    re.I,
+)
+_ABOUT_HIM = re.compile(
+    r"\b(him|his|he|lockee|wearer|chastityguy)\b",
+    re.I,
+)
+_IDEA_ASK = re.compile(
+    r"\b("
+    r"ideas?|games?|suggestions?|what can i|how (can|do) i|"
+    r"play with (his|him)|tease (him|his)|what (should|could) i"
+    r")\b",
     re.I,
 )
 
@@ -42,25 +47,22 @@ _BOT_AS_SUB = re.compile(
 )
 
 
-def mistreats_domme_as_sub(reply: str) -> bool:
+def asking_play_ideas(message: str) -> bool:
+    return bool(_IDEA_ASK.search(message or ""))
+
+
+def mistreats_domme_as_sub(reply: str, *, user_message: str = "") -> bool:
     """True if a Domme-turn reply talks to her like the lockee."""
     text = (reply or "").strip()
     if not text:
         return False
+    # She asked for ideas about him — never replace the answer with a role lecture
+    if asking_play_ideas(user_message):
+        return False
     if not _SUB_AS_YOU.search(text):
         return False
-    # If it clearly addresses Mistress AND talks about the Sub in third person, OK
-    if _ADDRESSES_MISTRESS.search(text) and re.search(
-        r"\b(him|his|boy|sub|wearer|chastityguy)\b", text, re.I
-    ):
-        # Still bad if "gave you a hygiene" / "your cage" clearly means Domme
-        if re.search(
-            r"\b(gave you a hygiene|your chastity device|your cage|for you\.|"
-            r"use that time wisely)\b",
-            text,
-            re.I,
-        ):
-            return True
+    # Ideas / plans about him are not misaddress
+    if _ABOUT_HIM.search(text):
         return False
     return True
 
@@ -84,11 +86,12 @@ def addressing_block(
     if role == "domme":
         return (
             "\n\n[WHO IS SPEAKING — CRITICAL]\n"
-            f"This message is from {speaker} — the keyholder. She has the keys.\n"
-            f"She is NOT locked. Do NOT give HER hygiene unlocks or cage orders.\n"
+            f"This message is from {speaker} — the keyholder. Help her.\n"
+            "If she wants games or ideas, give playful teasing ideas about HIM (cage-aware). "
+            "Do not apologize. Do not correct her role. Do not lecture.\n"
+            "Do not give HER hygiene or cage-wearer orders.\n"
             "UI already shows who spoke — no fake labels, no username plus colon.\n"
-            f"Wearer = lockee ({sub}). Never say keyee. You ({bot_name}) are her friend "
-            "helping her run the lock. Talk to her like a person. Encourage her.\n"
+            f"Wearer = lockee ({sub}). Never say keyee. You ({bot_name}) are her friend.\n"
             "Speak only as yourself. Never invent what he is doing unless someone typed it.\n"
         )
     return (
@@ -112,10 +115,10 @@ def repair_domme_misaddress(
     title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "him").strip() or "him"
     topic = (original_topic or "").strip()
-    extra = f" About your order ({topic}): noted — I'll keep control of {sub}." if topic else ""
+    extra = f" You asked: {topic}." if topic else ""
     return (
-        f"{title} - sorry, that was aimed wrong. You're the keyholder, not the lockee.\n"
-        f"I work with you as co-Domme; {sub} is the one in the cage.{extra}"
+        f"{title} — yes. He's the lockee; you play, I help.{extra} "
+        f"Give me a beat (tease / deny / task) and I'll spin ideas for {sub}."
     )
 
 
@@ -295,10 +298,26 @@ _LEAKED_PROMPT = re.compile(
 _STAGE_DIR = re.compile(r"\*[^*]{1,48}\*")
 
 
+_MALFORMED_LOCK = re.compile(
+    r"\[\[\[\s*/?LOCK\b[^\]\n]*\]\]\]",
+    re.I,
+)
+_HYGIENE_WINDOW_CLAIM = re.compile(
+    r"[^.!?\n]*\b("
+    r"hygiene window|"
+    r"get(?:ting)? the lockee'?s hygiene|"
+    r"open(?:ed|ing)? (?:up )?(?:his |the )?(?:hygiene|temporary opening)"
+    r")\b[^.!?\n]*[.!?]?",
+    re.I,
+)
+
+
 def strip_leaked_instructions(text: str) -> str:
     """Drop system/address blocks the model copies into chat."""
     cleaned = _LEAKED_BRACKET.sub("", text or "")
     cleaned = _LEAKED_PROMPT.sub("", cleaned)
+    cleaned = _MALFORMED_LOCK.sub("", cleaned)
+    cleaned = _HYGIENE_WINDOW_CLAIM.sub("", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()

@@ -77,13 +77,13 @@ EXTENSION_GAMES: list[ExtensionGame] = [
     ),
     ExtensionGame(
         id="hygiene_tease",
-        title="Hygiene tease window",
-        needs="temporary-opening",
+        title="Hygiene tease (in-app)",
+        needs="",
         how=(
-            "Short openingTime, fat penaltyTime, freezeLockWhileOpen, "
-            "requireVerificationPictureAfter. Cleaning is a privilege, not release."
+            "Do not enable Chaster temporary-opening. Lockee Request hygiene → "
+            "keyholder approves → Unlock / Relock on the R+D box. Late = add time."
         ),
-        task="Use hygiene only as ordered. Overtime earns the penalty.",
+        task="Request hygiene, wait for approval, unlock, relock before the timer.",
     ),
     ExtensionGame(
         id="dice_stakes",

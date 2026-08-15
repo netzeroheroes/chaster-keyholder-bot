@@ -268,7 +268,9 @@ async def enrich_refs_from_web(toys: list[str], kink_hooks: list[str]) -> list[s
         async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
             r = await client.get(
                 url,
-                params={"q": f"{q} bdsm scene safety tease denial"},
+                params={
+                    "q": f"{q} chastity cage tease denial keyholder no stroking"
+                },
                 headers={"User-Agent": "chatbot-scene-builder/1.0"},
             )
             if r.status_code != 200:

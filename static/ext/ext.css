@@ -49,6 +49,23 @@ body.config-body {
   margin: 0 auto;
   overflow: hidden;
 }
+.top-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+.box-status {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.box-status.locked { color: #8fd4a8; }
+.box-status.open { color: #e08763; }
+
 .top {
   flex: 0 0 auto;
   display: flex;
@@ -121,12 +138,18 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   border-color: rgba(224, 135, 99, 0.45);
   color: var(--accent);
 }
+.room-tab.hyg-tab {
+  border-color: rgba(224, 135, 99, 0.45);
+  color: var(--accent);
+}
+.room-tab.hyg-tab.pending {
+  background: rgba(224, 135, 99, 0.18);
+}
 .hygiene-bar {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 0.45rem;
   padding: 0.4rem 0.75rem 0.55rem;
   background: var(--panel);
@@ -137,13 +160,32 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   font-size: 0.78rem;
   color: var(--muted);
   min-width: 0;
+  flex: 1 1 8rem;
 }
 .hygiene-copy.late { color: #e08763; font-weight: 600; }
-.hygiene-actions {
+.hyg-ask {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
 }
+.hyg-ask.hidden { display: none; }
+.hyg-ask-label {
+  font-size: 0.75rem;
+  color: var(--text);
+  font-weight: 600;
+}
+.hyg-ask input,
+.hyg-ask select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.hyg-ask input { width: 3.4rem; }
 
 .room-hint {
   flex: 0 0 auto;

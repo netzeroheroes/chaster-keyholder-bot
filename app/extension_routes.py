@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,7 @@ from app.lockbox_sync import (
 )
 from app.memory import LongTermMemory
 from app.persist import save_scene
-from app.rad_lockbox import RadLockboxClient
+from app.rad_lockbox import RadLockboxClient, summarize_lockbox
 from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
@@ -44,6 +45,7 @@ from app.hygiene_request import (
     mark_relocked,
     mark_unlocked,
     request_hygiene,
+    reset_hygiene,
     should_punish,
     snapshot as hygiene_snapshot,
 )
@@ -112,7 +114,8 @@ class ExtLockboxBody(BaseModel):
 
 class ExtHygieneBody(BaseModel):
     main_token: str = Field(min_length=8)
-    action: str = ""  # request | approve | deny | unlock | relock | status
+    action: str = ""  # request | approve | deny | unlock | relock | reset | status
+    allowed_seconds: int | None = None
 
 
 class ExtConfigGetBody(BaseModel):
@@ -194,6 +197,40 @@ def register_extension_routes(
     rad: RadLockboxClient | None = None,
 ) -> None:
     cache = ExtensionAuthCache(ttl_seconds=120)
+    _box_cache: dict[str, Any] = {"at": 0.0, "data": None}
+
+    async def _box_view(*, force: bool = False) -> dict:
+        now = time.time()
+        cached = _box_cache.get("data")
+        if (
+            not force
+            and cached
+            and now - float(_box_cache.get("at") or 0) < 8
+        ):
+            return cached
+        if not rad or not rad.configured:
+            view = {
+                "configured": False,
+                "locked": None,
+                "label": "not configured",
+                "lock_state": "unknown",
+                "active": False,
+            }
+        else:
+            try:
+                snap = await rad.status_snapshot()
+                view = summarize_lockbox(snap)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Lockbox status failed: %s", exc)
+                view = {
+                    "configured": True,
+                    "locked": None,
+                    "label": "status error",
+                    "error": str(exc)[:160],
+                }
+        _box_cache["at"] = now
+        _box_cache["data"] = view
+        return view
 
     @api.middleware("http")
     async def extension_security_headers(request: Request, call_next):
@@ -270,6 +307,7 @@ def register_extension_routes(
             "domme_title": memory.domme_title or "",
             "autopilot": autopilot_status(settings),
             "hygiene": await _hygiene_view(),
+            "lockbox": await _box_view(),
         }
 
     @api.post("/api/ext/history")
@@ -289,6 +327,7 @@ def register_extension_routes(
             "messages": store.get_display(room),
             "typing": list_typing(room, exclude=speaker),
             "hygiene": await _hygiene_view(),
+            "lockbox": await _box_view(),
         }
 
     @api.post("/api/ext/typing")
@@ -600,6 +639,7 @@ def register_extension_routes(
         snap = await rad.status_snapshot()
         snap["ok"] = True
         snap["last_sync"] = last_sync_status()
+        snap["lockbox"] = await _box_view(force=True)
         return snap
 
     @api.post("/api/ext/lockbox/action")
@@ -616,6 +656,7 @@ def register_extension_routes(
             snap = await rad.status_snapshot()
             snap["ok"] = True
             snap["last_sync"] = last_sync_status()
+            snap["lockbox"] = await _box_view(force=True)
             return snap
         if action == "unlock":
             result = await unlock_for_hygiene(rad, reason="manual_ext", force=True)
@@ -635,6 +676,7 @@ def register_extension_routes(
         snap = await rad.status_snapshot()
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result
+        snap["lockbox"] = await _box_view(force=True)
         return snap
 
     def _hygiene_note(text: str) -> None:
@@ -690,7 +732,11 @@ def register_extension_routes(
     async def ext_hygiene(body: ExtHygieneBody) -> dict:
         sess = await _require_session(chaster, cache, settings, body.main_token)
         action = (body.action or "status").strip().lower()
-        allowed = max(60, int(getattr(controls, "hygiene_allowed_seconds", 600) or 600))
+        default_allowed = max(
+            60, int(getattr(controls, "hygiene_allowed_seconds", 600) or 600)
+        )
+        chosen = body.allowed_seconds
+        allowed = max(60, int(chosen or default_allowed))
         is_kh = sess.role == "keyholder" or sess.app_role == "domme"
         is_sub = sess.role == "wearer" or sess.app_role == "sub"
 
@@ -700,9 +746,11 @@ def register_extension_routes(
         if action == "request":
             if is_kh and not is_sub:
                 raise HTTPException(status_code=403, detail="The lockee requests hygiene.")
-            view = request_hygiene(allowed_seconds=allowed)
+            view = request_hygiene(allowed_seconds=default_allowed)
             if view.get("status") == "requested":
-                _hygiene_note("Lockee requested a hygiene unlock. Keyholder: approve or deny.")
+                _hygiene_note(
+                    "Lockee requested hygiene. Keyholder: set how long, then Approve or Deny."
+                )
             return {"ok": True, "hygiene": view}
 
         if action == "approve":
@@ -714,7 +762,8 @@ def register_extension_routes(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
             _hygiene_note(
-                f"Hygiene approved. Lockee may unlock, then relock within {mins} minutes."
+                f"Hygiene approved for {mins} minutes. "
+                "Lockee: tap Unlock, then Lock before the timer ends."
             )
             return {"ok": True, "hygiene": view}
 
@@ -722,7 +771,14 @@ def register_extension_routes(
             if not is_kh:
                 raise HTTPException(status_code=403, detail="Only the keyholder can deny.")
             view = deny_hygiene()
-            _hygiene_note("Hygiene request denied.")
+            _hygiene_note("Hygiene request denied. Lockee may request again.")
+            return {"ok": True, "hygiene": view}
+
+        if action == "reset":
+            if not is_kh:
+                raise HTTPException(status_code=403, detail="Only the keyholder can reset.")
+            view = reset_hygiene()
+            _hygiene_note("Hygiene reset. Lockee may request again.")
             return {"ok": True, "hygiene": view}
 
         if action == "unlock":
@@ -737,20 +793,24 @@ def register_extension_routes(
                     detail="R+D Lockbox not configured (RAD_API_TOKEN)",
                 )
             try:
-                view = mark_unlocked(allowed_seconds=allowed)
+                view = mark_unlocked(allowed_seconds=0)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             result = await unlock_for_hygiene(rad, reason="hygiene_request", force=True)
             if not result.get("ok"):
-                deny_hygiene()
+                reset_hygiene()
                 mark_error(str(result.get("detail") or "unlock failed"))
                 raise HTTPException(
                     status_code=502,
                     detail=result.get("detail") or "Could not unlock the box",
                 )
-            mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
+            mins = max(1, int(view.get("allowed_seconds") or 600) // 60)
             _hygiene_note(f"Hygiene unlocked. Relock within {mins} minutes.")
-            return {"ok": True, "hygiene": view, "lockbox": result}
+            return {
+                "ok": True,
+                "hygiene": view,
+                "lockbox": await _box_view(force=True),
+            }
 
         if action == "relock":
             if not is_sub and not is_kh:
@@ -777,11 +837,15 @@ def register_extension_routes(
                 if late
                 else "Hygiene relocked on time."
             )
-            return {"ok": True, "hygiene": hygiene_snapshot(), "lockbox": result}
+            return {
+                "ok": True,
+                "hygiene": hygiene_snapshot(),
+                "lockbox": await _box_view(force=True),
+            }
 
         raise HTTPException(
             status_code=400,
-            detail="action must be request, approve, deny, unlock, relock, or status",
+            detail="action must be request, approve, deny, reset, unlock, relock, or status",
         )
 
     @api.post("/api/ext/kink-catalog")

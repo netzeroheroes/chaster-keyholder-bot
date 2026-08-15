@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from app.chaster import ChasterClient
+from app.chaster import BLOCKED_EXTENSION_SLUGS, ChasterClient
 
 log = logging.getLogger(__name__)
 
@@ -87,10 +87,7 @@ ACTIVATABLE_SLUGS = {
     "task": "tasks",
     "dice": "dice",
     "pillory": "pillory",
-    "hygiene": "temporary-opening",
-    "hygiene opening": "temporary-opening",
-    "temporary opening": "temporary-opening",
-    "temporary-opening": "temporary-opening",
+    # hygiene / temporary-opening is blocked — in-app Request hygiene + R+D box
     "share link": "link",
     "share links": "link",
     "sharelinks": "link",
@@ -1210,6 +1207,17 @@ async def run_chaster_intent(
         if intent.kind == "activate_extension":
             lock_id = str(before.get("lock_id") or "")
             slug = (intent.reason or "").strip()
+            if slug in BLOCKED_EXTENSION_SLUGS:
+                return ChasterActionResult(
+                    ok=True,
+                    blocked=True,
+                    before=before,
+                    lock=before,
+                    facts=(
+                        "Chaster hygiene (temporary-opening) stays off. "
+                        "Lockee uses Request hygiene here; you approve; he unlocks/relocks the box."
+                    ),
+                )
             if not slug:
                 return ChasterActionResult(
                     ok=True,
@@ -1218,8 +1226,8 @@ async def run_chaster_intent(
                     lock=before,
                     facts=(
                         "No extension slug given. Try: activate jigsaw / add share links / "
-                        "enable hygiene / enable tasks / enable verification picture / "
-                        "enable pillory."
+                        "enable tasks / enable verification picture / enable pillory. "
+                        "Hygiene plugin is blocked — use Request hygiene in this chat."
                     ),
                 )
             try:
@@ -1264,60 +1272,15 @@ async def run_chaster_intent(
             )
 
         if intent.kind == "hygiene_open":
-            lock_id = str(before.get("lock_id") or "")
-            try:
-                status = await chaster.get_temporary_opening_status(lock_id)
-            except Exception as exc:  # noqa: BLE001
-                return ChasterActionResult(
-                    ok=True,
-                    blocked=True,
-                    before=before,
-                    lock=before,
-                    facts=(
-                        "Hygiene opening is not on this lock (or unavailable). "
-                        'Mistress can say: "activate hygiene". '
-                        f"({exc})"
-                    ),
-                )
-            if status.get("openedAt"):
-                return ChasterActionResult(
-                    ok=True,
-                    blocked=True,
-                    before=before,
-                    lock=before,
-                    facts="Hygiene opening is already in progress — nothing new started.",
-                )
-            try:
-                await chaster.open_temporary_opening(lock_id, actor="keyholder")
-            except Exception as exc:  # noqa: BLE001
-                return ChasterActionResult(
-                    ok=False,
-                    error=str(exc),
-                    before=before,
-                    lock=before,
-                    facts=f"Could not open hygiene: {exc}",
-                )
-            # Immediate physical-box unlock (also caught by lock-watch history)
-            try:
-                from app.lockbox_sync import unlock_for_hygiene
-                from app.rad_lockbox import get_rad_client
-
-                rad = get_rad_client()
-                if rad is not None:
-                    await unlock_for_hygiene(rad, reason="hygiene_open_api")
-            except Exception:  # noqa: BLE001
-                log.exception("R+D unlock after hygiene_open failed")
-            after = summarize_lock(await refresh_lock(chaster, lock))
             return ChasterActionResult(
                 ok=True,
-                facts=_facts_after(
-                    action_line="Started Hygiene opening (temporary unlock).",
-                    before=before,
-                    after=after,
-                    requested_by=requested_by,
-                ),
-                lock=after,
+                blocked=True,
                 before=before,
+                lock=before,
+                facts=(
+                    "Chaster hygiene opening is blocked. "
+                    "Lockee taps Request hygiene; keyholder approves; then Unlock / Relock."
+                ),
             )
 
         if intent.kind == "request_verification":
@@ -1408,75 +1371,15 @@ async def run_chaster_intent(
             )
 
         if intent.kind == "configure_hygiene":
-            lock_id = str(before.get("lock_id") or "")
-            updates: dict[str, Any] = {}
-            for part in (intent.reason or "").split("|"):
-                if part.startswith("opening:"):
-                    # Chaster openingTime is typically 60–3600+ seconds
-                    updates["openingTime"] = max(
-                        60, min(86400, int(part.split(":", 1)[1]))
-                    )
-                elif part.startswith("penalty:"):
-                    updates["penaltyTime"] = max(
-                        60, min(7 * 86400, int(part.split(":", 1)[1]))
-                    )
-            if not updates:
-                return ChasterActionResult(
-                    ok=True,
-                    blocked=True,
-                    before=before,
-                    lock=before,
-                    facts=(
-                        'Say how long, e.g. "set hygiene to 10 minutes" '
-                        'or "hygiene opening time 15 mins".'
-                    ),
-                )
-            try:
-                after_exts = await chaster.update_extension_config(
-                    lock_id, "temporary-opening", updates
-                )
-            except Exception as exc:  # noqa: BLE001
-                msg = str(exc)
-                if "not on the lock" in msg.lower() or "activate" in msg.lower():
-                    return ChasterActionResult(
-                        ok=True,
-                        blocked=True,
-                        before=before,
-                        lock=before,
-                        facts=(
-                            "Hygiene opening is not on the lock. "
-                            'Say: "activate hygiene" first.'
-                        ),
-                    )
-                return ChasterActionResult(
-                    ok=False,
-                    error=msg,
-                    before=before,
-                    lock=before,
-                    facts=f"Could not configure hygiene: {msg}",
-                )
-            hyg = next(
-                (e for e in after_exts if e.get("slug") == "temporary-opening"),
-                {},
-            )
-            cfg = hyg.get("config") if isinstance(hyg, dict) else {}
-            after = summarize_lock(await refresh_lock(chaster, lock))
-            open_label = format_duration(int(cfg.get("openingTime") or 0))
-            pen_label = format_duration(int(cfg.get("penaltyTime") or 0))
             return ChasterActionResult(
                 ok=True,
-                facts=(
-                    f"CHASTER ACTION DONE (hygiene opening config):\n"
-                    f"- Requested by: {requested_by}\n"
-                    f"- Opening window: {open_label} ({cfg.get('openingTime')}s)\n"
-                    f"- Penalty if overtime: {pen_label} ({cfg.get('penaltyTime')}s)\n"
-                    f"- Keyholder-only open: {cfg.get('allowOnlyKeyholderToOpen')}\n"
-                    "This changes how long he may stay unlocked for hygiene — "
-                    "it does NOT add time to his main lock timer.\n"
-                    f"{_status_lines('AFTER', after)}"
-                ),
-                lock=after,
+                blocked=True,
                 before=before,
+                lock=before,
+                facts=(
+                    "Chaster hygiene config is blocked. "
+                    "Set allowed unlock time in Settings → Hygiene."
+                ),
             )
 
         if intent.kind == "configure_share_links":
@@ -2159,8 +2062,7 @@ def _activation_followup(slug: str) -> str:
             'Random events ready. Say "configure random events hard".'
         ),
         "temporary-opening": (
-            'Hygiene opening is ready. Set window: "set hygiene to 10 minutes". '
-            'Start it: "open hygiene".'
+            "Chaster hygiene plugin stays off. Use Request hygiene in this chat."
         ),
         "verification-picture": (
             'Verification picture is ready. Domme can say: '
@@ -2213,19 +2115,8 @@ def _describe_extension_control(slug: str, config: dict[str, Any]) -> list[str]:
         return lines
     if s == "temporary-opening":
         lines.append(
-            "CONTROL (Hygiene opening): YES via API — "
-            "open temporary unlock (partner session). "
-            "Also GET status / combination / resume endpoints exist."
-        )
-        lines.append(
-            f"Live config: openingTime={config.get('openingTime')}s, "
-            f"penaltyTime={config.get('penaltyTime')}s, "
-            f"keyholderOnly={config.get('allowOnlyKeyholderToOpen')}, "
-            f"verifyBefore={config.get('requireVerificationPictureBefore')}."
-        )
-        lines.append(
-            'Say: "set hygiene to 10 minutes" (opening window), '
-            '"hygiene penalty 12 hours", or "open hygiene" to start now.'
+            "CONTROL (Hygiene opening): BLOCKED — do not use this plugin. "
+            "Lockee Request hygiene here; keyholder approves; Unlock / Relock the box."
         )
         return lines
     if s == "verification-picture":
@@ -2360,7 +2251,8 @@ def format_extensions_facts(
             "",
             "API CAPABILITY MATRIX (verified against Chaster OpenAPI + live probes):",
             f"- Duo Domme session actions: {', '.join(DUO_DOMME_ACTIONS)} + custom history messages.",
-            "- Hygiene opening: open/status when `temporary-opening` is on the lock.",
+            "- Hygiene: Chaster `temporary-opening` is blocked. "
+            "Use Request hygiene + R+D box Unlock/Relock.",
             "- Verification picture: request when `verification-picture` is on the lock.",
             "- Tasks: assign/start-timer/complete when `tasks` is on the lock.",
             "- Share links (`link`): configure timeToAdd/timeToRemove/nbVisits/"
@@ -2371,7 +2263,7 @@ def format_extensions_facts(
             "gameplay is wearer-driven in Chaster (no remote spin/roll).",
             "- Free tier max 3 extensions — bot may park another plugin "
             '(never duo-domme) to enable one; "restore parked extensions" later.',
-            '- Activate: "activate share links/hygiene/tasks/verification/pillory/'
+            '- Activate: "activate share links/tasks/verification/pillory/'
             'dice/wheel/random events/jigsaw".',
             "- Never invent controls that are not listed above.",
         ]
@@ -2400,10 +2292,11 @@ def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
             '"send him a lock message: Tease | Edge twice and wait"',
             '• Recent history — say: "show lock history"',
             '• Extensions on the lock — say: "what extensions are on his lock"',
-            '• Activate plugins — "activate share links", "activate hygiene", '
-            '"activate tasks", "activate verification picture", "activate jigsaw"',
+            '• Activate plugins — "activate share links", '
+            '"activate tasks", "activate verification picture", "activate jigsaw". '
+            "Hygiene plugin is blocked — use Request hygiene in this chat.",
             '• Share links config — "set share links add 2 hours remove 5 minutes with 10 visits"',
-            '• Hygiene opening — "set hygiene to 10 minutes" / "open hygiene"',
+            "• Hygiene — Request hygiene in this chat (Chaster plugin stays off)",
             '• Verification picture — "request verification picture"',
             '• Tasks — "assign task: edge twice" (needs tasks)',
             "",

@@ -46,10 +46,25 @@ class HygieneRequestTests(unittest.TestCase):
         hr.mark_punished()
         self.assertFalse(hr.should_punish())
 
-    def test_deny_clears(self) -> None:
+    def test_deny_allows_new_request(self) -> None:
         hr.request_hygiene(allowed_seconds=120)
         cleared = hr.deny_hygiene()
+        self.assertEqual(cleared["status"], "denied")
+        again = hr.request_hygiene(allowed_seconds=180)
+        self.assertEqual(again["status"], "requested")
+
+    def test_reset_clears_stuck_request(self) -> None:
+        hr.request_hygiene(allowed_seconds=120)
+        cleared = hr.reset_hygiene()
         self.assertEqual(cleared["status"], "idle")
+        again = hr.request_hygiene(allowed_seconds=120)
+        self.assertEqual(again["status"], "requested")
+
+    def test_unlock_uses_approved_timescale(self) -> None:
+        hr.request_hygiene(allowed_seconds=600)
+        hr.approve_hygiene(allowed_seconds=180)
+        opened = hr.mark_unlocked(allowed_seconds=0)
+        self.assertEqual(opened["allowed_seconds"], 180)
 
 
 if __name__ == "__main__":

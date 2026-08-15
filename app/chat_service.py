@@ -48,6 +48,7 @@ from app.speaker_guard import (
     strip_stage_directions,
     writes_scripted_dialogue,
 )
+from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.extension_games import extension_punish_intents, games_prompt_block
 from app.punish import (
@@ -517,6 +518,29 @@ async def handle_chat_turn(
                 "Do NOT invent remaining time, totals, or lock lengths.]"
             )
 
+        try:
+            from app.rad_lockbox import get_rad_client, summarize_lockbox
+
+            rad = get_rad_client()
+            if rad and rad.configured:
+                box = summarize_lockbox(await rad.status_snapshot())
+                label = box.get("label") or "unknown"
+                state = box.get("lock_state") or ""
+                extra = f" ({state})" if state and state not in {"unknown", ""} else ""
+                chaster_note += f"\n\n[LOCKBOX: {label}{extra}]"
+            else:
+                chaster_note += "\n\n[LOCKBOX: not configured]"
+        except Exception:  # noqa: BLE001
+            log.exception("Lockbox status for model failed")
+            chaster_note += "\n\n[LOCKBOX: status unavailable]"
+
+        try:
+            from app.hygiene_request import format_hygiene_director
+
+            chaster_note += f"\n\n{format_hygiene_director()}"
+        except Exception:  # noqa: BLE001
+            log.exception("Hygiene director failed")
+
         context_bits: list[str] = []
         for msg in history[-10:]:
             content = str(msg.get("content") or "")
@@ -840,7 +864,9 @@ async def handle_chat_turn(
             f"The lockee ({sub_nm}) cannot see this.\n"
             f"- Your name is '{bot_name}'. You are her friend helping her run the lock. "
             "Talk like a real person. Encourage her. Do not lecture.\n"
-            f"- NEVER treat {title} as locked. NEVER give her hygiene or cage orders.\n"
+            f"- NEVER treat {title} as locked. NEVER give her hygiene or cage-wearer orders.\n"
+            "- If she asks for ideas/games, answer with 3–5 playful teasing ideas about HIM. "
+            "No apology. No 'you're the keyholder not the lockee'. Cheer her on.\n"
             "- Never write the words HUMAN DOMME, keyee, or her username plus a colon.\n"
             "- Plan with her. Do not perform at him here.\n"
             "- To speak to him, emit [[[GROUP]]]…[[[/GROUP]]].\n"
@@ -848,6 +874,9 @@ async def handle_chat_turn(
             "- If YOU change the lock, emit [[[LOCK]]]…[[[/LOCK]]].\n"
             "- Never invent that she is out. Never invent what he is doing unless she typed it.\n"
             "- Pictures are off. Do not offer or fake sending a photo.\n"
+            "- He is caged. Do not plan stroke/touch-yourself rewards; use tease/denial.\n"
+            "- Hygiene is UI buttons only. Never [[[LOCK]]] / pillory / 'open his hygiene window'.\n"
+            "- When he requests hygiene, ask her how many minutes. She Approves in the Hygiene controls.\n"
         )
     else:
         if role == "domme":
@@ -856,8 +885,8 @@ async def handle_chat_turn(
                 f"Answer HER. Help and encourage her.\n"
                 f"- The lockee is {sub_nm} (he/him). Never call him keyee. "
                 f"Do NOT speak to {title} as if she wears the cage.\n"
-                f"- When she orders hygiene/time/settings, confirm the API result TO her, "
-                f"then you may tease the lockee briefly.\n"
+                f"- Hygiene is not a lock order. If she is answering a request, "
+                f"she sets the time in Hygiene controls — do not emit LOCK tags.\n"
             )
         else:
             who_rules = (
@@ -903,6 +932,10 @@ async def handle_chat_turn(
             "- Do not workshop private strategy out loud; execute.\n"
             "- Speak only as yourself. NEVER write BOY: / Sub: / Keyholder: lines for other people.\n"
             "- NEVER invent what he is doing (toilet, meals, location, touching) unless HE typed it this turn.\n"
+            "- CAGE: he cannot stroke or touch himself. Never order that. Tease the cage / deny him.\n"
+            "- HYGIENE: never emit LOCK tags or pillory for hygiene. "
+            "He taps Hygiene → she sets a time and Approves → he taps Unlock, then Lock. "
+            "Timer starts on Unlock. Late Lock can be punished.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:200]}" for t in recent)
@@ -913,6 +946,8 @@ async def handle_chat_turn(
         + "\n\n"
         + memory.prompt_block(room=room)
         + anti_loop
+        + "\n"
+        + PRACTICE_BLOCK
     )
 
     store.append_display(
@@ -973,15 +1008,15 @@ async def handle_chat_turn(
                 reply = (
                     f"{title} — I've got him.\n\n"
                     f"Lockee… {title} left you with me for {how_long}. "
-                    "Hands on your cage — slow strokes for sixty "
-                    "seconds. No release. Start now."
+                    "Hands on the cage — not through it. Feel how little "
+                    "you can do. Stay denied. Start now."
                 )
             else:
                 reply = (
                     f"{title}, I've got this. Lockee, you came without permission, "
                     "so you don't get a vote. You're locked and denied — edge twice "
                     "tonight under our count, no orgasm, cage back on. "
-                    f"Stroke slow for sixty seconds starting now. {title}, want it meaner?"
+                    f"Cage stays on. Sit with that ache. {title}, want it meaner?"
                 )
             messages = list(history) + [
                 {"role": "user", "content": user_line},
@@ -1010,7 +1045,7 @@ async def handle_chat_turn(
                 reply = (
                     f"{title} — leave him with me.\n\n"
                     f"Lockee — {title} left you with me for {how_long}. "
-                    "Cage in hand — slow strokes. No release unless I say. Begin."
+                    "Hands on the cage. No stroking — you can't. Stay denied. Begin."
                 )
                 messages = list(history) + [
                     {"role": "user", "content": user_line},
@@ -1037,7 +1072,9 @@ async def handle_chat_turn(
             ]
 
         # Strict: Domme must never be addressed as the locked Sub
-        if role == "domme" and mistreats_domme_as_sub(reply):
+        if role == "domme" and mistreats_domme_as_sub(
+            reply, user_message=message
+        ):
             log.warning("Repaired Domme-as-Sub misaddress in %s", room)
             reply = repair_domme_misaddress(
                 domme_title=domme_address(memory),
@@ -1152,6 +1189,10 @@ async def handle_chat_turn(
     )
     visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
+    caged = rewrite_caged_touch(visible_reply)
+    if caged != visible_reply:
+        log.warning("Rewrote caged-touch order in %s reply", room)
+        visible_reply = caged
     visible_reply = strip_chat_chrome(
         visible_reply,
         sub_name=memory.sub_name or "",

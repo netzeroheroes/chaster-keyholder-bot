@@ -32,10 +32,16 @@
         <p class="eyebrow" id="roleLabel">—</p>
         <h1 id="heading">Chat</h1>
       </div>
-      <p class="meta" id="sessionMeta"></p>
+      <div class="top-status">
+        <p id="boxStatus" class="box-status">Box: —</p>
+        <p class="meta" id="sessionMeta"></p>
+      </div>
     </header>
     <nav id="roomTabs" class="room-tabs" aria-label="Chat rooms">
       <button type="button" class="room-tab active" data-room="group">Group</button>
+      <button type="button" class="room-tab hyg-tab hidden" id="hygRequestBtn">Hygiene</button>
+      <button type="button" class="room-tab kh-action hidden" id="hygUnlockBtn">Unlock</button>
+      <button type="button" class="room-tab kh-action hidden" id="hygRelockBtn">Lock</button>
       <button type="button" class="room-tab hidden" data-room="private" id="privateTab">
         Private
       </button>
@@ -56,15 +62,19 @@
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
-    <div id="hygieneBar" class="hygiene-bar">
+    <div id="hygieneBar" class="hygiene-bar hidden">
       <p id="hygieneCopy" class="hygiene-copy">Hygiene: idle</p>
-      <div class="hygiene-actions">
-        <button type="button" class="room-tab kh-action hidden" id="hygRequestBtn">Request hygiene</button>
-        <button type="button" class="room-tab kh-action hidden" id="hygApproveBtn">Approve</button>
-        <button type="button" class="room-tab kh-action hidden" id="hygDenyBtn">Deny</button>
-        <button type="button" class="room-tab kh-action hidden" id="hygUnlockBtn">Unlock</button>
-        <button type="button" class="room-tab kh-action hidden" id="hygRelockBtn">Relock</button>
+      <div id="hygKhAsk" class="hyg-ask hidden">
+        <label class="hyg-ask-label" for="hygTimeValue">How long?</label>
+        <input id="hygTimeValue" type="number" min="1" step="1" value="10" />
+        <select id="hygTimeUnit" aria-label="Hygiene duration unit">
+          <option value="minutes">minutes</option>
+          <option value="hours">hours</option>
+        </select>
+        <button type="button" class="room-tab kh-action" id="hygApproveBtn">Approve</button>
+        <button type="button" class="room-tab kh-action" id="hygDenyBtn">Deny</button>
       </div>
+      <button type="button" class="room-tab kh-action hidden" id="hygResetBtn">Reset</button>
     </div>
 
     <div class="chat-body">
