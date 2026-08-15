@@ -7,6 +7,7 @@
     heading: document.getElementById("heading"),
     sessionMeta: document.getElementById("sessionMeta"),
     settingsBtn: document.getElementById("settingsBtn"),
+    kinksBtn: document.getElementById("kinksBtn"),
     settingsPanel: document.getElementById("settingsPanel"),
     settingsClose: document.getElementById("settingsClose"),
     settingsForm: document.getElementById("settingsForm"),
@@ -21,6 +22,31 @@
     sendBtn: document.getElementById("sendBtn"),
     status: document.getElementById("status"),
     typingBubble: document.getElementById("typingBubble"),
+    teaseBar: document.getElementById("teaseBar"),
+    teaseNowBtn: document.getElementById("teaseNowBtn"),
+    teaseBarStatus: document.getElementById("teaseBarStatus"),
+    openKinks: document.getElementById("openKinks"),
+    kinksPanel: document.getElementById("kinksPanel"),
+    kinksClose: document.getElementById("kinksClose"),
+    kinksHelp: document.getElementById("kinksHelp"),
+    kinksFilter: document.getElementById("kinksFilter"),
+    kinksSelectLoves: document.getElementById("kinksSelectLoves"),
+    kinksClear: document.getElementById("kinksClear"),
+    kinksRefresh: document.getElementById("kinksRefresh"),
+    kinkList: document.getElementById("kinkList"),
+    toyList: document.getElementById("toyList"),
+    kinksPlanWeek: document.getElementById("kinksPlanWeek"),
+    kinksSave: document.getElementById("kinksSave"),
+    kinksStatus: document.getElementById("kinksStatus"),
+  };
+
+  const kitState = {
+    kinks: [],
+    toys: [],
+    selectedKinks: new Set(),
+    selectedToys: new Set(),
+    username: "",
+    source: "",
   };
 
   const state = {
@@ -136,7 +162,18 @@
           : "bot";
       div.className = `msg ${cls}`;
       div.innerHTML = `<span class="who">${who}</span>`;
-      div.append(document.createTextNode(m.content || ""));
+      if (m.content && !String(m.content).startsWith("[image]")) {
+        div.append(document.createTextNode(m.content));
+      } else if (m.content && !m.image_url) {
+        div.append(document.createTextNode(m.content));
+      }
+      if (m.image_url) {
+        const img = document.createElement("img");
+        img.className = "chat-image";
+        img.src = m.image_url;
+        img.alt = m.content || "Tease image";
+        div.appendChild(img);
+      }
       els.messages.appendChild(div);
     }
     state.lastCount = messages.length;
@@ -171,6 +208,7 @@
         ? `Keyholder${handle ? " @" + handle : ""}`
         : `Lockee${handle ? " @" + handle : ""}`;
     els.heading.textContent = data.bot_name || "Chat";
+    renderAutopilotStatus(data.autopilot);
     els.sessionMeta.textContent = [
       s.wearer_username && `Lockee: ${s.wearer_username}`,
       s.keyholder_username && `KH: ${s.keyholder_username}`,
@@ -181,9 +219,13 @@
     if (s.app_role === "domme" || s.role === "keyholder") {
       els.privateTab.classList.remove("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
+      if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
+      if (els.teaseBar) els.teaseBar.classList.remove("hidden");
     } else {
       els.privateTab.classList.add("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
+      if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
+      if (els.teaseBar) els.teaseBar.classList.add("hidden");
       state.room = "group";
     }
     updateRoomUi();
@@ -212,9 +254,10 @@
 
   function renderAutopilotStatus(st) {
     const el = document.getElementById("autopilotLive");
-    if (!el) return;
+    const bar = els.teaseBarStatus;
     if (!st || typeof st !== "object") {
-      el.textContent = "Autopilot status: —";
+      if (el) el.textContent = "Autopilot status: —";
+      if (bar) bar.textContent = "Send an unprompted group tease.";
       return;
     }
     const on = st.autopilot_enabled ? "ON" : "OFF";
@@ -224,7 +267,9 @@
     if (st.last_skip_reason) bits.push(st.last_skip_reason);
     if (st.last_tick_at) bits.push(`last tease ${st.last_tick_at}`);
     if (st.next_wake_at) bits.push(`next check ~${st.next_wake_at}`);
-    el.textContent = bits.join(" · ");
+    const text = bits.join(" · ");
+    if (el) el.textContent = text;
+    if (bar) bar.textContent = text;
   }
 
   function renderLockboxStatus(st) {
@@ -376,6 +421,162 @@
       bot_name: g("setBotName").value.trim() || "Keyholder",
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
     };
+  }
+
+  function kitMatchesFilter(name, filter) {
+    if (!filter) return true;
+    return String(name || "").toLowerCase().includes(filter);
+  }
+
+  function renderKinkLists() {
+    if (!els.kinkList || !els.toyList) return;
+    const filter = (els.kinksFilter?.value || "").trim().toLowerCase();
+    els.kinkList.innerHTML = "";
+    els.toyList.innerHTML = "";
+    const kinks = kitState.kinks.filter((k) => kitMatchesFilter(k.name, filter));
+    const toys = kitState.toys.filter((t) => kitMatchesFilter(t.name, filter));
+    if (!kinks.length) {
+      const p = document.createElement("p");
+      p.className = "meta";
+      p.textContent = "No matching kinks.";
+      els.kinkList.appendChild(p);
+    }
+    for (const kink of kinks) {
+      const label = document.createElement("label");
+      label.className = "kit-item";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = kitState.selectedKinks.has(kink.name);
+      box.addEventListener("change", () => {
+        if (box.checked) kitState.selectedKinks.add(kink.name);
+        else kitState.selectedKinks.delete(kink.name);
+      });
+      const span = document.createElement("span");
+      span.textContent = kink.name;
+      const rating = document.createElement("em");
+      rating.className = `kit-rating ${kink.rating || "other"}`;
+      rating.textContent = kink.rating && kink.rating !== "other" ? kink.rating : "";
+      label.append(box, span, rating);
+      els.kinkList.appendChild(label);
+    }
+    if (!toys.length) {
+      const p = document.createElement("p");
+      p.className = "meta";
+      p.textContent = "No matching toys.";
+      els.toyList.appendChild(p);
+    }
+    for (const toy of toys) {
+      const label = document.createElement("label");
+      label.className = "kit-item";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = kitState.selectedToys.has(toy.name);
+      box.addEventListener("change", () => {
+        if (box.checked) kitState.selectedToys.add(toy.name);
+        else kitState.selectedToys.delete(toy.name);
+      });
+      const span = document.createElement("span");
+      span.textContent = toy.name;
+      label.append(box, span);
+      els.toyList.appendChild(label);
+    }
+  }
+
+  async function loadKinkCatalog() {
+    if (els.kinksStatus) els.kinksStatus.textContent = "Loading his profile…";
+    const res = await fetch("/api/ext/kink-catalog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ main_token: state.mainToken }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(apiDetail(data, "Could not load kinks"));
+    kitState.kinks = data.kinks || [];
+    kitState.toys = data.toys || [];
+    kitState.username = data.username || "";
+    kitState.source = data.source || "";
+    if (Array.isArray(data.selected_kinks)) {
+      kitState.selectedKinks = new Set(data.selected_kinks);
+    }
+    if (Array.isArray(data.selected_toys)) {
+      kitState.selectedToys = new Set(data.selected_toys);
+    }
+    const who = kitState.username ? `${kitState.username}'s` : "his";
+    const src =
+      kitState.source === "chaster"
+        ? `From ${who} Chaster profile.`
+        : kitState.source === "mixed"
+          ? `From ${who} Chaster profile, with starter items filling empty lists.`
+          : "Chaster list unavailable — using a starter catalog you can still tick.";
+    if (els.kinksHelp) {
+      els.kinksHelp.textContent = `${src} Tick what you want incorporated this session or week.`;
+    }
+    if (els.kinksStatus) {
+      els.kinksStatus.textContent = `${kitState.kinks.length} kinks · ${kitState.toys.length} toys`;
+    }
+    renderKinkLists();
+  }
+
+  function openKinks() {
+    if (!els.kinksPanel) return;
+    closeSettings();
+    els.kinksPanel.classList.remove("hidden");
+    els.kinksPanel.setAttribute("aria-hidden", "false");
+    if (els.kinksFilter) els.kinksFilter.value = "";
+    loadKinkCatalog().catch((err) => {
+      if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
+    });
+  }
+
+  function closeKinks() {
+    if (!els.kinksPanel) return;
+    els.kinksPanel.classList.add("hidden");
+    els.kinksPanel.setAttribute("aria-hidden", "true");
+  }
+
+  async function saveSessionKit() {
+    const res = await fetch("/api/ext/session-kit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        main_token: state.mainToken,
+        session_kinks: [...kitState.selectedKinks],
+        session_toys: [...kitState.selectedToys],
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
+    kitState.selectedKinks = new Set(data.session_kinks || []);
+    kitState.selectedToys = new Set(data.session_toys || []);
+    return data;
+  }
+
+  async function askWeekPlan() {
+    try {
+      await saveSessionKit();
+    } catch (err) {
+      if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
+      return;
+    }
+    closeKinks();
+    if (state.room !== "private") {
+      await switchRoom("private");
+    }
+    const kinks = [...kitState.selectedKinks];
+    const toys = [...kitState.selectedToys];
+    const kitLine = [
+      kinks.length ? `Kinks I want in: ${kinks.join(", ")}.` : "",
+      toys.length ? `Toys I want in: ${toys.join(", ")}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const prompt = [
+      "Help me plan this week as his keyholder.",
+      kitLine || "I have not ticked a kit yet — use his profile loves and listed toys.",
+      "Give me a day-by-day plan and specific suggestions for keeping him horny, denied, and submissive — when to tease, when to go colder, rituals, and how to use the lock.",
+      "This is planning with me only. Do not execute in group yet.",
+    ].join(" ");
+    await sendMessage(prompt);
   }
 
   async function openSettings() {
@@ -531,6 +732,10 @@
       openSettings();
       return;
     }
+    if (btn.dataset.action === "kinks" || btn.id === "kinksBtn") {
+      openKinks();
+      return;
+    }
     switchRoom(btn.dataset.room);
   });
 
@@ -538,6 +743,12 @@
     els.settingsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       openSettings();
+    });
+  }
+  if (els.kinksBtn) {
+    els.kinksBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openKinks();
     });
   }
   if (els.settingsClose) {
@@ -579,38 +790,104 @@
     });
   }
 
-  const teaseNowBtn = document.getElementById("autopilotTeaseNow");
-  if (teaseNowBtn) {
-    teaseNowBtn.addEventListener("click", async () => {
-      const statusEl = document.getElementById("settingsStatus");
-      if (statusEl) statusEl.textContent = "Sending tease…";
-      teaseNowBtn.disabled = true;
+  async function fireTeaseNow() {
+    const btn = els.teaseNowBtn;
+    const statusEl = els.teaseBarStatus;
+    if (statusEl) statusEl.textContent = "Sending tease…";
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch("/api/ext/autopilot/tick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Tease failed"));
+      renderAutopilotStatus(data.autopilot);
+      if (statusEl) {
+        statusEl.textContent = data.posted
+          ? "Tease posted to Group."
+          : "Tick ran but nothing was posted.";
+      }
+      if (data.posted && state.room !== "group") {
+        await switchRoom("group");
+      } else {
+        await loadHistory();
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = String(err.message || err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  if (els.teaseNowBtn) {
+    els.teaseNowBtn.addEventListener("click", () => {
+      fireTeaseNow();
+    });
+  }
+  if (els.openKinks) {
+    els.openKinks.addEventListener("click", () => openKinks());
+  }
+  if (els.kinksClose) {
+    els.kinksClose.addEventListener("click", closeKinks);
+  }
+  if (els.kinksPanel) {
+    els.kinksPanel.addEventListener("click", (e) => {
+      if (e.target === els.kinksPanel) closeKinks();
+    });
+  }
+  if (els.kinksFilter) {
+    els.kinksFilter.addEventListener("input", () => renderKinkLists());
+  }
+  if (els.kinksSelectLoves) {
+    els.kinksSelectLoves.addEventListener("click", () => {
+      for (const kink of kitState.kinks) {
+        if (kink.rating === "love") kitState.selectedKinks.add(kink.name);
+      }
+      renderKinkLists();
+    });
+  }
+  if (els.kinksClear) {
+    els.kinksClear.addEventListener("click", () => {
+      kitState.selectedKinks.clear();
+      kitState.selectedToys.clear();
+      renderKinkLists();
+    });
+  }
+  if (els.kinksRefresh) {
+    els.kinksRefresh.addEventListener("click", () => {
+      loadKinkCatalog().catch((err) => {
+        if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
+      });
+    });
+  }
+  if (els.kinksSave) {
+    els.kinksSave.addEventListener("click", async () => {
+      if (els.kinksStatus) els.kinksStatus.textContent = "Saving…";
       try {
-        const res = await fetch("/api/ext/autopilot/tick", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ main_token: state.mainToken }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(apiDetail(data, "Tease failed"));
-        renderAutopilotStatus(data.autopilot);
-        if (statusEl) {
-          statusEl.textContent = data.posted
-            ? "Tease posted to Group — switch rooms to see it."
-            : "Tick ran but nothing was posted.";
-        }
-        if (state.room !== "group") {
-          // Soft hint only; history poll will pick it up in group
-        } else {
-          await loadHistory();
-        }
+        await saveSessionKit();
+        if (els.kinksStatus) els.kinksStatus.textContent = "Saved. She will use this kit.";
       } catch (err) {
-        if (statusEl) statusEl.textContent = String(err.message || err);
-      } finally {
-        teaseNowBtn.disabled = false;
+        if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
       }
     });
   }
+  if (els.kinksPlanWeek) {
+    els.kinksPlanWeek.addEventListener("click", () => {
+      askWeekPlan().catch((err) => {
+        if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
+      });
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (els.kinksPanel && !els.kinksPanel.classList.contains("hidden")) {
+      closeKinks();
+    } else if (els.settingsPanel && !els.settingsPanel.classList.contains("hidden")) {
+      closeSettings();
+    }
+  });
 
   const lbUnlock = document.getElementById("lockboxUnlock");
   const lbLock = document.getElementById("lockboxLock");

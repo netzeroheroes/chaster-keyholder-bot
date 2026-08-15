@@ -108,6 +108,19 @@
         <p class="meta" id="memoryPreview"></p>
         <button type="button" id="saveScene" class="btn primary">Save plan + names</button>
 
+        <div class="controls-block session-kit-block">
+          <p class="field-label">Session kit</p>
+          <p class="meta">Tick fetishes and toys to weave into play. She will plan the week around what you select.</p>
+          <div id="kitChips" class="kit-chips">
+            <span class="kit-empty">Nothing selected yet</span>
+          </div>
+          <p class="meta" id="kitStatus"></p>
+          <div class="actions">
+            <button type="button" id="openKit" class="btn primary">Choose toys &amp; kinks</button>
+            <button type="button" id="planWeek" class="btn ghost">Plan the week</button>
+          </div>
+        </div>
+
         <div class="controls-block">
           <p class="field-label">Lock timings (Chaster)</p>
           <p class="meta">Times apply live — no restart. Chaster is the bot’s main lever.</p>
@@ -174,6 +187,45 @@
         <button type="submit" class="btn primary send" id="sendBtn">Send</button>
       </form>
     </main>
+  </div>
+
+  <div id="kitModal" class="kit-modal hidden" role="dialog" aria-modal="true" aria-labelledby="kitModalTitle">
+    <div class="kit-modal-card">
+      <header class="kit-modal-head">
+        <div>
+          <p class="eyebrow">Session kit</p>
+          <h2 id="kitModalTitle">Incorporate into play</h2>
+          <p class="lede" id="kitModalHelp">Select what you want her to use this week. Lists come from his Chaster profile when linked.</p>
+        </div>
+        <button type="button" id="closeKit" class="btn ghost">Close</button>
+      </header>
+      <label class="field kit-search">
+        <span>Filter</span>
+        <input id="kitFilter" type="search" placeholder="Search kinks or toys…" />
+      </label>
+      <div class="kit-modal-actions">
+        <button type="button" id="kitSelectLoves" class="btn ghost">Select loves</button>
+        <button type="button" id="kitClear" class="btn ghost">Clear</button>
+        <button type="button" id="kitRefresh" class="btn ghost">Refresh list</button>
+      </div>
+      <div class="kit-columns">
+        <section class="kit-col">
+          <p class="field-label">Fetishes / kinks</p>
+          <div id="kitKinkList" class="kit-list"></div>
+        </section>
+        <section class="kit-col">
+          <p class="field-label">Toys</p>
+          <div id="kitToyList" class="kit-list"></div>
+        </section>
+      </div>
+      <footer class="kit-modal-foot">
+        <p class="meta" id="kitModalStatus"></p>
+        <div class="actions">
+          <button type="button" id="planWeekModal" class="btn ghost">Plan the week</button>
+          <button type="button" id="saveKit" class="btn primary">Save kit</button>
+        </div>
+      </footer>
+    </div>
   </div>
   <script src="/static/voice.js"></script>
   <script src="/static/edge-coach.js"></script>

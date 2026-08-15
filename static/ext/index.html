@@ -5,7 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Keyholder chat</title>
-  <link rel="stylesheet" href="/static/ext/ext.css?v=11" />
+  <meta name="ext-build" content="EXT_BUILD" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=EXT_BUILD" />
+  <style>
+    .tease-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.55rem 0.85rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: #261c18;
+    }
+    .tease-bar.hidden { display: none !important; }
+    .room-tab.kinks-tab {
+      margin-left: auto;
+      border-color: rgba(224, 135, 99, 0.45);
+      color: #e08763;
+    }
+    .room-tab.settings-tab { margin-left: 0; }
+  </style>
 </head>
 <body>
   <div id="gate" class="gate">
@@ -26,11 +46,22 @@
       <button type="button" class="room-tab hidden" data-room="private" id="privateTab">
         Private
       </button>
+      <button type="button" class="room-tab kinks-tab hidden" id="kinksBtn" data-action="kinks">
+        Kinks
+      </button>
       <button type="button" class="room-tab settings-tab hidden" id="settingsBtn" data-action="settings">
         Settings
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
+
+    <div id="teaseBar" class="tease-bar hidden">
+      <div class="tease-bar-copy">
+        <p class="tease-bar-title">Tease now</p>
+        <p id="teaseBarStatus" class="meta">Send an unprompted group tease.</p>
+      </div>
+      <button type="button" class="btn" id="teaseNowBtn">Tease now</button>
+    </div>
 
     <div class="chat-body">
       <div class="messages-wrap">
@@ -107,7 +138,11 @@
         <label class="check"><input type="checkbox" id="setAutopilotChaster" /> Autopilot may nudge Chaster</label>
         <label class="field"><span>Autopilot add-time (sec)</span><input id="setAutopilotPunish" type="number" min="60" step="60" value="600" /></label>
         <p id="autopilotLive" class="meta">Autopilot status: —</p>
-        <button type="button" class="btn" id="autopilotTeaseNow">Tease now</button>
+        <p class="meta">Tease now is on the chat screen, above the messages.</p>
+
+        <p class="title">Session kit</p>
+        <p class="meta">Choose fetishes and toys to incorporate into play and the week plan.</p>
+        <button type="button" class="btn" id="openKinks">Kinks &amp; toys</button>
 
         <p class="title">R+D Lockbox</p>
         <p class="meta">
@@ -133,6 +168,45 @@
     </div>
   </div>
 
-  <script src="/static/ext/ext.js?v=17"></script>
+  <div id="kinksPanel" class="settings-panel hidden" aria-hidden="true">
+    <div class="settings-card kinks-card">
+      <header class="settings-head">
+        <div>
+          <p class="eyebrow">Session kit</p>
+          <h2>Kinks &amp; toys</h2>
+        </div>
+        <button type="button" id="kinksClose" class="link-btn">Close</button>
+      </header>
+      <p class="meta settings-lede" id="kinksHelp">
+        Tick what you want incorporated this session. Lists come from his Chaster profile when linked.
+      </p>
+      <label class="field">
+        <span>Filter</span>
+        <input id="kinksFilter" type="search" placeholder="Search kinks or toys…" />
+      </label>
+      <div class="kinks-actions">
+        <button type="button" class="btn ghost" id="kinksSelectLoves">Select loves</button>
+        <button type="button" class="btn ghost" id="kinksClear">Clear</button>
+        <button type="button" class="btn ghost" id="kinksRefresh">Refresh</button>
+      </div>
+      <div class="kinks-columns">
+        <section>
+          <p class="title" style="font-size:1rem">Fetishes / kinks</p>
+          <div id="kinkList" class="kit-list"></div>
+        </section>
+        <section>
+          <p class="title" style="font-size:1rem">Toys</p>
+          <div id="toyList" class="kit-list"></div>
+        </section>
+      </div>
+      <div class="settings-actions kinks-foot">
+        <button type="button" class="btn ghost" id="kinksPlanWeek">Plan the week</button>
+        <button type="button" class="btn" id="kinksSave">Save kit</button>
+      </div>
+      <p id="kinksStatus" class="status"></p>
+    </div>
+  </div>
+
+  <script src="/static/ext/ext.js?v=EXT_BUILD"></script>
 </body>
 </html>

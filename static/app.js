@@ -70,6 +70,31 @@ const els = {
   autopilotPunishSeconds: document.getElementById("autopilotPunishSeconds"),
   controlsStatus: document.getElementById("controlsStatus"),
   saveControls: document.getElementById("saveControls"),
+  kitChips: document.getElementById("kitChips"),
+  kitStatus: document.getElementById("kitStatus"),
+  openKit: document.getElementById("openKit"),
+  planWeek: document.getElementById("planWeek"),
+  kitModal: document.getElementById("kitModal"),
+  closeKit: document.getElementById("closeKit"),
+  kitFilter: document.getElementById("kitFilter"),
+  kitSelectLoves: document.getElementById("kitSelectLoves"),
+  kitClear: document.getElementById("kitClear"),
+  kitRefresh: document.getElementById("kitRefresh"),
+  kitKinkList: document.getElementById("kitKinkList"),
+  kitToyList: document.getElementById("kitToyList"),
+  kitModalHelp: document.getElementById("kitModalHelp"),
+  kitModalStatus: document.getElementById("kitModalStatus"),
+  saveKit: document.getElementById("saveKit"),
+  planWeekModal: document.getElementById("planWeekModal"),
+};
+
+const kitState = {
+  kinks: [],
+  toys: [],
+  selectedKinks: new Set(),
+  selectedToys: new Set(),
+  username: "",
+  source: "",
 };
 
 let pinsRequired = { domme: false, sub: false };
@@ -361,6 +386,9 @@ async function loadScene() {
   if (!res.ok) return;
   const data = await res.json();
   els.directives.value = data.secret_directives || "";
+  kitState.selectedKinks = new Set(data.session_kinks || []);
+  kitState.selectedToys = new Set(data.session_toys || []);
+  renderKitChips();
 }
 
 async function loadMemory() {
@@ -401,6 +429,205 @@ async function loadControls() {
   els.autopilotPunishSeconds.value = c.autopilot_punish_seconds ?? 600;
   const win = c.in_window ? "inside window now" : "outside window now";
   els.controlsStatus.textContent = `Saved · autopilot ${c.autopilot_enabled ? "on" : "off"} · ${win}`;
+}
+
+function renderKitChips() {
+  if (!els.kitChips) return;
+  els.kitChips.innerHTML = "";
+  const kinks = [...kitState.selectedKinks];
+  const toys = [...kitState.selectedToys];
+  if (!kinks.length && !toys.length) {
+    const empty = document.createElement("span");
+    empty.className = "kit-empty";
+    empty.textContent = "Nothing selected yet";
+    els.kitChips.appendChild(empty);
+  } else {
+    for (const name of kinks) {
+      const chip = document.createElement("span");
+      chip.className = "kit-chip";
+      chip.textContent = name;
+      els.kitChips.appendChild(chip);
+    }
+    for (const name of toys) {
+      const chip = document.createElement("span");
+      chip.className = "kit-chip toy";
+      chip.textContent = name;
+      els.kitChips.appendChild(chip);
+    }
+  }
+  if (els.kitStatus) {
+    const bits = [];
+    if (kinks.length) bits.push(`${kinks.length} kink${kinks.length === 1 ? "" : "s"}`);
+    if (toys.length) bits.push(`${toys.length} toy${toys.length === 1 ? "" : "s"}`);
+    els.kitStatus.textContent = bits.length
+      ? `She will incorporate ${bits.join(" and ")}.`
+      : "Open the picker to choose what goes into this session.";
+  }
+}
+
+function kitMatchesFilter(name, filter) {
+  if (!filter) return true;
+  return String(name || "").toLowerCase().includes(filter);
+}
+
+function renderKitLists() {
+  if (!els.kitKinkList || !els.kitToyList) return;
+  const filter = (els.kitFilter?.value || "").trim().toLowerCase();
+  els.kitKinkList.innerHTML = "";
+  els.kitToyList.innerHTML = "";
+
+  const kinks = kitState.kinks.filter((k) => kitMatchesFilter(k.name, filter));
+  const toys = kitState.toys.filter((t) => kitMatchesFilter(t.name, filter));
+
+  if (!kinks.length) {
+    const p = document.createElement("p");
+    p.className = "meta";
+    p.textContent = "No matching kinks.";
+    els.kitKinkList.appendChild(p);
+  }
+  for (const kink of kinks) {
+    const label = document.createElement("label");
+    label.className = "kit-item";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = kitState.selectedKinks.has(kink.name);
+    box.addEventListener("change", () => {
+      if (box.checked) kitState.selectedKinks.add(kink.name);
+      else kitState.selectedKinks.delete(kink.name);
+    });
+    const span = document.createElement("span");
+    span.textContent = kink.name;
+    const rating = document.createElement("em");
+    rating.className = `kit-rating ${kink.rating || "other"}`;
+    rating.textContent = kink.rating && kink.rating !== "other" ? kink.rating : "";
+    label.append(box, span, rating);
+    els.kitKinkList.appendChild(label);
+  }
+
+  if (!toys.length) {
+    const p = document.createElement("p");
+    p.className = "meta";
+    p.textContent = "No matching toys.";
+    els.kitToyList.appendChild(p);
+  }
+  for (const toy of toys) {
+    const label = document.createElement("label");
+    label.className = "kit-item";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = kitState.selectedToys.has(toy.name);
+    box.addEventListener("change", () => {
+      if (box.checked) kitState.selectedToys.add(toy.name);
+      else kitState.selectedToys.delete(toy.name);
+    });
+    const span = document.createElement("span");
+    span.textContent = toy.name;
+    label.append(box, span);
+    els.kitToyList.appendChild(label);
+  }
+}
+
+async function loadKinkCatalog() {
+  if (state.role !== "domme") return;
+  if (els.kitModalStatus) els.kitModalStatus.textContent = "Loading his profile…";
+  const res = await fetch("/api/kink-catalog?role=domme", {
+    headers: { "X-Role-Pin": state.pin },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  kitState.kinks = data.kinks || [];
+  kitState.toys = data.toys || [];
+  kitState.username = data.username || "";
+  kitState.source = data.source || "";
+  if (Array.isArray(data.selected_kinks)) {
+    kitState.selectedKinks = new Set(data.selected_kinks);
+  }
+  if (Array.isArray(data.selected_toys)) {
+    kitState.selectedToys = new Set(data.selected_toys);
+  }
+  const who = kitState.username ? `${kitState.username}'s` : "his";
+  const src =
+    kitState.source === "chaster"
+      ? `From ${who} Chaster profile.`
+      : kitState.source === "mixed"
+        ? `From ${who} Chaster profile, with starter items filling empty lists.`
+        : "Chaster list unavailable — using a starter catalog you can still tick.";
+  if (els.kitModalHelp) {
+    els.kitModalHelp.textContent = `${src} Tick what you want incorporated this session or week.`;
+  }
+  if (els.kitModalStatus) {
+    els.kitModalStatus.textContent = `${kitState.kinks.length} kinks · ${kitState.toys.length} toys`;
+  }
+  renderKitLists();
+  renderKitChips();
+}
+
+function openKitModal() {
+  if (!els.kitModal) return;
+  els.kitModal.classList.remove("hidden");
+  if (els.kitFilter) els.kitFilter.value = "";
+  loadKinkCatalog().catch((err) => {
+    if (els.kitModalStatus) els.kitModalStatus.textContent = String(err.message || err);
+  });
+}
+
+function closeKitModal() {
+  if (!els.kitModal) return;
+  els.kitModal.classList.add("hidden");
+}
+
+async function saveSessionKit() {
+  const res = await fetch("/api/scene", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      role: "domme",
+      pin: state.pin,
+      session_kinks: [...kitState.selectedKinks],
+      session_toys: [...kitState.selectedToys],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  kitState.selectedKinks = new Set(data.session_kinks || []);
+  kitState.selectedToys = new Set(data.session_toys || []);
+  renderKitChips();
+  return data;
+}
+
+async function askWeekPlan() {
+  if (state.role !== "domme") return;
+  try {
+    await saveSessionKit();
+  } catch (err) {
+    setStatus(`Could not save kit: ${err.message || err}`);
+    return;
+  }
+  if (state.room !== "private") {
+    state.room = "private";
+    state.lastCount = -1;
+    state.lastFingerprint = "";
+    state.stickToBottom = true;
+    state.pendingNew = 0;
+    updateRoomChrome();
+    await loadHistory({ forceScroll: true });
+  }
+  const kinks = [...kitState.selectedKinks];
+  const toys = [...kitState.selectedToys];
+  const kitLine = [
+    kinks.length ? `Kinks I want in: ${kinks.join(", ")}.` : "",
+    toys.length ? `Toys I want in: ${toys.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const prompt = [
+    "Help me plan this week as his keyholder.",
+    kitLine || "I have not ticked a kit yet — use his profile loves and listed toys.",
+    "Give me a day-by-day plan and specific suggestions for keeping him horny, denied, and submissive — when to tease, when to go colder, rituals, and how to use the lock.",
+    "This is planning with me only. Do not execute in group yet.",
+  ].join(" ");
+  closeKitModal();
+  await sendMessage(prompt);
 }
 
 function startPolling() {
@@ -656,6 +883,70 @@ els.saveScene.addEventListener("click", async () => {
     setStatus("Plan + names saved. She'll remember.");
   } else {
     setStatus("Save failed.");
+  }
+});
+
+if (els.openKit) {
+  els.openKit.addEventListener("click", () => openKitModal());
+}
+if (els.closeKit) {
+  els.closeKit.addEventListener("click", () => closeKitModal());
+}
+if (els.kitModal) {
+  els.kitModal.addEventListener("click", (e) => {
+    if (e.target === els.kitModal) closeKitModal();
+  });
+}
+if (els.kitFilter) {
+  els.kitFilter.addEventListener("input", () => renderKitLists());
+}
+if (els.kitSelectLoves) {
+  els.kitSelectLoves.addEventListener("click", () => {
+    for (const kink of kitState.kinks) {
+      if (kink.rating === "love") kitState.selectedKinks.add(kink.name);
+    }
+    renderKitLists();
+  });
+}
+if (els.kitClear) {
+  els.kitClear.addEventListener("click", () => {
+    kitState.selectedKinks.clear();
+    kitState.selectedToys.clear();
+    renderKitLists();
+  });
+}
+if (els.kitRefresh) {
+  els.kitRefresh.addEventListener("click", () => {
+    loadKinkCatalog().catch((err) => {
+      if (els.kitModalStatus) els.kitModalStatus.textContent = String(err.message || err);
+    });
+  });
+}
+if (els.saveKit) {
+  els.saveKit.addEventListener("click", async () => {
+    if (els.kitModalStatus) els.kitModalStatus.textContent = "Saving…";
+    try {
+      await saveSessionKit();
+      if (els.kitModalStatus) els.kitModalStatus.textContent = "Saved. She will use this kit.";
+      setStatus("Session kit saved.");
+    } catch (err) {
+      if (els.kitModalStatus) els.kitModalStatus.textContent = String(err.message || err);
+    }
+  });
+}
+if (els.planWeek) {
+  els.planWeek.addEventListener("click", () => {
+    askWeekPlan().catch((err) => setStatus(String(err.message || err)));
+  });
+}
+if (els.planWeekModal) {
+  els.planWeekModal.addEventListener("click", () => {
+    askWeekPlan().catch((err) => setStatus(String(err.message || err)));
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && els.kitModal && !els.kitModal.classList.contains("hidden")) {
+    closeKitModal();
   }
 });
 

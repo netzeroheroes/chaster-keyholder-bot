@@ -105,7 +105,9 @@ def wants_scene_build(message: str) -> bool:
     return bool(
         re.search(
             r"\b("
-            r"create\s+a\s+scene|build\s+a\s+scene|scene\s+with|"
+            r"create\s+a\s+(?:scene|session)|build\s+a\s+(?:scene|session)|"
+            r"write\s+a\s+(?:scene|session)(?:\s+guide)?|plan\s+a\s+(?:scene|session)|"
+            r"session\s+guide|scene\s+guide|scene\s+with|"
             r"pick\s+\d+\s+(?:of\s+)?(?:his\s+)?toys|"
             r"(?:use|choose|select)\s+\d+\s+toys|"
             r"toy\s+scene|scene\s+(?:using|from)\s+(?:his\s+)?toys"
@@ -160,10 +162,19 @@ def pick_toys(
     profile: dict[str, Any],
     *,
     count: int = 3,
+    prefer_toys: list[str] | None = None,
+    prefer_kinks: list[str] | None = None,
 ) -> tuple[list[str], list[str], str, list[str]]:
     """Return (toys, kink_hooks, pattern_id, beats)."""
     kinks = list(profile.get("kinks") or [])
     toys = _names(list(profile.get("toys") or []))
+    preferred = _names(list(prefer_toys or []))
+    if preferred:
+        # Domme-selected kit first; keep profile names when they match.
+        preferred_present = [
+            t for t in toys if any(t.lower() == p.lower() for p in preferred)
+        ]
+        toys = preferred_present or preferred
     love = [n.lower() for n in _rating_names(kinks, "love")]
     like = [n.lower() for n in _rating_names(kinks, "like")]
     curious = [n.lower() for n in _rating_names(kinks, "curious")]
@@ -207,7 +218,7 @@ def pick_toys(
             chosen.append(t)
             if len(chosen) >= count:
                 break
-    if len(chosen) < count:
+    if len(chosen) < count and not preferred:
         for t in _FALLBACK_TOYS:
             if t not in chosen:
                 chosen.append(t)
@@ -215,6 +226,9 @@ def pick_toys(
                 break
 
     hooks: list[str] = []
+    for name in _names(list(prefer_kinks or [])):
+        if name not in hooks:
+            hooks.append(name)
     for kb in pattern["kink_boost"]:
         for src in (_rating_names(kinks, "love"), _rating_names(kinks, "like")):
             for name in src:
@@ -327,9 +341,16 @@ async def build_scene_from_profile(
     message: str,
     room: str = "private",
     web_enrich: bool = True,
+    prefer_toys: list[str] | None = None,
+    prefer_kinks: list[str] | None = None,
 ) -> BuiltScene:
     count = requested_toy_count(message, default=3)
-    toys, hooks, pattern_id, beats = pick_toys(profile, count=count)
+    toys, hooks, pattern_id, beats = pick_toys(
+        profile,
+        count=count,
+        prefer_toys=prefer_toys,
+        prefer_kinks=prefer_kinks,
+    )
     mood = should_mood_check(message)
     refs: list[str] = []
     if web_enrich:

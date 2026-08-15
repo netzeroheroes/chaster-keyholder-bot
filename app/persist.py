@@ -26,7 +26,7 @@ def save_scene(scene: SceneState, path: Path = SCENE_PATH) -> None:
 
 def load_scene(path: Path = SCENE_PATH) -> SceneState:
     """Load scene. Persona prompts always come from code defaults so updates ship;
-    only the active plan (secret_directives) is restored from disk if present.
+    only the active plan and session kit are restored from disk if present.
     """
     from app.scene import DEFAULT_ACTIVE_PLAN, DEFAULT_GROUP_PROMPT, DEFAULT_PRIVATE_PROMPT
 
@@ -44,9 +44,20 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
         log.exception("Failed to load scene")
         save_scene(scene, path)
         return scene
-    # Keep Domme-edited plan; refresh persona prompts from latest defaults
+    # Keep Domme-edited plan + kit; refresh persona prompts from latest defaults
+    updates: dict = {}
     if raw.get("secret_directives"):
-        scene.update(secret_directives=raw["secret_directives"])
+        updates["secret_directives"] = raw["secret_directives"]
+    if isinstance(raw.get("session_kinks"), list):
+        updates["session_kinks"] = raw["session_kinks"]
+    if isinstance(raw.get("session_toys"), list):
+        updates["session_toys"] = raw["session_toys"]
+    if raw.get("session_mode"):
+        updates["session_mode"] = raw["session_mode"]
+    if isinstance(raw.get("scene_interview"), dict):
+        updates["scene_interview"] = raw["scene_interview"]
+    if updates:
+        scene.update(**updates)
     save_scene(scene, path)
     return scene
 

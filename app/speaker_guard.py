@@ -93,6 +93,8 @@ def addressing_block(
             "in controlling him. Do not scold her. Do not call HER slut.\n"
             "Briefly ack her, then give the lockee a concrete order. "
             f"Wearer = lockee ({sub}). You ({bot_name}) are co-Domme — Dominant, having fun.\n"
+            "Speak only as yourself. Never write BOY:/Keyholder: scripts. "
+            "Never invent what he is doing unless someone typed it this turn.\n"
         )
     return (
         "\n\n[WHO IS SPEAKING — CRITICAL]\n"
@@ -101,6 +103,7 @@ def addressing_block(
         "If you address someone: 'lockee' for him, 'keyholder' for the human Domme. No usernames.\n"
         f"You ({bot_name}) are AI Domme/keyholder — Dominant, here to have fun.\n"
         "NEVER forge Domme/Sub speaker lines. Only you reply under your own name.\n"
+        "Never invent what he is doing (toilet, meals, location) unless he typed it.\n"
         "Never demand he beg to be unlocked. He may beg to ease/stop punishments.\n"
         "If he insults Dommes, punish — do not lecture-loop or play along.\n"
     )
@@ -167,6 +170,120 @@ _DOMME_TEASE_LOCKEE = re.compile(
     r"(slut|sluts?|whore|whores?|hores?|bitch|boy|cuck|toy)\b",
     re.I,
 )
+# Invented two-sided scripts: "BOY: …" / "Keyholder: …"
+_SCRIPTED_SPEAKER = re.compile(
+    r"^\s*(BOY|Sub|Lockee|Wearer|Keyholder|Domme|Mistress|AI(?:\s+Domme)?)\s*:\s+\S",
+    re.I | re.M,
+)
+_SUB_SCRIPT_LINE = re.compile(
+    r"^\s*(BOY|Sub|Lockee|Wearer)\s*:\s+",
+    re.I | re.M,
+)
+
+
+_PLACEHOLDER = re.compile(
+    r"\{\s*(her\s*name|her_name|domme_name|name|title|sub|sub_name)\s*\}",
+    re.I,
+)
+_NIGHT_OUT_CLAIM = re.compile(
+    r"\b("
+    r"going out tonight|"
+    r"is going out|"
+    r"she'?s going out|"
+    r"on a date|"
+    r"date night|"
+    r"while she'?s out|"
+    r"while she is out"
+    r")\b",
+    re.I,
+)
+_NIGHT_OUT_SENTENCE = re.compile(
+    r"[^.!?\n]*\b("
+    r"going out tonight|is going out|she'?s going out|on a date|date night|"
+    r"while she'?s out|while she is out"
+    r")\b[^.!?\n]*[.!?]?",
+    re.I,
+)
+_USER_SAID_NIGHT_OUT = re.compile(
+    r"\b("
+    r"i('m| am) going out|"
+    r"going out tonight|"
+    r"on a date|"
+    r"date night|"
+    r"i('m| am) (going )?on a date"
+    r")\b",
+    re.I,
+)
+
+
+def fill_placeholders(
+    text: str,
+    *,
+    domme_name: str = "",
+    sub_name: str = "",
+) -> str:
+    """Replace leftover {her name} / {sub} tokens with real names."""
+    her = (domme_name or "").strip() or "the keyholder"
+    sub = (sub_name or "").strip() or "lockee"
+
+    def repl(match: re.Match[str]) -> str:
+        key = re.sub(r"\s+", "", match.group(1).lower())
+        if key in {"hername", "dommename", "name", "title"}:
+            return her
+        return sub
+
+    return _PLACEHOLDER.sub(repl, text or "")
+
+
+def user_said_night_out(message: str) -> bool:
+    return bool(_USER_SAID_NIGHT_OUT.search(message or ""))
+
+
+def invents_night_out(reply: str, *, user_message: str = "") -> bool:
+    if user_said_night_out(user_message):
+        return False
+    return bool(_NIGHT_OUT_CLAIM.search(reply or ""))
+
+
+def strip_invented_night_out(reply: str, *, user_message: str = "") -> str:
+    if not invents_night_out(reply, user_message=user_message):
+        return reply or ""
+    cleaned = _NIGHT_OUT_SENTENCE.sub("", reply or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+    return cleaned
+
+
+def writes_scripted_dialogue(reply: str) -> bool:
+    """True if the bot wrote fake lines as the Sub or a two-sided script."""
+    text = reply or ""
+    if _SUB_SCRIPT_LINE.search(text):
+        return True
+    return len(_SCRIPTED_SPEAKER.findall(text)) >= 2
+
+
+def strip_scripted_dialogue(reply: str) -> str:
+    """Drop invented BOY:/Keyholder: script lines; keep the bot's own voice."""
+    kept: list[str] = []
+    for line in (reply or "").splitlines():
+        if _SCRIPTED_SPEAKER.search(line):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def repair_scripted_dialogue(*, room: str = "group") -> str:
+    if room == "private":
+        return (
+            "I only speak as myself — I won't write his lines or invent what he's doing. "
+            "Tell me what you want in the session and I'll give you a guide."
+        )
+    return (
+        "I only speak as myself. I don't invent what you're doing. "
+        "Answer what's in front of you — or wait for the next order."
+    )
+
+
 _BEG_UNLOCK = re.compile(
     r"\bbeg\s+(me\s+)?to\s+unlock(\s+you)?\b|"
     r"\bbeg\s+(for\s+)?(an?\s+)?unlock\b|"

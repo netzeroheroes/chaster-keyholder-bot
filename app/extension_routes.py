@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.agent import ChatAgent
@@ -31,10 +31,12 @@ from app.lockbox_sync import (
     unlock_for_hygiene,
 )
 from app.memory import LongTermMemory
+from app.persist import save_scene
 from app.rad_lockbox import RadLockboxClient
 from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
+from app.session_kit import load_wearer_catalog
 from app.sessions import SessionStore
 from app.typing_presence import clear_typing, list_typing, set_typing
 
@@ -74,6 +76,12 @@ class ExtChatBody(BaseModel):
 class ExtSessionBody(BaseModel):
     main_token: str = Field(min_length=8)
     room: Room = "group"
+
+
+class ExtKitSaveBody(BaseModel):
+    main_token: str = Field(min_length=8)
+    session_kinks: list[str] = Field(default_factory=list)
+    session_toys: list[str] = Field(default_factory=list)
 
 
 class ExtTypingBody(BaseModel):
@@ -189,13 +197,33 @@ def register_extension_routes(
         resp.headers["Pragma"] = "no-cache"
         return resp
 
+    def _ext_asset_stamp() -> str:
+        newest = 0
+        for name in ("index.html", "ext.js", "ext.css"):
+            p = EXT_DIR / name
+            if p.is_file():
+                newest = max(newest, int(p.stat().st_mtime))
+        return str(newest or 21)
+
+    def _stamped_ext_html(path: Path) -> HTMLResponse:
+        html = path.read_text(encoding="utf-8")
+        stamp = _ext_asset_stamp()
+        html = html.replace("EXT_BUILD", stamp)
+        return HTMLResponse(
+            html,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
+
     @api.get("/ext")
     @api.get("/ext/")
-    async def ext_main() -> FileResponse:
+    async def ext_main() -> HTMLResponse:
         path = EXT_DIR / "index.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Extension UI missing")
-        return _no_store_html(path)
+        return _stamped_ext_html(path)
 
     @api.get("/ext/config")
     @api.get("/ext/config/")
@@ -587,6 +615,34 @@ def register_extension_routes(
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result
         return snap
+
+    @api.post("/api/ext/kink-catalog")
+    async def ext_kink_catalog(body: ExtSessionBody) -> dict:
+        """Keyholder: wearer kinks/toys for the session-kit picker."""
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        catalog = await load_wearer_catalog(
+            chaster=chaster,
+            memory=memory,
+            scene=scene,
+            username_hint=sess.wearer_username or "",
+        )
+        return catalog
+
+    @api.post("/api/ext/session-kit")
+    async def ext_session_kit_save(body: ExtKitSaveBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        _require_keyholder(sess, body.main_token)
+        updated = scene.update(
+            session_kinks=body.session_kinks,
+            session_toys=body.session_toys,
+        )
+        save_scene(scene)
+        return {
+            "ok": True,
+            "session_kinks": updated.get("session_kinks") or [],
+            "session_toys": updated.get("session_toys") or [],
+        }
 
     # Denied probe — opening APIs without token
     @api.get("/api/ext/ping")

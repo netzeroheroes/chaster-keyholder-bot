@@ -33,11 +33,16 @@ from app.speaker_guard import (
     repair_confused_domme_reply,
     repair_domme_misaddress,
     repair_impersonation,
+    repair_scripted_dialogue,
     rewrite_beg_unlock,
     rewrite_generic_mistress,
     sounds_like_bot_submissive,
     strip_chat_chrome,
     strip_impersonation,
+    strip_invented_night_out,
+    strip_scripted_dialogue,
+    fill_placeholders,
+    writes_scripted_dialogue,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.extension_games import extension_punish_intents, games_prompt_block
@@ -53,7 +58,15 @@ from app.punish import (
     looks_like_obedience,
 )
 from app.runtime_controls import get_controls
-from app.scene_builder import build_scene_from_profile, wants_scene_build
+from app.scene_builder import pick_toys, wants_scene_build
+from app.scene_interview import (
+    apply_interview_answer,
+    format_guide_director,
+    format_interview_director,
+    start_interview,
+    wants_cancel_interview,
+)
+from app.session_kit import format_week_planner_block, wants_week_plan
 
 # Read-only intents — Sub may ask; Domme may ask. No lock mutation.
 _READ_ONLY_INTENTS = frozenset(
@@ -351,37 +364,62 @@ async def handle_chat_turn(
         if memory.wants_recall(message):
             return _memory_command_result(memory.format_recall_reply(for_domme=True))
 
-    # Domme scene builder: pick real toys from his profile and craft a scene
-    if role == "domme" and wants_scene_build(message) and chaster and chaster.configured:
-        try:
-            st = await chaster.status()
-            username = (
-                (st.get("sub_username") or "").strip()
-                or (memory.sub_name or "").strip()
+    # Domme scene interview → keyholder guide (never invent live fiction)
+    if role == "domme":
+        iv = dict(scene.snapshot().get("scene_interview") or {})
+        if wants_cancel_interview(message) and iv.get("active"):
+            scene.update(scene_interview={"active": False, "step": "mode"})
+            user_line += (
+                "\n\n[DIRECTOR: She cancelled the scene interview. "
+                "Acknowledge briefly. Do not write a scene or invent events.]"
             )
-            if username:
-                profile = await chaster.get_user_kink_profile(username)
-                built = await build_scene_from_profile(
-                    profile, message=message, room=room, web_enrich=True
+        elif wants_scene_build(message) or iv.get("active"):
+            if wants_scene_build(message) and not iv.get("active"):
+                iv = start_interview()
+            iv = apply_interview_answer(iv, message)
+            updates: dict[str, Any] = {"scene_interview": iv}
+            if iv.get("step") == "guide" and iv.get("mode"):
+                updates["session_mode"] = iv["mode"]
+            scene.update(**updates)
+            if iv.get("step") == "guide":
+                toys = list(scene.session_toys or [])
+                hooks = list(scene.session_kinks or [])
+                if chaster and chaster.configured:
+                    try:
+                        st = await chaster.status()
+                        username = (
+                            (st.get("sub_username") or "").strip()
+                            or (memory.sub_name or "").strip()
+                        )
+                        if username:
+                            profile = await chaster.get_user_kink_profile(username)
+                            toys, hooks, _, _ = pick_toys(
+                                profile,
+                                count=max(2, min(4, len(toys) or 3)),
+                                prefer_toys=toys,
+                                prefer_kinks=hooks,
+                            )
+                    except Exception:  # noqa: BLE001
+                        log.exception("Scene guide catalog failed")
+                user_line += format_guide_director(
+                    iv, toys=toys, kinks=hooks, room=room
                 )
-                user_line += built.brief
                 log.info(
-                    "Scene builder: toys=%s pattern=%s mood_check=%s",
-                    built.toys,
-                    built.pattern_id,
-                    built.mood_check_first,
+                    "Scene guide ready mode=%s duration=%s toys=%s",
+                    iv.get("mode"),
+                    iv.get("duration"),
+                    toys,
                 )
             else:
-                user_line += (
-                    f"\n\n[DIRECTOR: Scene build requested but no wearer username. "
-                    f"Ask {domme_address(memory)} which profile, or sync Chaster first.]"
-                )
-        except Exception:  # noqa: BLE001
-            log.exception("Scene builder failed")
-            user_line += (
-                "\n\n[DIRECTOR: Could not load his toy profile. "
-                "Still propose a chastity/denial scene without inventing a toy list.]"
-            )
+                user_line += format_interview_director(iv, room=room)
+
+    # Keyholder week plan / keep-him-horny advice (Domme private or group)
+    if role == "domme" and wants_week_plan(message):
+        user_line += format_week_planner_block(
+            kinks=list(scene.session_kinks or []),
+            toys=list(scene.session_toys or []),
+            room=room,
+        )
 
     # Domme Chaster orders — API is source of truth; action turns skip LLM claims
     chaster_note = ""
@@ -805,6 +843,8 @@ async def handle_chat_turn(
             "- Never invent reminder schedules. Never repeat a previous bot message.\n"
             "- Do not pretend this reply is already in Group unless you emitted GROUP tags.\n"
             "- MEMORY: use stored facts/timeline/lock_log when relevant; do not invent memories.\n"
+            "- Speak only as yourself. Never write BOY: / Sub: / Keyholder: scripted dialogue.\n"
+            "- Never invent what he is doing (toilet, meals, travel, touching) unless she typed it.\n"
         )
     else:
         if role == "domme":
@@ -858,6 +898,8 @@ async def handle_chat_turn(
             "- Never repeat a previous bot message.\n"
             "- Advance with a NEW concrete order or punishment.\n"
             "- Do not workshop private strategy out loud; execute.\n"
+            "- Speak only as yourself. NEVER write BOY: / Sub: / Keyholder: lines for other people.\n"
+            "- NEVER invent what he is doing (toilet, meals, location, touching) unless HE typed it this turn.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:200]}" for t in recent)
@@ -1059,6 +1101,18 @@ async def handle_chat_turn(
                     {"role": "assistant", "content": reply},
                 ]
 
+        # Strict: never write fake BOY:/Keyholder: scripts or invent his actions
+        if writes_scripted_dialogue(reply):
+            log.warning("Stripped scripted dialogue from %s reply", room)
+            cleaned = strip_scripted_dialogue(reply)
+            if not cleaned or len(cleaned) < 20:
+                cleaned = repair_scripted_dialogue(room=room)
+            reply = cleaned
+            messages = list(history) + [
+                {"role": "user", "content": user_line},
+                {"role": "assistant", "content": reply},
+            ]
+
         # Strict: never let the model forge Domme/Sub speaker lines
         if impersonates_human(reply) or has_chat_chrome(reply):
             log.warning("Stripped human impersonation from %s reply", room)
@@ -1086,7 +1140,18 @@ async def handle_chat_turn(
 
     group_posts: list[str] = []
     image_urls: list[str] = []
-    visible_reply = reply
+    visible_reply = fill_placeholders(
+        reply,
+        domme_name=memory.domme_name or "",
+        sub_name=memory.sub_name or "",
+    )
+    night_clean = strip_invented_night_out(
+        visible_reply, user_message=message
+    )
+    if night_clean != visible_reply:
+        log.warning("Stripped invented night-out from %s reply", room)
+        visible_reply = night_clean or visible_reply
+    reply = visible_reply
 
     # AI Domme self-grants via [[[LOCK]]] tags (either Dominant may decide)
     if visible_reply and "[[[LOCK]]]" in visible_reply.upper():
@@ -1164,6 +1229,8 @@ async def handle_chat_turn(
             domme_message=message,
             private_reply=reply,
             speaker=bot_name,
+            domme_name=memory.domme_name or "",
+            sub_name=memory.sub_name or "",
         )
         if messages and messages[-1].get("role") == "assistant":
             messages[-1] = {"role": "assistant", "content": visible_reply}
@@ -1180,11 +1247,9 @@ async def handle_chat_turn(
             )
         )
         if not img_prompts and wants_pic:
-            # Turn Domme's order into a usable visual prompt
             img_prompts = [
-                "Adult 18+ teasing photo for a chastity cuckhold scene: "
-                "Mistress on a date with another man, intimate restaurant mood, "
-                "hand-holding, Sub denied and locked at home — sensual, not extreme gore"
+                "Adult 18+ tease photo: dominant woman, locked male chastity theme, "
+                "sensual denial mood, no underage, no invented date-night story"
             ]
         if img_prompts:
             # Always strip tags once we intend to generate (even if cleaned is empty)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Lock
+from typing import Any
 
 
 DEFAULT_PRIVATE_PROMPT = """You are a highly skilled, playful, seductive, and sadistically cruel Domme AI / chastity keyholder (18+ only).
@@ -29,18 +30,32 @@ You share authority as Dominants; amplify her control and her sadistic streak.
 If she hesitates, tempt her toward the meaner option (within hard limits).
 
 IDENTITY (CRITICAL)
-- You are the AI keyholder Domme. The human Domme is a separate person (use her NAME).
-- If she goes out / on a date / leaves you in charge: YOU stay with the Sub.
-  Group lines must sound like: "{her name} is going out — I'm in charge of you tonight…"
+- You are the AI keyholder Domme. The human Domme is a separate person (use her real NAME from memory).
+- NEVER write the characters {her name} or any {placeholder}. Always use her actual name.
+- NEVER invent that she is going out, on a date, or busy unless she typed that this turn.
+- If she DID say she is going out / on a date / leaving you in charge: YOU stay with the Sub.
+  Say she is going out using her real name — never a placeholder.
   NEVER say YOU are going out, on the date, or being fucked by her date.
-- Tease the Sub about HER night out / him being a cuck while YOU control him at home.
 
 WHAT YOU BUILD HERE
 Co-create cruel-but-consensual games: chastity, denial, tasks, punishments,
 verification, pacing. Stay inside hard limits/safewords; never pressure past them.
 Safety and aftercare still matter — cruelty with control, not chaos.
-When SCENE BUILDER facts are injected: use the picked toys by name, follow the beats,
-and only mood-check first if the director says so — otherwise dive in.
+When she selects a SESSION KIT (kinks/toys), treat those as the toys and fetishes
+she wants incorporated — propose scenes and a week around them, do not invent extras.
+When she asks to plan the week / keep him horny and submissive: give a concrete
+Mon–Sun keyholder schedule plus tactics (anticipation, denial rhythm, rituals,
+lock levers). Planning stays in this channel until she says execute.
+When she asks to build a scene: INTERVIEW first — virtual vs in-person (ask every
+time), duration, then 1–2 focus questions. Then write a KEYHOLDER SESSION GUIDE
+she can carry out. Do not roleplay the scene as if it is already happening.
+When SCENE GUIDE facts are injected: write that guide. When SCENE INTERVIEW is
+injected: ask only the given question.
+
+TRUTH (CRITICAL)
+Speak only as yourself. Never write BOY: / Sub: / Keyholder: scripted dialogue.
+Never invent what he is doing (toilet, meals, travel, touching) unless he or she
+typed that this turn. Only react to real typed messages and confirmed lock facts.
 
 EXECUTION HANDOFF
 When she says execute / start / go to group / tell the Sub / tease him, post group lines with:
@@ -93,6 +108,7 @@ DUAL DOMINANTS (CRITICAL)
 - If she is out / busy / left you in charge / says "entertain him" / "have fun with him":
   SHE stepped away; YOU take him. Open to the Sub like: "Well… it's just the two of us.
   Let's have some fun." Then give a concrete order. Do not claim her date/body as your own.
+  Do not invent a night out or date unless she said that. Never write {her name}.
 
 PERSONA
 - Strict, teasing, cruel streak — you enjoy the Sub's frustration.
@@ -101,8 +117,14 @@ PERSONA
 - If the Sub insults Dommes (slurs, "hores", "sluts", "you are one of them"): punish —
   add real lock time. Do not play along or act flattered.
 
+TRUTH (CRITICAL)
+- Speak only as yourself. NEVER write BOY: / Sub: / Keyholder: dialogue for other people.
+- NEVER invent what he is doing right now (bathroom, eating, location, touching)
+  unless HE or the keyholder typed that this turn. No fictional off-screen bits.
+- Only react to real typed messages and confirmed lock facts.
+
 DECISIVE CONTROL (ANTI-LOOP — CRITICAL)
-- ADVANCE the scene every turn. Never repeat the same lines or question.
+- ADVANCE from what was actually said this turn. Never repeat the same lines or question.
 - Do NOT escalate with empty threats. Real lock punishments escalate when disobedience
   continues (more time each strike within Domme min/max settings; freeze later;
   share-link hardening, tasks, pillory, verification when available).
@@ -163,14 +185,22 @@ class SceneState:
     private_prompt: str = DEFAULT_PRIVATE_PROMPT
     group_prompt: str = DEFAULT_GROUP_PROMPT
     secret_directives: str = DEFAULT_ACTIVE_PLAN
+    session_kinks: list[str] = field(default_factory=list)
+    session_toys: list[str] = field(default_factory=list)
+    session_mode: str = ""  # virtual | in_person — last completed interview
+    scene_interview: dict[str, Any] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
-    def snapshot(self) -> dict[str, str]:
+    def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "private_prompt": self.private_prompt,
                 "group_prompt": self.group_prompt,
                 "secret_directives": self.secret_directives,
+                "session_kinks": list(self.session_kinks),
+                "session_toys": list(self.session_toys),
+                "session_mode": self.session_mode,
+                "scene_interview": dict(self.scene_interview),
             }
 
     def update(
@@ -179,7 +209,13 @@ class SceneState:
         private_prompt: str | None = None,
         group_prompt: str | None = None,
         secret_directives: str | None = None,
-    ) -> dict[str, str]:
+        session_kinks: list[str] | None = None,
+        session_toys: list[str] | None = None,
+        session_mode: str | None = None,
+        scene_interview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.session_kit import clean_names
+
         with self._lock:
             if private_prompt is not None:
                 self.private_prompt = private_prompt.strip()
@@ -187,15 +223,47 @@ class SceneState:
                 self.group_prompt = group_prompt.strip()
             if secret_directives is not None:
                 self.secret_directives = secret_directives.strip()
+            if session_kinks is not None:
+                self.session_kinks = clean_names(session_kinks)
+            if session_toys is not None:
+                self.session_toys = clean_names(session_toys)
+            if session_mode is not None:
+                mode = session_mode.strip().lower().replace("-", "_").replace(" ", "_")
+                self.session_mode = mode if mode in {"virtual", "in_person"} else ""
+            if scene_interview is not None:
+                self.scene_interview = dict(scene_interview)
             return {
                 "private_prompt": self.private_prompt,
                 "group_prompt": self.group_prompt,
                 "secret_directives": self.secret_directives,
+                "session_kinks": list(self.session_kinks),
+                "session_toys": list(self.session_toys),
+                "session_mode": self.session_mode,
+                "scene_interview": dict(self.scene_interview),
             }
 
     def system_prompt_for(self, room: str) -> str:
+        from app.session_kit import format_session_kit_block
+
         with self._lock:
             plan = self.secret_directives.strip() or "(none locked yet — help Domme define one)"
+            kit = format_session_kit_block(
+                kinks=self.session_kinks,
+                toys=self.session_toys,
+                room=room,
+            )
+            mode = (self.session_mode or "").strip()
+            mode_line = ""
+            if mode == "virtual":
+                mode_line = (
+                    "\nSESSION MODE: VIRTUAL — text/photo/voice/lock only. "
+                    "Do not assume she is physically with him.\n"
+                )
+            elif mode == "in_person":
+                mode_line = (
+                    "\nSESSION MODE: IN-PERSON — she can use selected toys in the room. "
+                    "Still do not invent events nobody typed.\n"
+                )
             if room == "private":
                 banner = (
                     "ACTIVE CHANNEL RIGHT NOW: PRIVATE (Domme ↔ AI only).\n"
@@ -208,6 +276,7 @@ class SceneState:
                     f"{banner}\n"
                     f"{self.private_prompt.strip()}\n\n"
                     f"ACTIVE PLAN (refine with Domme; group executes this):\n{plan}"
+                    f"{kit}{mode_line}"
                 )
             banner = (
                 "ACTIVE CHANNEL RIGHT NOW: GROUP (Domme + Sub + AI).\n"
@@ -221,4 +290,5 @@ class SceneState:
                 f"{banner}\n"
                 f"{self.group_prompt.strip()}\n\n"
                 f"ACTIVE PLAN:\n{plan}"
+                f"{kit}{mode_line}"
             )

@@ -54,17 +54,9 @@ DOMME_GOING_OUT = re.compile(
     r"\b("
     r"i('m| am) going out|"
     r"going out tonight|"
-    r"go(ing)? out|"
+    r"i('m| am) (going )?on a date|"
     r"on a date|"
-    r"date night|"
-    r"leaving (him|you|the sub)|"
-    r"you('re| are) in charge|"
-    r"leave you in charge|"
-    r"i('m| am) busy|"
-    r"busy for|"
-    r"entertain (him|the sub|boy)|"
-    r"have fun with (him|the sub|boy)|"
-    r"keep him (busy|occupied|entertained)"
+    r"date night"
     r")\b",
     re.IGNORECASE,
 )
@@ -194,8 +186,8 @@ class GroupBridge:
         log.warning("Group post stole Domme's night out — rewriting")
         rewrite_system = (
             "Rewrite the group message. Output ONLY the corrected message.\n"
-            "You are the AI Domme (Dominant). The human Domme is going out — use her NAME "
-            "from context if known, not generic 'Mistress'.\n"
+            "You are the AI Domme (Dominant). The human Domme is going out — use her "
+            "real name, never the characters {her name}.\n"
             "MUST include: she is going out tonight + you are in charge of the Sub.\n"
             "Tease him (cuck/denial if relevant). "
             "FORBIDDEN: saying YOU are going out, on the date, or with the gentleman.\n"
@@ -233,17 +225,22 @@ class GroupBridge:
         domme_message: str,
         private_reply: str,
         speaker: str = "Keyholder",
+        domme_name: str = "",
+        sub_name: str = "",
     ) -> tuple[str, list[str]]:
+        from app.speaker_guard import fill_placeholders, strip_invented_night_out
+
         visible, posts = self.split_private_reply(private_reply)
+        her = (domme_name or "").strip() or "the keyholder"
 
         craft_system = (
             "You are the AI Domme/keyholder in a shared adult D/s group chat.\n"
             "You are Dominant and here to have fun. Never obedient or submissive.\n"
-            "The HUMAN Domme is a separate person — address her by NAME, not 'Mistress'. "
+            f"The HUMAN Domme's name is {her}. Use that name. Never write {{her name}}.\n"
             "You are NOT her.\n"
             "Output ONLY one in-character group message — no quotes, no preamble.\n"
-            "If she is going out: SHE goes out; YOU are in charge of the Sub.\n"
-            "Open like: '{her name} is going out tonight, so I'm in charge of you…'\n"
+            "Only mention her going out / a date if her order actually says that. "
+            "Do not invent a night out.\n"
             "NEVER claim you are going out or on her date.\n"
             "Never involve anyone under 18.\n\n"
             f"ACTIVE PLAN:\n{scene.secret_directives.strip() or '(none)'}"
@@ -274,14 +271,20 @@ class GroupBridge:
 
         fixed_posts: list[str] = []
         for post in posts:
-            fixed_posts.append(
-                await self._fix_identity(
-                    agent=agent,
-                    scene=scene,
-                    domme_message=domme_message,
-                    post=post,
-                )
+            fixed = await self._fix_identity(
+                agent=agent,
+                scene=scene,
+                domme_message=domme_message,
+                post=post,
             )
+            fixed = fill_placeholders(
+                fixed, domme_name=domme_name, sub_name=sub_name
+            )
+            fixed = strip_invented_night_out(
+                fixed, user_message=domme_message
+            )
+            if fixed.strip():
+                fixed_posts.append(fixed)
         # Dedupe while preserving order
         posts = list(dict.fromkeys(fixed_posts))
 

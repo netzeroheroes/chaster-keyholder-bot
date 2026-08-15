@@ -88,6 +88,8 @@ class SceneUpdate(BaseModel):
     private_prompt: str | None = None
     group_prompt: str | None = None
     secret_directives: str | None = None
+    session_kinks: list[str] | None = None
+    session_toys: list[str] | None = None
 
 
 class AuthRequest(BaseModel):
@@ -621,6 +623,10 @@ def create_api(
                 "group_prompt": snap["group_prompt"],
                 "secret_directives": None,
                 "private_prompt": None,
+                "session_kinks": None,
+                "session_toys": None,
+                "session_mode": None,
+                "scene_interview": None,
             }
         return snap
 
@@ -633,9 +639,26 @@ def create_api(
             private_prompt=body.private_prompt,
             group_prompt=body.group_prompt,
             secret_directives=body.secret_directives,
+            session_kinks=body.session_kinks,
+            session_toys=body.session_toys,
         )
         save_scene(scene)
         return updated
+
+    @api.get("/api/kink-catalog")
+    async def kink_catalog(
+        role: Role = "domme",
+        x_role_pin: str = Header(default=""),
+    ) -> dict:
+        """Wearer's kinks/toys for the Domme session-kit picker."""
+        if role != "domme":
+            raise HTTPException(status_code=403, detail="Only the Domme can view the kit catalog")
+        _check_pin(role, x_role_pin)
+        from app.session_kit import load_wearer_catalog
+
+        return await load_wearer_catalog(
+            chaster=chaster, memory=memory, scene=scene
+        )
 
     @api.get("/api/memory")
     async def get_memory(
