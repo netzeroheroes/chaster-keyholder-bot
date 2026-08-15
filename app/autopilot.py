@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _FALLBACK_TEASES = (
-    "{sub} — just us. Stay caged and think about what I'm going to do with you.",
+    "{sub} — just us. Stay caged. I'll talk to {title} about what you get next.",
     "Checking in, {sub}. Hands off. You're still mine until {title} says otherwise.",
     "Don't get comfortable, {sub}. I'm watching the lock — and you.",
     "Quiet stretch for you, {sub}. Behave. I'll decide when you get attention.",

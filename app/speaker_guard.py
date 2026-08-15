@@ -89,6 +89,7 @@ def addressing_block(
             f"This message is from {speaker} — the keyholder. Help her.\n"
             "If she wants games or ideas, give playful teasing ideas about HIM (cage-aware). "
             "Do not apologize. Do not correct her role. Do not lecture.\n"
+            "In GROUP you only rephrase her beat as a tease — do not reveal her plan.\n"
             "Do not give HER hygiene or cage-wearer orders.\n"
             "UI already shows who spoke — no fake labels, no username plus colon.\n"
             f"Wearer = lockee ({sub}). Never say keyee. You ({bot_name}) are her friend.\n"
@@ -530,6 +531,44 @@ def wants_to_be_free(message: str) -> bool:
 
 def demands_beg_unlock(reply: str) -> bool:
     return bool(_BEG_UNLOCK.search(reply or ""))
+
+
+_SPOILS_PLAN = re.compile(
+    r"[^.!?\n]*\b("
+    r"might be playing with|"
+    r"playing with your (cock|dick|cage)|"
+    r"she('s| is) going to|"
+    r"thebosses might|"
+    r"you('ll| will) be waiting|"
+    r"what I('ll| will) do with (it|you|your)|"
+    r"think about what I('ll| will)"
+    r")\b[^.!?\n]*[.!?]?",
+    re.I,
+)
+_HOMEWORK_ASK = re.compile(
+    r"[^.!?\n]*\b("
+    r"describe (the last time|in (explicit )?detail)|"
+    r"tell me in explicit detail|"
+    r"without holding back|"
+    r"assume a thankful posture|"
+    r"I want you to describe"
+    r")\b[^.!?\n]*[.!?]?",
+    re.I,
+)
+_SOFT_TEASE = (
+    "Stay with that. She hasn't promised you anything yet — I'll talk to her."
+)
+
+
+def soften_group_tease(text: str) -> str:
+    """Drop spoilers and interview homework; keep a short tease."""
+    cleaned = _SPOILS_PLAN.sub("", text or "")
+    cleaned = _HOMEWORK_ASK.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+    if not cleaned or len(cleaned) < 16:
+        return _SOFT_TEASE
+    return cleaned
 
 
 def rewrite_beg_unlock(reply: str) -> str:

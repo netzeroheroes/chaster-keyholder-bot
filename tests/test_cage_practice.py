@@ -4,6 +4,7 @@ from app.cage_practice import orders_caged_touch, rewrite_caged_touch
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
     mistreats_domme_as_sub,
+    soften_group_tease,
     strip_leaked_instructions,
     wants_to_be_free,
 )
@@ -54,6 +55,19 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(
             mistreats_domme_as_sub("I gave you a hygiene unlock. Use that time wisely.")
         )
+
+    def test_softens_spoiler_and_homework(self) -> None:
+        src = (
+            "Lockee, TheBosses might be playing with your cock later - "
+            "but you'll be waiting awhile. For now, tell me in explicit detail "
+            "about that cage. Then assume a thankful posture."
+        )
+        out = soften_group_tease(src)
+        low = out.lower()
+        self.assertNotIn("playing with your cock", low)
+        self.assertNotIn("explicit detail", low)
+        self.assertNotIn("thankful posture", low)
+        self.assertTrue(len(out) >= 16)
 
     def test_wants_to_be_free(self) -> None:
         self.assertTrue(wants_to_be_free("i would to be free"))

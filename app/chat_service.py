@@ -39,6 +39,7 @@ from app.speaker_guard import (
     repair_scripted_dialogue,
     rewrite_beg_unlock,
     rewrite_generic_mistress,
+    soften_group_tease,
     sounds_like_bot_submissive,
     strip_chat_chrome,
     strip_impersonation,
@@ -931,6 +932,9 @@ async def handle_chat_turn(
                 f"Do NOT speak to {title} as if she wears the cage.\n"
                 f"- Hygiene is not a lock order. If she is answering a request, "
                 f"she sets the time in Hygiene controls — do not emit LOCK tags.\n"
+                f"- Rephrase her beat as a short tease for him. Do not reveal her plan "
+                f"or what she will do to him. You cannot touch him — only tease, "
+                f"talk to her, or change the lock.\n"
             )
         else:
             who_rules = (
@@ -972,8 +976,9 @@ async def handle_chat_turn(
             "- Reminder schedules still cannot be set via API; don't invent those.\n"
             "- MEMORY: recall stored facts when relevant; never invent past events.\n"
             "- Never repeat a previous bot message.\n"
-            "- Advance with a NEW concrete order or punishment.\n"
-            "- Do not workshop private strategy out loud; execute.\n"
+            "- One short tease beat. Do not give interview homework or spoil her plans.\n"
+            "- You cannot do anything physical. Only tease, convince her in private, or change the lock.\n"
+            "- Do not workshop private strategy out loud.\n"
             "- Speak only as yourself. NEVER write BOY: / Sub: / Keyholder: lines for other people.\n"
             "- NEVER invent what he is doing (toilet, meals, location, touching) unless HE typed it this turn.\n"
             "- CAGE: he cannot stroke or touch himself. Never order that. Tease the cage / deny him.\n"
@@ -1235,6 +1240,11 @@ async def handle_chat_turn(
     )
     visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
+    if room == "group":
+        softened = soften_group_tease(visible_reply)
+        if softened != visible_reply:
+            log.warning("Softened group tease (no spoilers / homework)")
+            visible_reply = softened
     caged = rewrite_caged_touch(visible_reply)
     if caged != visible_reply:
         log.warning("Rewrote caged-touch order in %s reply", room)
