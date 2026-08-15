@@ -86,6 +86,7 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
 .room-tabs {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   padding: 0.55rem 0.75rem 0.35rem;
   background: var(--panel);
@@ -116,6 +117,10 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   border-color: rgba(224, 135, 99, 0.45);
   color: var(--accent);
 }
+.room-tab.kh-action {
+  border-color: rgba(224, 135, 99, 0.45);
+  color: var(--accent);
+}
 .room-hint {
   flex: 0 0 auto;
   margin: 0;
@@ -125,39 +130,6 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.tease-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.55rem 0.85rem;
-  border-bottom: 1px solid var(--line);
-  background: #261c18;
-}
-.tease-bar.hidden { display: none !important; }
-.tease-bar-copy { min-width: 0; }
-.tease-bar-title {
-  margin: 0;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.tease-bar .meta {
-  margin: 0.15rem 0 0;
-  font-size: 0.72rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tease-bar .btn {
-  flex: 0 0 auto;
-  align-self: center;
-  white-space: nowrap;
-}
-
 .chat-body {
   flex: 1 1 auto;
   min-height: 0;

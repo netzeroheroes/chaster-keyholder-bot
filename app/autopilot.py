@@ -194,10 +194,11 @@ async def run_unprompted_tick(
                 chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
 
     system = (
-        f"You are {bot}, the AI Domme/keyholder. Unprompted check-in in GROUP chat.\n"
-        f"Human Domme is {title}. Sub is {sub}.\n"
-        "Write ONE short cruel-playful line to the Sub (2-4 sentences).\n"
-        "Do not claim lock changes unless LOCK CHANGE CONFIRMED is present.\n"
+        f"You are {bot}, helping the keyholder. Unprompted check-in in GROUP chat.\n"
+        f"Keyholder is {title}. Lockee is {sub}. Speak to him only.\n"
+        "Write ONE short line (1-2 sentences). No *smirks*. No instruction brackets.\n"
+        "Do not invent how long since you last spoke, whether he obeyed, or remaining time "
+        "unless LOCK CHANGE CONFIRMED is present.\n"
         "Never involve anyone under 18."
     )
     user = (

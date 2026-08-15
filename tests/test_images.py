@@ -13,6 +13,7 @@ from app.speaker_guard import (
     looks_like_image_dump,
     strip_chat_chrome,
     strip_invented_night_out,
+    strip_leaked_instructions,
     strip_stage_directions,
 )
 
@@ -88,6 +89,17 @@ class TermAndDumpTests(unittest.TestCase):
         self.assertTrue(invents_night_out(raw))
         cleaned = strip_invented_night_out(raw)
         self.assertNotIn("keyholder is out", cleaned.lower())
+
+    def test_strips_leaked_address(self) -> None:
+        raw = (
+            "it seems like your little lockee has been quite the good boy today. "
+            "[ADDRESS: THE KEYHOLDER; YOU WRITE AS YOURSELF] "
+            "You help the keyholder run this lock (18+ only). Talk like a real person."
+        )
+        cleaned = strip_leaked_instructions(raw)
+        self.assertNotIn("[ADDRESS", cleaned)
+        self.assertNotIn("Talk like a real person", cleaned)
+        self.assertIn("good boy", cleaned)
 
     def test_strips_smirks(self) -> None:
         cleaned = strip_stage_directions("*smirks* Well, hello there.")

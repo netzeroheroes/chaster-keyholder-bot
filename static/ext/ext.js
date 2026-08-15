@@ -22,9 +22,9 @@
     sendBtn: document.getElementById("sendBtn"),
     status: document.getElementById("status"),
     typingBubble: document.getElementById("typingBubble"),
-    teaseBar: document.getElementById("teaseBar"),
     teaseNowBtn: document.getElementById("teaseNowBtn"),
-    teaseBarStatus: document.getElementById("teaseBarStatus"),
+    quickUnlockBtn: document.getElementById("quickUnlockBtn"),
+    quickLockBtn: document.getElementById("quickLockBtn"),
     openKinks: document.getElementById("openKinks"),
     kinksPanel: document.getElementById("kinksPanel"),
     kinksClose: document.getElementById("kinksClose"),
@@ -220,12 +220,16 @@
       els.privateTab.classList.remove("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
-      if (els.teaseBar) els.teaseBar.classList.remove("hidden");
+      if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");
+      if (els.quickUnlockBtn) els.quickUnlockBtn.classList.remove("hidden");
+      if (els.quickLockBtn) els.quickLockBtn.classList.remove("hidden");
     } else {
       els.privateTab.classList.add("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
-      if (els.teaseBar) els.teaseBar.classList.add("hidden");
+      if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
+      if (els.quickUnlockBtn) els.quickUnlockBtn.classList.add("hidden");
+      if (els.quickLockBtn) els.quickLockBtn.classList.add("hidden");
       state.room = "group";
     }
     updateRoomUi();
@@ -254,10 +258,9 @@
 
   function renderAutopilotStatus(st) {
     const el = document.getElementById("autopilotLive");
-    const bar = els.teaseBarStatus;
+    if (!el) return;
     if (!st || typeof st !== "object") {
-      if (el) el.textContent = "Autopilot status: —";
-      if (bar) bar.textContent = "Send an unprompted group tease.";
+      el.textContent = "Autopilot status: —";
       return;
     }
     const on = st.autopilot_enabled ? "ON" : "OFF";
@@ -267,9 +270,7 @@
     if (st.last_skip_reason) bits.push(st.last_skip_reason);
     if (st.last_tick_at) bits.push(`last tease ${st.last_tick_at}`);
     if (st.next_wake_at) bits.push(`next check ~${st.next_wake_at}`);
-    const text = bits.join(" · ");
-    if (el) el.textContent = text;
-    if (bar) bar.textContent = text;
+    el.textContent = bits.join(" · ");
   }
 
   function renderLockboxStatus(st) {
@@ -334,7 +335,10 @@
 
   async function lockboxAction(action) {
     const statusEl = document.getElementById("settingsStatus");
-    if (statusEl) statusEl.textContent = `${action}ing lockbox…`;
+    const chatStatus = els.status;
+    const note = `${action === "unlock" ? "Unlocking" : action === "lock" ? "Locking" : action}…`;
+    if (statusEl) statusEl.textContent = note;
+    if (chatStatus) chatStatus.textContent = note;
     try {
       const res = await fetch("/api/ext/lockbox/action", {
         method: "POST",
@@ -344,12 +348,14 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Lockbox action failed"));
       renderLockboxStatus(data);
-      if (statusEl) {
-        const ls = data.last_sync || {};
-        statusEl.textContent = ls.detail || `Lockbox ${action} done.`;
-      }
+      const ls = data.last_sync || {};
+      const done = ls.detail || `Lockbox ${action} done.`;
+      if (statusEl) statusEl.textContent = done;
+      if (chatStatus) chatStatus.textContent = done;
     } catch (err) {
-      if (statusEl) statusEl.textContent = String(err.message || err);
+      const msg = String(err.message || err);
+      if (statusEl) statusEl.textContent = msg;
+      if (chatStatus) chatStatus.textContent = msg;
     }
   }
 
@@ -736,6 +742,9 @@
       openKinks();
       return;
     }
+    if (btn.classList.contains("kh-action") || !btn.dataset.room) {
+      return;
+    }
     switchRoom(btn.dataset.room);
   });
 
@@ -792,7 +801,7 @@
 
   async function fireTeaseNow() {
     const btn = els.teaseNowBtn;
-    const statusEl = els.teaseBarStatus;
+    const statusEl = els.status;
     if (statusEl) statusEl.textContent = "Sending tease…";
     if (btn) btn.disabled = true;
     try {
@@ -825,6 +834,12 @@
     els.teaseNowBtn.addEventListener("click", () => {
       fireTeaseNow();
     });
+  }
+  if (els.quickUnlockBtn) {
+    els.quickUnlockBtn.addEventListener("click", () => lockboxAction("unlock"));
+  }
+  if (els.quickLockBtn) {
+    els.quickLockBtn.addEventListener("click", () => lockboxAction("lock"));
   }
   if (els.openKinks) {
     els.openKinks.addEventListener("click", () => openKinks());

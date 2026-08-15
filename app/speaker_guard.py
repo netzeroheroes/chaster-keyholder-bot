@@ -282,7 +282,26 @@ def looks_like_image_dump(text: str) -> bool:
     return hits >= 3
 
 
+_LEAKED_BRACKET = re.compile(
+    r"\[(?:ADDRESS|IDENTITY|CHANNEL|DIRECTOR|HARD RULES|WHO IS SPEAKING|SYSTEM)"
+    r"[^\]]{0,240}\]\s*",
+    re.I,
+)
+_LEAKED_PROMPT = re.compile(
+    r"You help the keyholder run this lock[^.!?\n]*[.!?]?\s*"
+    r"(?:Talk like a real person[.!?]?\s*)?",
+    re.I,
+)
 _STAGE_DIR = re.compile(r"\*[^*]{1,48}\*")
+
+
+def strip_leaked_instructions(text: str) -> str:
+    """Drop system/address blocks the model copies into chat."""
+    cleaned = _LEAKED_BRACKET.sub("", text or "")
+    cleaned = _LEAKED_PROMPT.sub("", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def strip_stage_directions(text: str) -> str:

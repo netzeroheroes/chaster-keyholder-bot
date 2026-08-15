@@ -43,6 +43,7 @@ from app.speaker_guard import (
     strip_chat_chrome,
     strip_impersonation,
     strip_invented_night_out,
+    strip_leaked_instructions,
     strip_scripted_dialogue,
     strip_stage_directions,
     writes_scripted_dialogue,
@@ -885,6 +886,8 @@ async def handle_chat_turn(
             "- GROUP audience: Domme + Sub + you. Everyone sees your reply.\n"
             "- LOCK NUMBERS (STRICT): ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn. "
             "Inventing remaining time, 'new length', day totals, or keypad codes is FORBIDDEN.\n"
+            "- Do not assume he obeyed, missed someone, or how he feels unless he typed it.\n"
+            "- Never paste [ADDRESS] / [IDENTITY] / instruction text into the reply.\n"
             "- You and the human Domme are BOTH Dominants; either may decide lock actions.\n"
             "- When Domme gives a lock order, back her in-scene here (Sub hears it).\n"
             "- Sub may BEG either Dominant for mercy on punishments. Never scold him for that.\n"
@@ -1148,6 +1151,7 @@ async def handle_chat_turn(
         sub_name=memory.sub_name or "",
     )
     visible_reply = strip_stage_directions(visible_reply)
+    visible_reply = strip_leaked_instructions(visible_reply)
     visible_reply = strip_chat_chrome(
         visible_reply,
         sub_name=memory.sub_name or "",

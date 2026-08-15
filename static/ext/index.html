@@ -8,23 +8,16 @@
   <meta name="ext-build" content="EXT_BUILD" />
   <link rel="stylesheet" href="/static/ext/ext.css?v=EXT_BUILD" />
   <style>
-    .tease-bar {
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0.55rem 0.85rem;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      background: #261c18;
-    }
-    .tease-bar.hidden { display: none !important; }
     .room-tab.kinks-tab {
       margin-left: auto;
       border-color: rgba(224, 135, 99, 0.45);
       color: #e08763;
     }
     .room-tab.settings-tab { margin-left: 0; }
+    .room-tab.kh-action {
+      border-color: rgba(224, 135, 99, 0.45);
+      color: #e08763;
+    }
   </style>
 </head>
 <body>
@@ -46,6 +39,15 @@
       <button type="button" class="room-tab hidden" data-room="private" id="privateTab">
         Private
       </button>
+      <button type="button" class="room-tab kh-action hidden" id="teaseNowBtn">
+        Tease now
+      </button>
+      <button type="button" class="room-tab kh-action hidden" id="quickUnlockBtn">
+        Unlock
+      </button>
+      <button type="button" class="room-tab kh-action hidden" id="quickLockBtn">
+        Lock
+      </button>
       <button type="button" class="room-tab kinks-tab hidden" id="kinksBtn" data-action="kinks">
         Kinks
       </button>
@@ -54,14 +56,6 @@
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
-
-    <div id="teaseBar" class="tease-bar hidden">
-      <div class="tease-bar-copy">
-        <p class="tease-bar-title">Tease now</p>
-        <p id="teaseBarStatus" class="meta">Send an unprompted group tease.</p>
-      </div>
-      <button type="button" class="btn" id="teaseNowBtn">Tease now</button>
-    </div>
 
     <div class="chat-body">
       <div class="messages-wrap">
@@ -138,7 +132,7 @@
         <label class="check"><input type="checkbox" id="setAutopilotChaster" /> Autopilot may nudge Chaster</label>
         <label class="field"><span>Autopilot add-time (sec)</span><input id="setAutopilotPunish" type="number" min="60" step="60" value="600" /></label>
         <p id="autopilotLive" class="meta">Autopilot status: —</p>
-        <p class="meta">Tease now is on the chat screen, above the messages.</p>
+        <p class="meta">Tease now, Unlock, and Lock are in the top bar.</p>
 
         <p class="title">Session kit</p>
         <p class="meta">Choose fetishes and toys to incorporate into play and the week plan.</p>
