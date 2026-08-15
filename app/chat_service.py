@@ -52,6 +52,12 @@ from app.speaker_guard import (
     wants_to_be_free,
     writes_scripted_dialogue,
 )
+from app.clock import (
+    asks_clock_time,
+    asks_lock_remaining,
+    format_clock_block,
+    format_clock_reply,
+)
 from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.extension_games import extension_punish_intents
@@ -358,6 +364,7 @@ async def handle_chat_turn(
     extra_notes: list[str] = [
         f"Speaker this turn: {speaker} "
         f"({'keyholder' if role == 'domme' else 'lockee'}).",
+        format_clock_block(),
     ]
     user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
@@ -420,6 +427,9 @@ async def handle_chat_turn(
             "group_posts": [],
             "image_urls": [],
         }
+
+    if asks_clock_time(message) and not asks_lock_remaining(message):
+        return _memory_command_result(format_clock_reply(role=role))
 
     # Explicit memory commands (Domme) — deterministic, not LLM
     if role == "domme":
