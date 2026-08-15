@@ -683,14 +683,14 @@ def register_extension_routes(
         snap["lockbox"] = await _box_view(force=True)
         return snap
 
-    def _hygiene_note(text: str) -> None:
-        store.append_display(
-            DisplayMessage(
-                speaker=memory.bot_name or "Keyholder",
-                content=text,
-                room="group",
+    def _hygiene_note(text: str, *, room: str = "private") -> None:
+        bot = memory.bot_name or "Keyholder"
+        if room == "private":
+            bridge.inject_private_note(store, text, speaker=bot)
+        else:
+            store.append_display(
+                DisplayMessage(speaker=bot, content=text, room="group")
             )
-        )
         from app.persist import save_sessions
 
         try:
@@ -716,18 +716,23 @@ def register_extension_routes(
                 mins = max(1, secs // 60)
                 if result.ok and not result.blocked:
                     _hygiene_note(
-                        f"Lockee was late relocking after hygiene. {mins} minutes added."
+                        f"He was late relocking. {mins} minutes added.",
+                        room="private",
+                    )
+                    _hygiene_note(
+                        f"Late relock — {mins} minutes added.",
+                        room="group",
                     )
                 else:
                     _hygiene_note(
-                        "Lockee was late relocking after hygiene. "
-                        "Punishment could not be applied on Chaster — keyholder, add time."
+                        "He was late relocking. Punishment could not be applied — add time?",
+                        room="private",
                     )
             except Exception:  # noqa: BLE001
                 log.exception("Hygiene late punish failed")
                 _hygiene_note(
-                    "Lockee was late relocking after hygiene. "
-                    "Punishment failed — keyholder, add time."
+                    "He was late relocking. Punishment failed — add time?",
+                    room="private",
                 )
             mark_punished()
         return hygiene_snapshot()
@@ -753,7 +758,9 @@ def register_extension_routes(
             view = request_hygiene(allowed_seconds=default_allowed)
             if view.get("status") == "requested":
                 _hygiene_note(
-                    "Lockee requested hygiene. Keyholder: Approve with a time, or Deny."
+                    "Lockee requested hygiene. How long may he be unlocked? "
+                    "Approve with a time (e.g. 15) or Deny. He cannot see this yet.",
+                    room="private",
                 )
             return {"ok": True, "hygiene": view}
 
@@ -766,8 +773,13 @@ def register_extension_routes(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
             _hygiene_note(
-                f"Approved — {mins} min. Lockee: Unlock is next to Group. "
-                "Lock before time's up or there will be a consequence."
+                f"You approved {mins} min. He cannot see the bargaining — "
+                "I told him Unlock is next to Group.",
+                room="private",
+            )
+            _hygiene_note(
+                "Unlock is next to Group. Lock before time's up or there will be a consequence.",
+                room="group",
             )
             return {"ok": True, "hygiene": view}
 
@@ -775,14 +787,14 @@ def register_extension_routes(
             if not is_kh:
                 raise HTTPException(status_code=403, detail="Only the keyholder can deny.")
             view = deny_hygiene()
-            _hygiene_note("Hygiene request denied. Lockee may request again.")
+            _hygiene_note("You denied hygiene. He may request again.", room="private")
             return {"ok": True, "hygiene": view}
 
         if action == "reset":
             if not is_kh:
                 raise HTTPException(status_code=403, detail="Only the keyholder can reset.")
             view = reset_hygiene()
-            _hygiene_note("Hygiene reset. Lockee may request again.")
+            _hygiene_note("Hygiene reset. He may request again.", room="private")
             return {"ok": True, "hygiene": view}
 
         if action == "unlock":
@@ -810,7 +822,8 @@ def register_extension_routes(
                 )
             mins = max(1, int(view.get("allowed_seconds") or 600) // 60)
             _hygiene_note(
-                f"Unlocked. Tap Lock next to Group before {mins} min is up."
+                f"Unlocked. Tap Lock next to Group before {mins} min is up.",
+                room="group",
             )
             return {
                 "ok": True,
@@ -841,7 +854,8 @@ def register_extension_routes(
             _hygiene_note(
                 "Hygiene relocked. Late — punishment already applied."
                 if late
-                else "Hygiene relocked on time."
+                else "Hygiene relocked on time.",
+                room="group",
             )
             return {
                 "ok": True,

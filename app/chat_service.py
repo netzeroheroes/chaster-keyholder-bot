@@ -39,6 +39,7 @@ from app.speaker_guard import (
     repair_scripted_dialogue,
     rewrite_beg_unlock,
     rewrite_generic_mistress,
+    collapse_idea_list,
     soften_group_tease,
     sounds_like_bot_submissive,
     strip_chat_chrome,
@@ -571,16 +572,43 @@ async def handle_chat_turn(
                         kind, secs = decision
                         if kind == "deny":
                             deny_hygiene()
-                            chaster_truth_reply = (
-                                "Denied. Lockee may tap Hygiene again."
-                            )
+                            chaster_truth_reply = "Denied. He may request again."
+                            if room == "group":
+                                bridge.inject_private_note(
+                                    store,
+                                    "You denied hygiene. He may request again.",
+                                    speaker=bot_name,
+                                )
                         else:
                             view = approve_hygiene(allowed_seconds=secs)
-                            mins = max(1, int(view.get("allowed_seconds") or secs) // 60)
-                            chaster_truth_reply = (
-                                f"{mins} minutes. Lockee — Unlock is next to Group. "
-                                "Tap Lock before time's up or there will be a consequence."
+                            mins = max(
+                                1, int(view.get("allowed_seconds") or secs) // 60
                             )
+                            chaster_truth_reply = (
+                                f"{mins} minutes. I'll tell him Unlock is next to Group — "
+                                "not the bargaining."
+                            )
+                            if room == "private":
+                                store.append_display(
+                                    DisplayMessage(
+                                        speaker=bot_name,
+                                        content=(
+                                            "Unlock is next to Group. "
+                                            "Lock before time's up or there will be a consequence."
+                                        ),
+                                        room="group",
+                                    )
+                                )
+                            else:
+                                bridge.inject_private_note(
+                                    store,
+                                    f"You approved {mins} min. He only sees Unlock.",
+                                    speaker=bot_name,
+                                )
+                                chaster_truth_reply = (
+                                    "Unlock is next to Group. "
+                                    "Lock before time's up or there will be a consequence."
+                                )
                         log.info("Hygiene %s via chat (%ss)", kind, secs)
             except Exception:  # noqa: BLE001
                 log.exception("Hygiene chat approve failed")
@@ -910,8 +938,8 @@ async def handle_chat_turn(
             f"- Your name is '{bot_name}'. You are her friend helping her run the lock. "
             "Talk like a real person. Encourage her. Do not lecture.\n"
             f"- NEVER treat {title} as locked. NEVER give her hygiene or cage-wearer orders.\n"
-            "- If she asks for ideas/games, answer with 3–5 playful teasing ideas about HIM. "
-            "No apology. No 'you're the keyholder not the lockee'. Cheer her on.\n"
+            "- If she asks for ideas or hints: one or two short lines, or emit ONE [[[GROUP]]] tease. "
+            "No numbered lists. No 'Certainly! Here are some hints'.\n"
             "- Never write the words HUMAN DOMME, keyee, or her username plus a colon.\n"
             "- Plan with her. Do not perform at him here.\n"
             "- To speak to him, emit [[[GROUP]]]…[[[/GROUP]]].\n"
@@ -1245,6 +1273,11 @@ async def handle_chat_turn(
         if softened != visible_reply:
             log.warning("Softened group tease (no spoilers / homework)")
             visible_reply = softened
+    else:
+        collapsed = collapse_idea_list(visible_reply)
+        if collapsed != visible_reply:
+            log.warning("Collapsed idea list in private")
+            visible_reply = collapsed
     caged = rewrite_caged_touch(visible_reply)
     if caged != visible_reply:
         log.warning("Rewrote caged-touch order in %s reply", room)

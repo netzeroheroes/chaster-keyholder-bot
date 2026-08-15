@@ -560,6 +560,27 @@ _SOFT_TEASE = (
 )
 
 
+_LIST_INTRO = re.compile(
+    r"^\s*(certainly!?\s*)?(here are|here is|some hints|some teasers)\b[^\n]*",
+    re.I,
+)
+_NUMBERED_LINE = re.compile(r"^\s*(?:\d+[\.\)]|[-*])\s+(.+)$", re.M)
+
+
+def collapse_idea_list(text: str) -> str:
+    """Turn 'Certainly! Here are 5 hints:' lists into one short line."""
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    items = [m.group(1).strip().strip('"“”') for m in _NUMBERED_LINE.finditer(raw)]
+    if len(items) < 2 and not _LIST_INTRO.search(raw):
+        return raw
+    pick = items[0] if items else ""
+    if pick and len(pick) >= 12:
+        return pick
+    return "Want me to drop him one short hint in Group — without the plan?"
+
+
 def soften_group_tease(text: str) -> str:
     """Drop spoilers and interview homework; keep a short tease."""
     cleaned = _SPOILS_PLAN.sub("", text or "")

@@ -3,6 +3,7 @@ import unittest
 from app.cage_practice import orders_caged_touch, rewrite_caged_touch
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
+    collapse_idea_list,
     mistreats_domme_as_sub,
     soften_group_tease,
     strip_leaked_instructions,
@@ -55,6 +56,18 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(
             mistreats_domme_as_sub("I gave you a hygiene unlock. Use that time wisely.")
         )
+
+    def test_collapses_hint_list(self) -> None:
+        src = (
+            "Certainly! Here are some hints and teasers you could drop:\n"
+            "1. I wonder what it feels like to be so restricted.\n"
+            "2. Maybe I'll let you out if you behave.\n"
+            "3. Think about what I might do.\n"
+        )
+        out = collapse_idea_list(src)
+        self.assertNotIn("Certainly", out)
+        self.assertNotIn("2.", out)
+        self.assertIn("restricted", out.lower())
 
     def test_softens_spoiler_and_homework(self) -> None:
         src = (
