@@ -42,6 +42,7 @@ from app.speaker_guard import (
     looks_like_plan_spoiler,
     planning_stays_private,
     soften_group_tease,
+    wants_him_told,
     sounds_like_bot_submissive,
     strip_chat_chrome,
     strip_impersonation,
@@ -1016,13 +1017,21 @@ async def handle_chat_turn(
     title = domme_address(memory)
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
     if room == "private":
-        anti_loop = (
-            "\nTHIS TURN — PRIVATE:\n"
-            f"Talk to {title} only. Answer what she just said.\n"
-            "Plans and hint lists stay here. [[[GROUP]]] only if she said "
-            "tell him / drop him a hint — and that line must not reveal the plan.\n"
-            "You cannot touch him. Tease, advise her, or change the lock.\n"
-        )
+        if wants_him_told(message):
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"She asked you to DO it. One short line to {title} here — no how-to.\n"
+                "Then [[[GROUP]]] one mystery tease for him. Do not whisper to him here.\n"
+                "Do not reveal the plan, toys, or what happens later.\n"
+            )
+        else:
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"Talk to {title} only. Answer what she just said.\n"
+                "Plans and hint lists stay here. [[[GROUP]]] only if she said "
+                "tell him / drop him a hint — and that line must not reveal the plan.\n"
+                "You cannot touch him. Tease, advise her, or change the lock.\n"
+            )
     else:
         who = (
             f"She ({title}) just spoke — rephrase her beat as a short tease. Do not spoil the plan."

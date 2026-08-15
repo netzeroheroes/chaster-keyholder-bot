@@ -542,6 +542,11 @@ _SPOILS_PLAN = re.compile(
     r"you('ll| will) be waiting|"
     r"what I('ll| will) do with (it|you|your)|"
     r"think about what I('ll| will)|"
+    r"tonight you|"
+    r"you('ll| will) be (punished|teased|used|plugged)|"
+    r"prepare for a|"
+    r"what'?s to come|"
+    r"in store|"
     r"the plan (is|will|for)|"
     r"here('s| is) (the|your|a) (plan|schedule|week)|"
     r"first[, ].{0,80}\bthen\b|"
@@ -585,7 +590,11 @@ _PLANNING_ASK = re.compile(
 _HIM_DELIVERY = re.compile(
     r"\b("
     r"tell (him|the (sub|lockee|boy))|"
-    r"drop (him )?(a |one |some )?(hints?|tease|teasers?|line)|"
+    r"taunt (him|the (sub|lockee|boy))|"
+    r"prepare (him|the (sub|lockee|boy))|"
+    r"drop (him |the )?(a |one |some |subtle )?(hint'?s?|tease|teasers?|line)|"
+    r"hint'?s? (to|about|at) (what|him)|"
+    r"(in ?store|what'?s (in store|coming|next))|"
     r"tease him|"
     r"post (it |this |a hint |a tease )?(in|to) (the )?group|"
     r"say (it |this )?(in|to) (the )?group|"
@@ -594,6 +603,27 @@ _HIM_DELIVERY = re.compile(
     r"start the (scene|plan)|"
     r"run (the )?(scene|plan)|"
     r"announce (it|the plan|to him)"
+    r")\b",
+    re.I,
+)
+_HOWTO_COACH = re.compile(
+    r"\b("
+    r"you can (start|begin|tell|say)|"
+    r"tell him that|"
+    r"describe in (vivid |explicit )?detail|"
+    r"make him understand|"
+    r"remind him that|"
+    r"start by building"
+    r")\b",
+    re.I,
+)
+_PERFORMS_AT_HIM = re.compile(
+    r"\b("
+    r"i whisper|"
+    r"i lean (in|over)|"
+    r"i (tell|taunt|tease) him|"
+    r"prepare for a lasting|"
+    r"tonight you won'?t"
     r")\b",
     re.I,
 )
@@ -628,6 +658,15 @@ def planning_stays_private(message: str) -> bool:
 def wants_him_told(message: str) -> bool:
     """True when she explicitly asked to tease / tell him / post to Group."""
     return bool(_HIM_DELIVERY.search(message or ""))
+
+
+def private_should_be_brief(text: str) -> bool:
+    """True when a Private reply performed at him or coached her instead of doing it."""
+    return bool(_HOWTO_COACH.search(text or "") or _PERFORMS_AT_HIM.search(text or ""))
+
+
+def brief_private_delivery() -> str:
+    return "On it — I dropped him a tease in Group. The plan stays here."
 
 
 def looks_like_plan_spoiler(text: str) -> bool:

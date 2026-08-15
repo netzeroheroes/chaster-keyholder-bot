@@ -121,6 +121,16 @@ body.gate-open { overflow: auto; }
   border-color: transparent;
   color: #1a100c;
 }
+body.room-private .bg {
+  background:
+    radial-gradient(900px 500px at 12% 0%, rgba(168, 110, 196, 0.22), transparent 60%),
+    radial-gradient(700px 480px at 90% 20%, rgba(72, 40, 96, 0.4), transparent 55%),
+    linear-gradient(160deg, #1a141f 0%, #100d14 55%, #18121c 100%);
+}
+body.room-private .tab.active {
+  background: linear-gradient(135deg, #c4a0e0, #8b5fbf);
+  color: #1a1020;
+}
 
 .domme-controls { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 160px; }
 .name-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

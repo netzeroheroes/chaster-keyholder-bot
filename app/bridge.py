@@ -252,8 +252,10 @@ class GroupBridge:
         sub_name: str = "",
     ) -> tuple[str, list[str]]:
         from app.speaker_guard import (
+            brief_private_delivery,
             fill_placeholders,
             planning_stays_private,
+            private_should_be_brief,
             soften_group_tease,
             strip_invented_night_out,
             wants_him_told,
@@ -285,7 +287,8 @@ class GroupBridge:
             craft_user = (
                 f"Human Domme's private order:\n{domme_message}\n\n"
                 f"Your private note:\n{visible or private_reply}\n\n"
-                "Write the group message as the AI Domme left in charge."
+                "Write ONE short mystery tease for the lockee. Do not whisper. "
+                "Do not reveal the plan."
             )
             try:
                 crafted, _ = await agent.reply(
@@ -303,6 +306,10 @@ class GroupBridge:
         # Always run when Domme says she's going out, even if model emitted tags
         if not posts and DOMME_GOING_OUT.search(domme_message or ""):
             posts = [self._fallback_in_charge_line(domme_message)]
+        if not posts and wants_him_told(domme_message):
+            posts = [soften_group_tease(
+                "Something's coming. Stay with that ache — she hasn't promised you the details."
+            )]
 
         fixed_posts: list[str] = []
         for post in posts:
@@ -334,6 +341,10 @@ class GroupBridge:
             visible or ""
         ):
             visible = ""
+        if posts and wants_him_told(domme_message) and (
+            private_should_be_brief(visible) or not visible
+        ):
+            visible = brief_private_delivery()
 
         if posts:
             await self.publish_group_messages(store, posts, speaker=speaker)

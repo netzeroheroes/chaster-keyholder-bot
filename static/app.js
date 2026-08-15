@@ -218,10 +218,12 @@ async function speakBot(text) {
 
 function updateRoomChrome() {
   const isPrivate = state.room === "private";
-  els.roomTitle.textContent = isPrivate ? "Plan with your Domme-AI" : "Execute with Sub";
+  document.body.classList.toggle("room-private", isPrivate);
+  document.body.classList.toggle("room-group", !isPrivate);
+  els.roomTitle.textContent = isPrivate ? "Private — he cannot see this" : "Group — he can see this";
   els.roomHelp.textContent = isPrivate
-    ? "She remembers you, addresses you by title, and grows with your plans over time."
-    : "Voice + edge coach for hands-free play. She always acknowledges the Domme.";
+    ? "Plan with the AI here. Orders like “taunt him” go to Group as a mystery tease."
+    : "Everyone in the lock can see this. Don't dump the plan here.";
 
   for (const tab of els.roomTabs.querySelectorAll(".tab")) {
     tab.classList.toggle("active", tab.dataset.room === state.room);

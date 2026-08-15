@@ -217,11 +217,44 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
 .room-hint {
   flex: 0 0 auto;
   margin: 0;
-  padding: 0.35rem 0.9rem 0.55rem;
-  font-size: 0.75rem;
+  padding: 0.45rem 0.9rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+
+.app.room-group {
+  --bg: #14110f;
+  --panel: #1e1916;
+}
+.app.room-group .room-hint {
+  background: #3a2a1c;
+  color: #f3d2b4;
+  border-bottom-color: rgba(224, 135, 99, 0.35);
+}
+.app.room-private {
+  --bg: #16111c;
+  --panel: #24182c;
+  --line: rgba(196, 150, 220, 0.16);
+  --bot: #32243a;
+  --domme: #4a2e58;
+}
+.app.room-private .room-hint {
+  background: #4a2a62;
+  color: #f3e0ff;
+  border-bottom-color: rgba(196, 150, 220, 0.4);
+}
+.app.room-private .room-tab.active {
+  background: linear-gradient(135deg, #c4a0e0, #8b5fbf);
+  color: #1a1020;
+}
+.app.room-private .btn {
+  background: linear-gradient(135deg, #c4a0e0, #8b5fbf);
+  color: #1a1020;
 }
 .chat-body {
   flex: 1 1 auto;

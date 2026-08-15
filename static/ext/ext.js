@@ -179,15 +179,18 @@
     els.roomTabs.querySelectorAll(".room-tab").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.room === state.room);
     });
+    els.app.classList.toggle("room-private", state.room === "private");
+    els.app.classList.toggle("room-group", state.room !== "private");
     if (state.room === "private") {
-      els.roomHint.textContent =
-        "Private: keyholder ↔ AI only (lockee cannot see this)";
-      els.input.placeholder = "Plan with the AI…";
+      els.heading.textContent = "Private";
+      els.roomHint.textContent = "Private — lockee cannot see this";
+      els.input.placeholder = "Plan with the AI… he cannot see this";
     } else {
-      els.roomHint.textContent = "Group: Domme + Sub + AI";
+      els.heading.textContent = "Group";
+      els.roomHint.textContent = "Group — lockee can see this";
       els.input.placeholder =
         state.chasterRole === "keyholder"
-          ? "Message as keyholder…"
+          ? "Message as keyholder… he can see this"
           : "Message as lockee…";
     }
   }
