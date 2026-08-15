@@ -39,6 +39,8 @@ from app.speaker_guard import (
     rewrite_beg_unlock,
     rewrite_generic_mistress,
     collapse_idea_list,
+    looks_like_plan_spoiler,
+    planning_stays_private,
     soften_group_tease,
     sounds_like_bot_submissive,
     strip_chat_chrome,
@@ -73,7 +75,11 @@ from app.scene_interview import (
     start_interview,
     wants_cancel_interview,
 )
-from app.session_kit import format_week_planner_block, wants_week_plan
+from app.session_kit import (
+    format_week_plan_private_note,
+    format_week_planner_block,
+    wants_week_plan,
+)
 
 # Read-only intents — Sub may ask; Domme may ask. No lock mutation.
 _READ_ONLY_INTENTS = frozenset(
@@ -487,15 +493,21 @@ async def handle_chat_turn(
             else:
                 extra_notes.append(format_interview_director(iv, room=room))
 
-    # Keyholder week plan / keep-him-horny advice (Domme private or group)
+    # Keyholder week plan — skeleton stays private even if she asked in Group
     if role == "domme" and wants_week_plan(message):
-        extra_notes.append(
-            format_week_planner_block(
-                kinks=list(scene.session_kinks or []),
-                toys=list(scene.session_toys or []),
-                room=room,
+        if room == "private":
+            extra_notes.append(
+                format_week_planner_block(
+                    kinks=list(scene.session_kinks or []),
+                    toys=list(scene.session_toys or []),
+                    room=room,
+                )
             )
-        )
+        else:
+            extra_notes.append(
+                "[DIRECTOR: She asked to plan in GROUP. He can see this. "
+                "One mystery tease — no week list, no toys, no what she will do.]"
+            )
 
     # Domme Chaster orders — API is source of truth; action turns skip LLM claims
     chaster_note = ""
@@ -997,7 +1009,8 @@ async def handle_chat_turn(
         anti_loop = (
             "\nTHIS TURN — PRIVATE:\n"
             f"Talk to {title} only. Answer what she just said.\n"
-            "Hints: one line, or one [[[GROUP]]] tease — no lists.\n"
+            "Plans and hint lists stay here. [[[GROUP]]] only if she said "
+            "tell him / drop him a hint — and that line must not reveal the plan.\n"
             "You cannot touch him. Tease, advise her, or change the lock.\n"
         )
     else:
@@ -1275,14 +1288,52 @@ async def handle_chat_turn(
     visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
     if room == "group":
+        raw_group = visible_reply
         softened = soften_group_tease(visible_reply)
         if softened != visible_reply:
             log.warning("Softened group tease (no spoilers / homework)")
             visible_reply = softened
+        if (
+            role == "domme"
+            and planning_stays_private(message)
+            and raw_group
+            and looks_like_plan_spoiler(raw_group)
+        ):
+            try:
+                bridge.inject_private_note(
+                    store,
+                    "He can see Group, so I kept the plan here:\n\n" + raw_group,
+                    speaker=bot_name,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Could not move spoiled plan into private")
+        if role == "domme" and wants_week_plan(message):
+            try:
+                bridge.inject_private_note(
+                    store,
+                    format_week_plan_private_note(
+                        kinks=list(scene.session_kinks or []),
+                        toys=list(scene.session_toys or []),
+                    ),
+                    speaker=bot_name,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Could not ping private with week plan")
     else:
-        collapsed = collapse_idea_list(visible_reply)
-        if collapsed != visible_reply:
+        private_part, tagged_posts = bridge.split_private_reply(visible_reply)
+        collapsed = collapse_idea_list(private_part)
+        if collapsed != private_part:
             log.warning("Collapsed idea list in private")
+        if tagged_posts:
+            visible_reply = (
+                collapsed
+                + "\n\n"
+                + "".join(
+                    f"[[[GROUP]]]{soften_group_tease(p)}[[[/GROUP]]]\n"
+                    for p in tagged_posts
+                )
+            ).strip()
+        else:
             visible_reply = collapsed
     caged = rewrite_caged_touch(visible_reply)
     if caged != visible_reply:

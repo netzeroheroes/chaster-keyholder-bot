@@ -541,7 +541,19 @@ _SPOILS_PLAN = re.compile(
     r"thebosses might|"
     r"you('ll| will) be waiting|"
     r"what I('ll| will) do with (it|you|your)|"
-    r"think about what I('ll| will)"
+    r"think about what I('ll| will)|"
+    r"the plan (is|will|for)|"
+    r"here('s| is) (the|your|a) (plan|schedule|week)|"
+    r"first[, ].{0,80}\bthen\b|"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*[:—-]"
+    r"|"
+    r"(i|we|she)('ll| will| are going to| is going to|'?s gonna) "
+    r"(use|play with|plug|edge|fuck|peg|spank|stretch|fill|put|insert|"
+    r"unlock|lock you|take (you|it) out|let you (out|cum)|make you|"
+    r"start with|begin with)|"
+    r"(later|tonight|tomorrow|this week) (she|i|we) ('ll|will|might|are going)|"
+    r"session kit|"
+    r"selected (toy|kink)s?"
     r")\b[^.!?\n]*[.!?]?",
     re.I,
 )
@@ -557,6 +569,33 @@ _HOMEWORK_ASK = re.compile(
 )
 _SOFT_TEASE = (
     "Stay with that. She hasn't promised you anything yet — I'll talk to her."
+)
+_PLANNING_ASK = re.compile(
+    r"\b("
+    r"ideas?|suggestions?|"
+    r"what (can|should|could) i|"
+    r"how (can|do) i|"
+    r"what (games|hints)|"
+    r"give me (some |a few |a )?(hints?|ideas?|games?|teasers?)|"
+    r"plan (the )?week|"
+    r"keep him (horny|needy|submissive|denied|desperate)"
+    r")\b",
+    re.I,
+)
+_HIM_DELIVERY = re.compile(
+    r"\b("
+    r"tell (him|the (sub|lockee|boy))|"
+    r"drop (him )?(a |one |some )?(hints?|tease|teasers?|line)|"
+    r"tease him|"
+    r"post (it |this |a hint |a tease )?(in|to) (the )?group|"
+    r"say (it |this )?(in|to) (the )?group|"
+    r"speak (to him|in (the )?group)|"
+    r"execute|"
+    r"start the (scene|plan)|"
+    r"run (the )?(scene|plan)|"
+    r"announce (it|the plan|to him)"
+    r")\b",
+    re.I,
 )
 
 
@@ -581,13 +620,41 @@ def collapse_idea_list(text: str) -> str:
     return "Want me to drop him one short hint in Group — without the plan?"
 
 
+def planning_stays_private(message: str) -> bool:
+    """True when she is asking for ideas/plans — those must not land in Group."""
+    return bool(_PLANNING_ASK.search(message or ""))
+
+
+def wants_him_told(message: str) -> bool:
+    """True when she explicitly asked to tease / tell him / post to Group."""
+    return bool(_HIM_DELIVERY.search(message or ""))
+
+
+def looks_like_plan_spoiler(text: str) -> bool:
+    """True when a Group-visible line dumps the plan instead of a mystery tease."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    items = _NUMBERED_LINE.findall(raw)
+    if len(items) >= 2 or _LIST_INTRO.search(raw):
+        return True
+    return bool(_SPOILS_PLAN.search(raw) or _HOMEWORK_ASK.search(raw))
+
+
 def soften_group_tease(text: str) -> str:
     """Drop spoilers and interview homework; keep a short tease."""
-    cleaned = _SPOILS_PLAN.sub("", text or "")
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    if looks_like_plan_spoiler(raw) and (
+        len(_NUMBERED_LINE.findall(raw)) >= 2 or _LIST_INTRO.search(raw)
+    ):
+        return _SOFT_TEASE
+    cleaned = _SPOILS_PLAN.sub("", raw)
     cleaned = _HOMEWORK_ASK.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned).strip()
-    if not cleaned or len(cleaned) < 16:
+    if not cleaned or len(cleaned) < 16 or looks_like_plan_spoiler(cleaned):
         return _SOFT_TEASE
     return cleaned
 

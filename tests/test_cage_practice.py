@@ -3,11 +3,15 @@ import unittest
 from app.cage_practice import orders_caged_touch, rewrite_caged_touch
 from app.chat_service import extract_spoken_user
 from app.lock_guard import scrub_lock_hallucinations
+from app.bridge import GroupBridge
 from app.speaker_guard import (
     collapse_idea_list,
+    looks_like_plan_spoiler,
     mistreats_domme_as_sub,
+    planning_stays_private,
     soften_group_tease,
     strip_leaked_instructions,
+    wants_him_told,
     wants_to_be_free,
 )
 from app.chaster import BLOCKED_EXTENSION_SLUGS
@@ -99,6 +103,37 @@ class CagePracticeTests(unittest.TestCase):
         self.assertNotIn("explicit detail", low)
         self.assertNotIn("thankful posture", low)
         self.assertTrue(len(out) >= 16)
+
+    def test_softens_concrete_plan_dump(self) -> None:
+        src = "Tonight she'll use the plug, then edge you until you cry."
+        out = soften_group_tease(src)
+        low = out.lower()
+        self.assertNotIn("plug", low)
+        self.assertNotIn("edge you", low)
+        self.assertTrue(looks_like_plan_spoiler(src))
+        self.assertFalse(looks_like_plan_spoiler("Stay denied. That cage stays on."))
+        self.assertEqual(
+            soften_group_tease("Stay denied. That cage stays on."),
+            "Stay denied. That cage stays on.",
+        )
+
+    def test_softens_numbered_plan_list(self) -> None:
+        src = "1. Plug him tonight\n2. Edge him tomorrow\n3. Deny all week"
+        out = soften_group_tease(src)
+        self.assertNotIn("Plug", out)
+        self.assertNotIn("1.", out)
+
+    def test_planning_stays_private_unless_tell_him(self) -> None:
+        self.assertTrue(planning_stays_private("what ideas can I use on him"))
+        self.assertTrue(planning_stays_private("give me some hints"))
+        self.assertFalse(planning_stays_private("drop him some hints"))
+        self.assertTrue(wants_him_told("drop him some hints"))
+        self.assertTrue(wants_him_told("tease him"))
+        self.assertFalse(wants_him_told("what ideas can I use"))
+        bridge = GroupBridge()
+        self.assertFalse(bridge.wants_group_post("what ideas can I use on him"))
+        self.assertTrue(bridge.wants_group_post("drop him some hints"))
+        self.assertTrue(bridge.wants_group_post("tease him now"))
 
     def test_wants_to_be_free(self) -> None:
         self.assertTrue(wants_to_be_free("i would to be free"))

@@ -281,6 +281,21 @@ def format_session_kit_block(
     )
 
 
+def format_week_plan_private_note(
+    *,
+    kinks: list[str] | None,
+    toys: list[str] | None,
+) -> str:
+    """Keyholder-only week skeleton — never show this in Group."""
+    days = build_week_skeleton(kinks=clean_names(kinks), toys=clean_names(toys))
+    lines = "\n".join(f"{d['day']}: {d['focus']} — {d['beat']}" for d in days)
+    return (
+        "He can see Group, so the week plan stays here.\n\n"
+        f"{lines}\n\n"
+        "Swap days or make it meaner — say when you want him told a hint, not the plan."
+    )
+
+
 def format_week_planner_block(
     *,
     kinks: list[str] | None,
