@@ -1,6 +1,7 @@
 import unittest
 
 from app.cage_practice import orders_caged_touch, rewrite_caged_touch
+from app.chat_service import extract_spoken_user
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
     collapse_idea_list,
@@ -56,6 +57,23 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(
             mistreats_domme_as_sub("I gave you a hygiene unlock. Use that time wisely.")
         )
+
+    def test_extracts_spoken_from_bloated_user(self) -> None:
+        blob = (
+            "[Domme (@TheBosses)]: maybe let him out of it maybe you could drop him some hint's\n"
+            "[IDENTITY: This message is from the human Domme / Chaster keyholder.]\n"
+            "[ADDRESS: Reply TO her]\n"
+            "[CHASTER LIVE STATUS]\n- Remaining: hidden"
+        )
+        self.assertEqual(
+            extract_spoken_user(blob),
+            "maybe let him out of it maybe you could drop him some hint's",
+        )
+        focused = (
+            'THEY SAID (answer this — do not ignore it):\n"""drop a hint"""\n'
+            "Speaker: Domme."
+        )
+        self.assertEqual(extract_spoken_user(focused), "drop a hint")
 
     def test_collapses_hint_list(self) -> None:
         src = (

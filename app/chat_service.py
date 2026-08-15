@@ -167,6 +167,85 @@ def _strip_looping_assistants(
     return out
 
 
+_THEY_SAID = re.compile(
+    r"THEY SAID[^\n]*\n+\"\"\"\s*(.*?)\s*\"\"\"",
+    re.S,
+)
+_LABEL_OPEN = re.compile(
+    r"^\[(?:Domme|Sub|Keyholder)[^\]]*\]:\s*(.+)$",
+    re.I,
+)
+_SPEAKER_OPEN = re.compile(
+    r"^(?:Domme|Sub|Keyholder)(?:\s+\([^)]+\))?:\s*(.+)$",
+    re.I,
+)
+
+
+def extract_spoken_user(content: str) -> str:
+    """Pull the human's actual words out of a bloated prompt blob."""
+    text = (content or "").strip()
+    if not text:
+        return ""
+    m = _THEY_SAID.search(text)
+    if m:
+        return m.group(1).strip()
+    first = text.splitlines()[0].strip()
+    for pat in (_LABEL_OPEN, _SPEAKER_OPEN):
+        hit = pat.match(first)
+        if hit:
+            return hit.group(1).strip()
+    if first.startswith("[") and "]: " in first:
+        return first.split("]: ", 1)[1].strip()
+    # Old turns wrapped the line then dumped IDENTITY/ADDRESS
+    if "\n[IDENTITY:" in text or "\n[ADDRESS:" in text:
+        return first.split("]: ", 1)[-1].strip() if "]: " in first else first
+    if "[DIRECTOR:" in text or "[CHASTER" in text:
+        return first
+    return text
+
+
+def _clean_history_for_model(
+    history: list[ChatCompletionMessageParam],
+    *,
+    limit: int = 24,
+) -> list[ChatCompletionMessageParam]:
+    """Keep a short real conversation — not last turn's rule dump."""
+    cleaned: list[ChatCompletionMessageParam] = []
+    for msg in history:
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            spoken = extract_spoken_user(content)
+            if not spoken:
+                continue
+            content = spoken
+        cleaned.append({"role": role, "content": content})
+    return cleaned[-limit:]
+
+
+def _focus_user_payload(message: str, *, speaker: str, extras: str = "") -> str:
+    said = (message or "").strip()
+    parts = [
+        "THEY SAID (answer this — do not ignore it):",
+        f'"""{said}"""',
+        f"Speaker: {speaker}. Reply to those words. Use the chat history as context.",
+    ]
+    extra = (extras or "").strip()
+    if extra:
+        parts.extend(["", "SIDE NOTES (not a replacement for THEY SAID):", extra[:1500]])
+    parts.extend(
+        [
+            "",
+            "Now answer THEY SAID. If they asked for a hint, drop one — not a list.",
+        ]
+    )
+    return "\n".join(parts)
+
+
 def _recent_assistant_texts(history: list, limit: int = 4) -> list[str]:
     out: list[str] = []
     for msg in reversed(history):
@@ -250,7 +329,7 @@ async def handle_chat_turn(
 ) -> dict[str, Any]:
     sid = session_id_for(room)
     raw_history = store.get(sid)
-    history = _sanitize_history(raw_history)
+    history = _sanitize_history(_clean_history_for_model(raw_history))
 
     # If history is already poisoned with loop lines, cut them out before prompting
     if any(
@@ -270,27 +349,24 @@ async def handle_chat_turn(
             memory.update_fields(sub_name=handle)
 
     speaker = speaker_label(role, memory, chaster_username=handle or None)
-    user_line = format_user_line(
-        role,
-        message,
-        memory,
-        chaster_role=chaster_role,
-        chaster_username=handle or None,
-        room=room,
-    )
     her = domme_address(memory)
-    user_line += addressing_block(
-        role=role,
-        speaker=speaker,
-        domme_title=her,
-        sub_name=memory.sub_name
-        or (handle if role == "sub" else "")
-        or "the Sub",
-        bot_name=bot_label(memory),
-    )
+    extra_notes: list[str] = [
+        f"Speaker this turn: {speaker} "
+        f"({'keyholder' if role == 'domme' else 'lockee'}).",
+        addressing_block(
+            role=role,
+            speaker=speaker,
+            domme_title=her,
+            sub_name=memory.sub_name
+            or (handle if role == "sub" else "")
+            or "the Sub",
+            bot_name=bot_label(memory),
+        ).strip(),
+    ]
+    user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
-        user_line += (
-            "\n\n[DIRECTOR: Domme is teasing/naming the LOCKEE (e.g. hey slut). "
+        extra_notes.append(
+            "[DIRECTOR: Domme is teasing/naming the LOCKEE (e.g. hey slut). "
             "She is NOT insulting you. Join her — briefly ack, then order the lockee. "
             "NEVER write [You (@Keyholder): …]. NEVER address yourself as Keyholder. "
             "No fake UI labels.]"
@@ -298,35 +374,28 @@ async def handle_chat_turn(
     hands_off = role == "domme" and _domme_hands_off(message)
     if role == "domme" and _domme_wants_decision(message) and not hands_off:
         if room == "group":
-            user_line += (
-                "\n\n[DIRECTOR: Domme delegated in GROUP. You MUST choose a concrete "
+            extra_notes.append(
+                "[DIRECTOR: Domme delegated in GROUP. You MUST choose a concrete "
                 "punishment NOW, announce it to the lockee here, and start enforcing it. "
                 "Do not ask him what he wants.]"
             )
         else:
-            user_line += (
-                "\n\n[DIRECTOR: Domme delegated in PRIVATE. Propose the concrete "
+            extra_notes.append(
+                "[DIRECTOR: Domme delegated in PRIVATE. Propose the concrete "
                 "punishment to her here; use [[[GROUP]]] only if she wants him told now.]"
             )
     if hands_off:
         how_long = _hands_off_duration_hint(message)
         title = her
         if room == "group":
-            user_line += (
-                f"\n\n[DIRECTOR: {title} is BUSY / handed the Sub to YOU for {how_long}. "
-                "This is a TAKEOVER beat in GROUP (Sub can see this).\n"
-                f"1) Briefly acknowledge {title} (one short line).\n"
-                "2) Pivot hard to the Sub — open roughly like: "
-                "\"Well… it's just the two of us. Let's have some fun.\" "
-                f"(She'll be busy for {how_long}.)\n"
-                "3) Give ONE concrete tease/order immediately (edges, posture, lock nudge). "
-                "You may use [[[LOCK]]] tags.\n"
-                f"Do NOT ask what he wants. Do NOT wait for {title} to come back. "
-                "Do NOT claim YOU are busy/out — SHE is.]"
+            extra_notes.append(
+                f"[DIRECTOR: {title} is BUSY / handed the Sub to YOU for {how_long}. "
+                "This is a TAKEOVER beat in GROUP (Sub can see this). "
+                f"Briefly ack {title}, then tease him. Do NOT claim YOU are out.]"
             )
         else:
-            user_line += (
-                f"\n\n[DIRECTOR: {title} is handing the Sub to you for {how_long}, but "
+            extra_notes.append(
+                f"[DIRECTOR: {title} is handing the Sub to you for {how_long}, but "
                 "you are in PRIVATE chat. Confirm the plan with her here, then emit "
                 "[[[GROUP]]] with the takeover line for the Sub (he only sees GROUP).]"
             )
@@ -382,8 +451,8 @@ async def handle_chat_turn(
         iv = dict(scene.snapshot().get("scene_interview") or {})
         if wants_cancel_interview(message) and iv.get("active"):
             scene.update(scene_interview={"active": False, "step": "mode"})
-            user_line += (
-                "\n\n[DIRECTOR: She cancelled the scene interview. "
+            extra_notes.append(
+                "[DIRECTOR: She cancelled the scene interview. "
                 "Acknowledge briefly. Do not write a scene or invent events.]"
             )
         elif wants_scene_build(message) or iv.get("active"):
@@ -414,8 +483,10 @@ async def handle_chat_turn(
                             )
                     except Exception:  # noqa: BLE001
                         log.exception("Scene guide catalog failed")
-                user_line += format_guide_director(
-                    iv, toys=toys, kinks=hooks, room=room
+                extra_notes.append(
+                    format_guide_director(
+                        iv, toys=toys, kinks=hooks, room=room
+                    )
                 )
                 log.info(
                     "Scene guide ready mode=%s duration=%s toys=%s",
@@ -424,14 +495,16 @@ async def handle_chat_turn(
                     toys,
                 )
             else:
-                user_line += format_interview_director(iv, room=room)
+                extra_notes.append(format_interview_director(iv, room=room))
 
     # Keyholder week plan / keep-him-horny advice (Domme private or group)
     if role == "domme" and wants_week_plan(message):
-        user_line += format_week_planner_block(
-            kinks=list(scene.session_kinks or []),
-            toys=list(scene.session_toys or []),
-            room=room,
+        extra_notes.append(
+            format_week_planner_block(
+                kinks=list(scene.session_kinks or []),
+                toys=list(scene.session_toys or []),
+                room=room,
+            )
         )
 
     # Domme Chaster orders — API is source of truth; action turns skip LLM claims
@@ -918,11 +991,11 @@ async def handle_chat_turn(
                             "change failed. Punish in-scene without inventing lock numbers.]"
                         )
 
-        user_line += chaster_note
+        extra_notes.append(chaster_note)
 
     if role == "sub" and room == "group" and wants_to_be_free(message):
-        user_line += (
-            "\n\n[DIRECTOR: He wants to be free. Do NOT dump lock numbers or remaining time. "
+        extra_notes.append(
+            "[DIRECTOR: He wants to be free. Do NOT dump lock numbers or remaining time. "
             "Stay in the tease: maybe if he earns it. Continue a short journey beat. "
             f"Say you will discuss it with {her}. Never unlock. Never list Chaster facts.]"
         )
@@ -1021,12 +1094,21 @@ async def handle_chat_turn(
         anti_loop += f"Banned recent bot lines (do not reuse):\n{listed}\n"
 
     system_prompt = (
-        scene.system_prompt_for(room)
+        "READ THE HUMAN. The latest spoken words are in THEY SAID. "
+        "Your reply must be about those words and the chat history. "
+        "Do not ignore them for a generic tease or a numbered list.\n\n"
+        + scene.system_prompt_for(room)
         + "\n\n"
         + memory.prompt_block(room=room)
         + anti_loop
         + "\n"
         + PRACTICE_BLOCK
+    )
+
+    user_line = _focus_user_payload(
+        message,
+        speaker=speaker,
+        extras="\n\n".join(n for n in extra_notes if n and str(n).strip()),
     )
 
     store.append_display(
@@ -1446,8 +1528,17 @@ async def handle_chat_turn(
                 )
                 # She asked for a pic — don't keep "I sent it" fiction if nothing attached
                 visible_reply = fail if wants_pic else (f"{leftover}\n\n{fail}".strip() if leftover else fail)
-    # Persist sanitized history + new turn (don't keep feeding duplicates)
-    store.set(sid, _sanitize_history(messages))
+    # Persist a clean conversation (spoken line + visible reply), not the prompt blob
+    store.set(
+        sid,
+        _sanitize_history(
+            list(history)
+            + [
+                {"role": "user", "content": f"{speaker}: {message.strip()}"},
+                {"role": "assistant", "content": visible_reply or reply or ""},
+            ]
+        ),
+    )
     if visible_reply:
         store.append_display(
             DisplayMessage(speaker=bot_name, content=visible_reply, room=room)
