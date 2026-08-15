@@ -187,7 +187,7 @@ def should_punish() -> bool:
 _KH_DURATION = re.compile(
     r"^\s*(?:ok(?:ay)?|yes|approve[d]?|sure)?\s*"
     r"(\d+(?:\.\d+)?)\s*"
-    r"(m|mins?|minutes?|h|hrs?|hours?)\s*[.!]?\s*$",
+    r"(m|mins?|minutes?|h|hrs?|hours?)?\s*[.!]?\s*$",
     re.I,
 )
 _KH_DENY = re.compile(
@@ -212,7 +212,9 @@ def parse_kh_hygiene_reply(
     dur = _KH_DURATION.fullmatch(text)
     if dur:
         n = float(dur.group(1))
-        unit = dur.group(2).lower()
+        if n <= 0 or n > 24 * 60:
+            return None
+        unit = (dur.group(2) or "m").lower()
         secs = int(n * 3600) if unit.startswith("h") else int(n * 60)
         return ("approve", max(60, secs))
     if _KH_APPROVE_BARE.fullmatch(text):

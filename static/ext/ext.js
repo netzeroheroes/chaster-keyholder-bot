@@ -374,11 +374,14 @@
     };
     const busy = status === "requested" || status === "approved" || status === "unlocked";
     show(els.hygieneBar, busy || status === "denied");
-    show(els.hygRequestBtn, sub && (status === "idle" || status === "denied"));
+    show(
+      els.hygRequestBtn,
+      sub && (status === "idle" || status === "denied" || status === "requested")
+    );
     if (els.hygRequestBtn) {
       els.hygRequestBtn.classList.toggle("pending", status === "requested");
       els.hygRequestBtn.textContent =
-        status === "denied" ? "Hygiene" : "Hygiene";
+        status === "requested" ? "Requested" : "Hygiene";
     }
     show(els.hygKhAsk, kh && status === "requested");
     show(els.hygUnlockBtn, sub && status === "approved");
