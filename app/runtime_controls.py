@@ -36,6 +36,8 @@ class RuntimeControls:
     default_remove_time_seconds: int = 1800
     soft_add_time_seconds: int = 900
     hard_add_time_seconds: int = 86400
+    hygiene_allowed_seconds: int = 600
+    hygiene_late_punish_seconds: int = 1800
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:

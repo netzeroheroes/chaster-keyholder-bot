@@ -25,6 +25,13 @@
     teaseNowBtn: document.getElementById("teaseNowBtn"),
     quickUnlockBtn: document.getElementById("quickUnlockBtn"),
     quickLockBtn: document.getElementById("quickLockBtn"),
+    hygieneBar: document.getElementById("hygieneBar"),
+    hygieneCopy: document.getElementById("hygieneCopy"),
+    hygRequestBtn: document.getElementById("hygRequestBtn"),
+    hygApproveBtn: document.getElementById("hygApproveBtn"),
+    hygDenyBtn: document.getElementById("hygDenyBtn"),
+    hygUnlockBtn: document.getElementById("hygUnlockBtn"),
+    hygRelockBtn: document.getElementById("hygRelockBtn"),
     openKinks: document.getElementById("openKinks"),
     kinksPanel: document.getElementById("kinksPanel"),
     kinksClose: document.getElementById("kinksClose"),
@@ -209,6 +216,7 @@
         : `Lockee${handle ? " @" + handle : ""}`;
     els.heading.textContent = data.bot_name || "Chat";
     renderAutopilotStatus(data.autopilot);
+    renderHygiene(data.hygiene);
     els.sessionMeta.textContent = [
       s.wearer_username && `Lockee: ${s.wearer_username}`,
       s.keyholder_username && `KH: ${s.keyholder_username}`,
@@ -271,6 +279,68 @@
     if (st.last_tick_at) bits.push(`last tease ${st.last_tick_at}`);
     if (st.next_wake_at) bits.push(`next check ~${st.next_wake_at}`);
     el.textContent = bits.join(" · ");
+  }
+
+  function formatRemain(sec) {
+    const s = Math.max(0, Number(sec) || 0);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, "0")}`;
+  }
+
+  function renderHygiene(st) {
+    const copy = els.hygieneCopy;
+    const kh = state.chasterRole === "keyholder" || state.role === "domme";
+    const sub = !kh;
+    const status = (st && st.status) || "idle";
+    const allowed = Math.max(1, Math.round((st?.allowed_seconds || 600) / 60));
+    const late = !!(st && st.late);
+    const remain = st && st.remaining_seconds;
+    let text = "Hygiene: idle";
+    if (status === "requested") {
+      text = kh
+        ? "Lockee requested hygiene — approve or deny."
+        : "Hygiene requested. Waiting for the keyholder.";
+    } else if (status === "approved") {
+      text = sub
+        ? `Approved. Unlock, then relock within ${allowed} min.`
+        : `Approved. He has ${allowed} min after he unlocks.`;
+    } else if (status === "unlocked") {
+      text = late
+        ? "LATE — relock now. Time is being added."
+        : `Unlocked. Relock in ${formatRemain(remain)}.`;
+    }
+    if (copy) {
+      copy.textContent = text;
+      copy.classList.toggle("late", late);
+    }
+    const show = (el, on) => {
+      if (el) el.classList.toggle("hidden", !on);
+    };
+    show(els.hygRequestBtn, sub && status === "idle");
+    show(els.hygApproveBtn, kh && status === "requested");
+    show(els.hygDenyBtn, kh && status === "requested");
+    show(els.hygUnlockBtn, sub && status === "approved");
+    show(els.hygRelockBtn, sub && status === "unlocked");
+  }
+
+  async function hygieneAction(action) {
+    setStatus(`${action}…`);
+    try {
+      const res = await fetch("/api/ext/hygiene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken, action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Hygiene action failed"));
+      renderHygiene(data.hygiene);
+      state.lastCount = -1;
+      await loadHistory();
+      setStatus("");
+    } catch (err) {
+      setStatus(String(err.message || err));
+    }
   }
 
   function renderLockboxStatus(st) {
@@ -390,6 +460,16 @@
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
     g("setDommeTitle").value = cfg.domme_title || "Mistress";
+    const allowP = secondsToParts(cfg.hygiene_allowed_seconds ?? 600, "minutes");
+    const lateP = secondsToParts(cfg.hygiene_late_punish_seconds ?? 1800, "minutes");
+    if (g("hygAllowValue")) {
+      g("hygAllowValue").value = allowP.value;
+      g("hygAllowUnit").value = allowP.unit === "days" ? "hours" : allowP.unit;
+    }
+    if (g("hygPunishValue")) {
+      g("hygPunishValue").value = lateP.value;
+      g("hygPunishUnit").value = lateP.unit === "days" ? "hours" : lateP.unit;
+    }
   }
 
   function readSettings() {
@@ -426,6 +506,14 @@
       autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
       bot_name: g("setBotName").value.trim() || "Keyholder",
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
+      hygiene_allowed_seconds: partsToSeconds(
+        g("hygAllowValue")?.value || 10,
+        g("hygAllowUnit")?.value || "minutes"
+      ),
+      hygiene_late_punish_seconds: partsToSeconds(
+        g("hygPunishValue")?.value || 30,
+        g("hygPunishUnit")?.value || "minutes"
+      ),
     };
   }
 
@@ -680,6 +768,7 @@
     if ((data.messages || []).length !== state.lastCount) {
       renderMessages(data.messages || []);
     }
+    if (data.hygiene) renderHygiene(data.hygiene);
   }
 
   async function sendMessage(text) {
@@ -840,6 +929,21 @@
   }
   if (els.quickLockBtn) {
     els.quickLockBtn.addEventListener("click", () => lockboxAction("lock"));
+  }
+  if (els.hygRequestBtn) {
+    els.hygRequestBtn.addEventListener("click", () => hygieneAction("request"));
+  }
+  if (els.hygApproveBtn) {
+    els.hygApproveBtn.addEventListener("click", () => hygieneAction("approve"));
+  }
+  if (els.hygDenyBtn) {
+    els.hygDenyBtn.addEventListener("click", () => hygieneAction("deny"));
+  }
+  if (els.hygUnlockBtn) {
+    els.hygUnlockBtn.addEventListener("click", () => hygieneAction("unlock"));
+  }
+  if (els.hygRelockBtn) {
+    els.hygRelockBtn.addEventListener("click", () => hygieneAction("relock"));
   }
   if (els.openKinks) {
     els.openKinks.addEventListener("click", () => openKinks());

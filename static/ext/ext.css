@@ -121,6 +121,30 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   border-color: rgba(224, 135, 99, 0.45);
   color: var(--accent);
 }
+.hygiene-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem 0.55rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.hygiene-copy {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.hygiene-copy.late { color: #e08763; font-weight: 600; }
+.hygiene-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .room-hint {
   flex: 0 0 auto;
   margin: 0;

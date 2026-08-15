@@ -36,12 +36,24 @@ from app.rad_lockbox import RadLockboxClient
 from app.roles import Room, can_access
 from app.runtime_controls import RuntimeControls
 from app.scene import SceneState
+from app.hygiene_request import (
+    approve_hygiene,
+    deny_hygiene,
+    mark_error,
+    mark_punished,
+    mark_relocked,
+    mark_unlocked,
+    request_hygiene,
+    should_punish,
+    snapshot as hygiene_snapshot,
+)
 from app.session_kit import load_wearer_catalog
-from app.sessions import SessionStore
+from app.sessions import DisplayMessage, SessionStore
 from app.typing_presence import clear_typing, list_typing, set_typing
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 EXT_DIR = STATIC_DIR / "ext"
+log = logging.getLogger(__name__)
 
 # Keys we accept into Chaster extension config + runtime_controls
 _CONFIG_KEYS = (
@@ -62,6 +74,8 @@ _CONFIG_KEYS = (
     "default_remove_time_seconds",
     "soft_add_time_seconds",
     "hard_add_time_seconds",
+    "hygiene_allowed_seconds",
+    "hygiene_late_punish_seconds",
     "bot_name",
     "domme_title",
 )
@@ -94,6 +108,11 @@ class ExtTypingBody(BaseModel):
 class ExtLockboxBody(BaseModel):
     main_token: str = Field(min_length=8)
     action: str = ""  # lock | unlock | status
+
+
+class ExtHygieneBody(BaseModel):
+    main_token: str = Field(min_length=8)
+    action: str = ""  # request | approve | deny | unlock | relock | status
 
 
 class ExtConfigGetBody(BaseModel):
@@ -250,6 +269,7 @@ def register_extension_routes(
             "bot_name": memory.bot_name or "Keyholder",
             "domme_title": memory.domme_title or "",
             "autopilot": autopilot_status(settings),
+            "hygiene": await _hygiene_view(),
         }
 
     @api.post("/api/ext/history")
@@ -268,6 +288,7 @@ def register_extension_routes(
             "chaster_role": sess.role,
             "messages": store.get_display(room),
             "typing": list_typing(room, exclude=speaker),
+            "hygiene": await _hygiene_view(),
         }
 
     @api.post("/api/ext/typing")
@@ -615,6 +636,153 @@ def register_extension_routes(
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result
         return snap
+
+    def _hygiene_note(text: str) -> None:
+        store.append_display(
+            DisplayMessage(
+                speaker=memory.bot_name or "Keyholder",
+                content=text,
+                room="group",
+            )
+        )
+        from app.persist import save_sessions
+
+        try:
+            save_sessions(store)
+        except Exception:  # noqa: BLE001
+            log.exception("Could not persist hygiene chat note")
+
+    async def _hygiene_view() -> dict:
+        if should_punish():
+            secs = max(60, int(getattr(controls, "hygiene_late_punish_seconds", 1800) or 1800))
+            try:
+                from app.chaster_actions import ChasterIntent, run_chaster_intent
+
+                result = await run_chaster_intent(
+                    chaster,
+                    ChasterIntent(
+                        kind="add_time",
+                        seconds=secs,
+                        reason="late hygiene relock",
+                    ),
+                    requested_by="hygiene timer",
+                )
+                mins = max(1, secs // 60)
+                if result.ok and not result.blocked:
+                    _hygiene_note(
+                        f"Lockee was late relocking after hygiene. {mins} minutes added."
+                    )
+                else:
+                    _hygiene_note(
+                        "Lockee was late relocking after hygiene. "
+                        "Punishment could not be applied on Chaster — keyholder, add time."
+                    )
+            except Exception:  # noqa: BLE001
+                log.exception("Hygiene late punish failed")
+                _hygiene_note(
+                    "Lockee was late relocking after hygiene. "
+                    "Punishment failed — keyholder, add time."
+                )
+            mark_punished()
+        return hygiene_snapshot()
+
+    @api.post("/api/ext/hygiene")
+    async def ext_hygiene(body: ExtHygieneBody) -> dict:
+        sess = await _require_session(chaster, cache, settings, body.main_token)
+        action = (body.action or "status").strip().lower()
+        allowed = max(60, int(getattr(controls, "hygiene_allowed_seconds", 600) or 600))
+        is_kh = sess.role == "keyholder" or sess.app_role == "domme"
+        is_sub = sess.role == "wearer" or sess.app_role == "sub"
+
+        if action == "status":
+            return {"ok": True, "hygiene": await _hygiene_view()}
+
+        if action == "request":
+            if is_kh and not is_sub:
+                raise HTTPException(status_code=403, detail="The lockee requests hygiene.")
+            view = request_hygiene(allowed_seconds=allowed)
+            if view.get("status") == "requested":
+                _hygiene_note("Lockee requested a hygiene unlock. Keyholder: approve or deny.")
+            return {"ok": True, "hygiene": view}
+
+        if action == "approve":
+            if not is_kh:
+                raise HTTPException(status_code=403, detail="Only the keyholder can approve.")
+            try:
+                view = approve_hygiene(allowed_seconds=allowed)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
+            _hygiene_note(
+                f"Hygiene approved. Lockee may unlock, then relock within {mins} minutes."
+            )
+            return {"ok": True, "hygiene": view}
+
+        if action == "deny":
+            if not is_kh:
+                raise HTTPException(status_code=403, detail="Only the keyholder can deny.")
+            view = deny_hygiene()
+            _hygiene_note("Hygiene request denied.")
+            return {"ok": True, "hygiene": view}
+
+        if action == "unlock":
+            if not is_sub:
+                raise HTTPException(
+                    status_code=403,
+                    detail="After approval, the lockee unlocks.",
+                )
+            if not rad or not rad.configured:
+                raise HTTPException(
+                    status_code=503,
+                    detail="R+D Lockbox not configured (RAD_API_TOKEN)",
+                )
+            try:
+                view = mark_unlocked(allowed_seconds=allowed)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            result = await unlock_for_hygiene(rad, reason="hygiene_request", force=True)
+            if not result.get("ok"):
+                deny_hygiene()
+                mark_error(str(result.get("detail") or "unlock failed"))
+                raise HTTPException(
+                    status_code=502,
+                    detail=result.get("detail") or "Could not unlock the box",
+                )
+            mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
+            _hygiene_note(f"Hygiene unlocked. Relock within {mins} minutes.")
+            return {"ok": True, "hygiene": view, "lockbox": result}
+
+        if action == "relock":
+            if not is_sub and not is_kh:
+                raise HTTPException(status_code=403, detail="Relock is for the lockee.")
+            if not rad or not rad.configured:
+                raise HTTPException(
+                    status_code=503,
+                    detail="R+D Lockbox not configured (RAD_API_TOKEN)",
+                )
+            await _hygiene_view()
+            result = await relock_after_hygiene(
+                rad, chaster, reason="hygiene_request", force=True
+            )
+            if not result.get("ok"):
+                mark_error(str(result.get("detail") or "relock failed"))
+                raise HTTPException(
+                    status_code=502,
+                    detail=result.get("detail") or "Could not relock the box",
+                )
+            late = hygiene_snapshot().get("punished")
+            mark_relocked()
+            _hygiene_note(
+                "Hygiene relocked. Late — punishment already applied."
+                if late
+                else "Hygiene relocked on time."
+            )
+            return {"ok": True, "hygiene": hygiene_snapshot(), "lockbox": result}
+
+        raise HTTPException(
+            status_code=400,
+            detail="action must be request, approve, deny, unlock, relock, or status",
+        )
 
     @api.post("/api/ext/kink-catalog")
     async def ext_kink_catalog(body: ExtSessionBody) -> dict:

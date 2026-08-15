@@ -56,6 +56,16 @@
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
+    <div id="hygieneBar" class="hygiene-bar">
+      <p id="hygieneCopy" class="hygiene-copy">Hygiene: idle</p>
+      <div class="hygiene-actions">
+        <button type="button" class="room-tab kh-action hidden" id="hygRequestBtn">Request hygiene</button>
+        <button type="button" class="room-tab kh-action hidden" id="hygApproveBtn">Approve</button>
+        <button type="button" class="room-tab kh-action hidden" id="hygDenyBtn">Deny</button>
+        <button type="button" class="room-tab kh-action hidden" id="hygUnlockBtn">Unlock</button>
+        <button type="button" class="room-tab kh-action hidden" id="hygRelockBtn">Relock</button>
+      </div>
+    </div>
 
     <div class="chat-body">
       <div class="messages-wrap">
@@ -110,6 +120,29 @@
               <option value="minutes">minutes</option>
               <option value="hours" selected>hours</option>
               <option value="days">days</option>
+            </select>
+          </div>
+        </label>
+
+        <p class="title">Hygiene</p>
+        <p class="meta">Lockee requests; you approve. He unlocks, then must relock in time or time is added.</p>
+        <label class="field duration-field">
+          <span>Allowed unlock time</span>
+          <div class="duration-row">
+            <input id="hygAllowValue" type="number" min="1" step="1" value="10" />
+            <select id="hygAllowUnit" aria-label="Hygiene allow unit">
+              <option value="minutes" selected>minutes</option>
+              <option value="hours">hours</option>
+            </select>
+          </div>
+        </label>
+        <label class="field duration-field">
+          <span>Late relock penalty</span>
+          <div class="duration-row">
+            <input id="hygPunishValue" type="number" min="1" step="1" value="30" />
+            <select id="hygPunishUnit" aria-label="Hygiene penalty unit">
+              <option value="minutes" selected>minutes</option>
+              <option value="hours">hours</option>
             </select>
           </div>
         </label>
