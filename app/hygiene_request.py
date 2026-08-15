@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
@@ -183,6 +184,42 @@ def should_punish() -> bool:
     return bool(view["status"] == "unlocked" and view["late"] and not view["punished"])
 
 
+_KH_DURATION = re.compile(
+    r"^\s*(?:ok(?:ay)?|yes|approve[d]?|sure)?\s*"
+    r"(\d+(?:\.\d+)?)\s*"
+    r"(m|mins?|minutes?|h|hrs?|hours?)\s*[.!]?\s*$",
+    re.I,
+)
+_KH_DENY = re.compile(
+    r"^\s*(no|nope|deny|denied|reject(?:ed)?|not now)\s*[.!]?\s*$",
+    re.I,
+)
+_KH_APPROVE_BARE = re.compile(
+    r"^\s*(yes|ok|okay|approve[d]?|sure|go ahead)\s*[.!]?\s*$",
+    re.I,
+)
+
+
+def parse_kh_hygiene_reply(
+    message: str, *, default_seconds: int = 600
+) -> tuple[str, int] | None:
+    """Keyholder answering a pending request: ('approve', secs) or ('deny', 0)."""
+    text = (message or "").strip()
+    if not text:
+        return None
+    if _KH_DENY.fullmatch(text):
+        return ("deny", 0)
+    dur = _KH_DURATION.fullmatch(text)
+    if dur:
+        n = float(dur.group(1))
+        unit = dur.group(2).lower()
+        secs = int(n * 3600) if unit.startswith("h") else int(n * 60)
+        return ("approve", max(60, secs))
+    if _KH_APPROVE_BARE.fullmatch(text):
+        return ("approve", max(60, int(default_seconds or 600)))
+    return None
+
+
 def format_hygiene_director(view: dict[str, Any] | None = None) -> str:
     """Tell the model hygiene is buttons-only — never LOCK tags."""
     st = view if isinstance(view, dict) else snapshot()
@@ -196,9 +233,10 @@ def format_hygiene_director(view: dict[str, Any] | None = None) -> str:
     ]
     if status == "requested":
         lines.append(
-            "Lockee requested hygiene. Ask the keyholder how many minutes. "
-            "She sets the time and taps Approve or Deny in the Hygiene controls. "
-            "Do not open anything yourself."
+            "Lockee requested hygiene. If she types a duration (e.g. 15 mins), "
+            "that Approves the unlock window — do NOT change Chaster lock time, "
+            "freeze, or hide the timer. Point him at Unlock next to Group. "
+            "Her Unlock/Lock buttons are for teasing him out of the cage, not this timer."
         )
     elif status == "approved":
         lines.append(

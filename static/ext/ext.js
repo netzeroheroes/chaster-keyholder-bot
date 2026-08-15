@@ -323,8 +323,8 @@
         : "Hygiene requested. Waiting for the keyholder to set a time.";
     } else if (status === "approved") {
       text = sub
-        ? `Approved. Tap Unlock, then Lock within ${allowed} min.`
-        : `Approved. He has ${allowed} min after he taps Unlock.`;
+        ? `Tap Unlock next to Group. Then Lock within ${allowed} min or there will be a consequence.`
+        : `Approved. His Unlock is next to Group. Your Unlock/Lock are for teasing him out of the cage.`;
     } else if (status === "unlocked") {
       text = late
         ? "LATE — tap Lock now. Time is being added."

@@ -549,8 +549,44 @@ async def handle_chat_turn(
         context_bits.append(message)
         context = "\n".join(context_bits)
 
+        # Pending hygiene: "15mins" / "no" is the unlock window — never a lock-time change
+        if role == "domme":
+            try:
+                from app.hygiene_request import (
+                    approve_hygiene,
+                    deny_hygiene,
+                    parse_kh_hygiene_reply,
+                    snapshot as hygiene_live,
+                )
+
+                hyg = hygiene_live()
+                if hyg.get("status") == "requested":
+                    decision = parse_kh_hygiene_reply(
+                        message,
+                        default_seconds=int(hyg.get("allowed_seconds") or 600),
+                    )
+                    if decision:
+                        kind, secs = decision
+                        if kind == "deny":
+                            deny_hygiene()
+                            chaster_truth_reply = (
+                                "Denied. Lockee may tap Hygiene again."
+                            )
+                        else:
+                            view = approve_hygiene(allowed_seconds=secs)
+                            mins = max(1, int(view.get("allowed_seconds") or secs) // 60)
+                            chaster_truth_reply = (
+                                f"{mins} minutes. Lockee — Unlock is next to Group. "
+                                "Tap Lock before time's up or there will be a consequence."
+                            )
+                        log.info("Hygiene %s via chat (%ss)", kind, secs)
+            except Exception:  # noqa: BLE001
+                log.exception("Hygiene chat approve failed")
+
         tour = ChasterTour.load()
-        intent = parse_chaster_intent(message, context=context)
+        intent = None if chaster_truth_reply else parse_chaster_intent(
+            message, context=context
+        )
 
         # Stepwise feature tour: "1 by 1" / "next"
         if role == "domme" and (

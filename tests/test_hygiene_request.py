@@ -60,6 +60,12 @@ class HygieneRequestTests(unittest.TestCase):
         again = hr.request_hygiene(allowed_seconds=120)
         self.assertEqual(again["status"], "requested")
 
+    def test_chat_duration_approves(self) -> None:
+        self.assertEqual(hr.parse_kh_hygiene_reply("15mins"), ("approve", 900))
+        self.assertEqual(hr.parse_kh_hygiene_reply("15 mins"), ("approve", 900))
+        self.assertEqual(hr.parse_kh_hygiene_reply("no"), ("deny", 0))
+        self.assertIsNone(hr.parse_kh_hygiene_reply("add 15 minutes to his lock"))
+
     def test_unlock_uses_approved_timescale(self) -> None:
         hr.request_hygiene(allowed_seconds=600)
         hr.approve_hygiene(allowed_seconds=180)

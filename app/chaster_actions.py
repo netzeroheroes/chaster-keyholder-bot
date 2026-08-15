@@ -554,14 +554,9 @@ def parse_chaster_intent(
     ctx_low = (context or "").lower()
     if bare:
         secs = _to_seconds(bare.group(1), bare.group(2))
-        # If recent chat was about hygiene opening, set openingTime — not lock add
-        if re.search(
-            r"\b(hygiene|temporary opening|opening time|unlock time|"
-            r"clean(?:ing)? (?:time|window)|how long .{0,20}hygiene|"
-            r"hygiene unlock)\b",
-            ctx_low,
-        ):
-            return ChasterIntent(kind="configure_hygiene", reason=f"opening:{secs}")
+        # Hygiene window is in-app Unlock/Lock — never add Chaster lock time
+        if re.search(r"\bhygiene\b", ctx_low):
+            return None
         return ChasterIntent(kind="add_time", seconds=secs)
 
     # "add that time" / "add the time for him" — resolve duration from recent chat
@@ -583,19 +578,14 @@ def parse_chaster_intent(
             secs = 3600
         return ChasterIntent(kind="add_time", seconds=max(60, secs))
 
-    # Follow-up duration after hygiene discussion
-    if extract_duration_seconds(message) and re.search(
-        r"\b(hygiene|temporary opening|opening time|unlock time)\b",
-        ctx_low,
-    ):
-        secs = extract_duration_seconds(message)
-        if secs and secs > 0:
-            return ChasterIntent(kind="configure_hygiene", reason=f"opening:{secs}")
-
     # Follow-up: Domme answers with a duration after someone asked to add/extend time
-    if extract_duration_seconds(message) and re.search(
-        r"\b(add|added|adding|extend|extended|how much|how long|time)\b",
-        ctx_low,
+    if (
+        extract_duration_seconds(message)
+        and re.search(
+            r"\b(add|added|adding|extend|extended|how much|how long|time)\b",
+            ctx_low,
+        )
+        and not re.search(r"\bhygiene\b", ctx_low)
     ):
         secs = extract_duration_seconds(message)
         if secs and secs > 0:

@@ -749,7 +749,7 @@ def register_extension_routes(
             view = request_hygiene(allowed_seconds=default_allowed)
             if view.get("status") == "requested":
                 _hygiene_note(
-                    "Lockee requested hygiene. Keyholder: set how long, then Approve or Deny."
+                    "Lockee requested hygiene. Keyholder: Approve with a time, or Deny."
                 )
             return {"ok": True, "hygiene": view}
 
@@ -762,8 +762,8 @@ def register_extension_routes(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             mins = max(1, int(view.get("allowed_seconds") or allowed) // 60)
             _hygiene_note(
-                f"Hygiene approved for {mins} minutes. "
-                "Lockee: tap Unlock, then Lock before the timer ends."
+                f"Approved — {mins} min. Lockee: Unlock is next to Group. "
+                "Lock before time's up or there will be a consequence."
             )
             return {"ok": True, "hygiene": view}
 
@@ -805,7 +805,9 @@ def register_extension_routes(
                     detail=result.get("detail") or "Could not unlock the box",
                 )
             mins = max(1, int(view.get("allowed_seconds") or 600) // 60)
-            _hygiene_note(f"Hygiene unlocked. Relock within {mins} minutes.")
+            _hygiene_note(
+                f"Unlocked. Tap Lock next to Group before {mins} min is up."
+            )
             return {
                 "ok": True,
                 "hygiene": view,
