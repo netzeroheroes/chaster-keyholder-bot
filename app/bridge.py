@@ -253,6 +253,7 @@ class GroupBridge:
     ) -> tuple[str, list[str]]:
         from app.speaker_guard import (
             brief_private_delivery,
+            claims_group_delivery,
             fill_placeholders,
             planning_stays_private,
             private_should_be_brief,
@@ -306,7 +307,11 @@ class GroupBridge:
         # Always run when Domme says she's going out, even if model emitted tags
         if not posts and DOMME_GOING_OUT.search(domme_message or ""):
             posts = [self._fallback_in_charge_line(domme_message)]
-        if not posts and wants_him_told(domme_message):
+        if not posts and (
+            wants_him_told(domme_message)
+            or claims_group_delivery(visible)
+            or claims_group_delivery(private_reply)
+        ):
             posts = [soften_group_tease(
                 "Something's coming. Stay with that ache — she hasn't promised you the details."
             )]

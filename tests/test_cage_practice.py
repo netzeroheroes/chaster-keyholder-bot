@@ -6,6 +6,7 @@ from app.lock_guard import scrub_lock_hallucinations
 from app.bridge import GroupBridge
 from app.speaker_guard import (
     brief_private_delivery,
+    claims_group_delivery,
     collapse_idea_list,
     looks_like_plan_spoiler,
     mistreats_domme_as_sub,
@@ -138,7 +139,10 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(bridge.wants_group_post("tease him now"))
         self.assertTrue(wants_him_told("taunt him and drop subtle hint's"))
         self.assertTrue(wants_him_told("prepare him mentally for it"))
+        self.assertTrue(wants_him_told("reveal a little more"))
+        self.assertTrue(wants_him_told("nothing was posted"))
         self.assertTrue(bridge.wants_group_post("prepare him mentally for it"))
+        self.assertTrue(bridge.wants_group_post("reveal a little more"))
         self.assertTrue(private_should_be_brief(
             "Tonight you won't just be teased, I whisper to him"
         ))
@@ -146,6 +150,9 @@ class CagePracticeTests(unittest.TestCase):
             "You can start by building the anticipation. Tell him that tonight..."
         ))
         self.assertIn("Group", brief_private_delivery())
+        self.assertTrue(claims_group_delivery(
+            "On it — I dropped him a hint in Group. He'll be anticipating that surprise."
+        ))
 
     def test_wants_to_be_free(self) -> None:
         self.assertTrue(wants_to_be_free("i would to be free"))

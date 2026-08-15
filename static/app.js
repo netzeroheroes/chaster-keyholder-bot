@@ -677,7 +677,13 @@ async function sendMessage(message) {
     }
     if (data.group_posts && data.group_posts.length) {
       setStatus(`Posted ${data.group_posts.length} message(s) to group.`);
-      if (els.speakReplies.checked && state.room === "private") {
+      if (state.room === "private") {
+        state.room = "group";
+        updateRoomChrome();
+        state.lastCount = -1;
+        await loadHistory({ speakNewestBot: false, forceScroll: true });
+      }
+      if (els.speakReplies.checked) {
         for (const post of data.group_posts) {
           await Voice.speak(`To the group: ${post}`);
         }

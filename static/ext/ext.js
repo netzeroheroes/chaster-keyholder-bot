@@ -883,8 +883,14 @@
       if (!res.ok) throw new Error(apiDetail(data, res.statusText));
       state.lastCount = -1;
       state.stickToBottom = true;
-      await loadHistory();
-      setStatus("");
+      const posted = data.group_posts || [];
+      if (posted.length && state.room !== "group") {
+        setStatus(`Posted ${posted.length} to Group.`);
+        await switchRoom("group");
+      } else {
+        await loadHistory();
+        setStatus(posted.length ? `Posted ${posted.length} to Group.` : "");
+      }
     } catch (err) {
       setStatus(String(err.message || err));
     } finally {

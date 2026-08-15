@@ -602,7 +602,22 @@ _HIM_DELIVERY = re.compile(
     r"execute|"
     r"start the (scene|plan)|"
     r"run (the )?(scene|plan)|"
-    r"announce (it|the plan|to him)"
+    r"announce (it|the plan|to him)|"
+    r"reveal (a little |some |it )?(more|hint)|"
+    r"(stronger|another|more) hint|"
+    r"nothing was posted|"
+    r"(post|send|drop) (it )?again|"
+    r"repost|"
+    r"he (didn'?t|did not) (see|get)"
+    r")\b",
+    re.I,
+)
+_FAKE_DELIVERY = re.compile(
+    r"\b("
+    r"dropped him a (tease|hint)|"
+    r"sent (it |this )?(to|in) (the )?group|"
+    r"posted (it |this )?(to|in) (the )?group|"
+    r"lost in transmission"
     r")\b",
     re.I,
 )
@@ -661,8 +676,16 @@ def wants_him_told(message: str) -> bool:
 
 
 def private_should_be_brief(text: str) -> bool:
-    """True when a Private reply performed at him or coached her instead of doing it."""
-    return bool(_HOWTO_COACH.search(text or "") or _PERFORMS_AT_HIM.search(text or ""))
+    """True when a Private reply performed at him, coached her, or faked a Group send."""
+    return bool(
+        _HOWTO_COACH.search(text or "")
+        or _PERFORMS_AT_HIM.search(text or "")
+        or _FAKE_DELIVERY.search(text or "")
+    )
+
+
+def claims_group_delivery(text: str) -> bool:
+    return bool(_FAKE_DELIVERY.search(text or ""))
 
 
 def brief_private_delivery() -> str:
