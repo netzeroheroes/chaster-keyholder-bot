@@ -91,33 +91,33 @@ def format_user_line(
         chaster_bit = f" Chaster identity: {', '.join(bits)}."
     if room == "private":
         channel = (
-            "[CHANNEL: PRIVATE — only you and the human Domme. "
-            "The Sub cannot see this. Plan/scheme here; use [[[GROUP]]] to speak to him.]"
+            "[CHANNEL: PRIVATE — only you and the keyholder. "
+            "The lockee cannot see this. Talk to her like a friend. "
+            "Use [[[GROUP]]] if you need to speak to him.]"
         )
     elif room == "group":
         channel = (
-            "[CHANNEL: GROUP — Domme + Sub + you. Everyone here can see your reply. "
-            "Execute the scene; do not workshop private strategy out loud.]"
+            "[CHANNEL: GROUP — keyholder + lockee + you. Everyone can see this. "
+            "Help her run him. Do not workshop strategy out loud.]"
         )
     else:
         channel = ""
     if role == "domme":
         address = (
-            "[ADDRESS: Reply TO the Domme/keyholder as your partner. "
-            "Never treat her as the locked Sub. Never say she has a cage/hygiene unlock. "
-            "The wearer is a different person — use he/him for the Sub.]"
+            "[ADDRESS: Reply TO her — she is the keyholder and has the keys. "
+            "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "
+            "The lockee is a different person (he/him). Never call him keyee.]"
         )
     else:
         address = (
-            "[ADDRESS: Reply TO the lockee. The human Domme is a separate person "
-            "(keyholder). Do not speak as if this wearer is the Domme. "
-            "No fake [Keyholder: Domme] labels. No usernames — say keyholder / lockee.]"
+            "[ADDRESS: Reply TO the lockee. She is the keyholder (has the keys). "
+            "You are her helper, not her. No fake labels. Say keyholder / lockee.]"
         )
     return (
         f"[{label}]: {message}\n"
         f"[IDENTITY: This message is from the {who}.{chaster_bit} "
-        f"You are the AI Domme/keyholder — a separate person. "
-        f"Never confuse yourself with {SPEAKER[role]} or speak as if you are them.]\n"
+        f"You are her AI friend helping run the lock — a separate person. "
+        f"Never speak as {SPEAKER[role]}.]\n"
         f"{address}"
         + (f"\n{channel}" if channel else "")
     )

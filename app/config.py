@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     image_enabled: bool = True
     image_model: str = "black-forest-labs/flux.2-pro"
     image_fallback_models: str = (
-        "black-forest-labs/flux.2-klein-4b,"
         "bytedance-seed/seedream-4.5,"
+        "black-forest-labs/flux.2-klein-4b,"
         "google/gemini-2.5-flash-image"
     )
     image_aspect_ratio: str = "3:4"

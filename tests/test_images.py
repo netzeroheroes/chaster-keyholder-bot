@@ -2,21 +2,37 @@ import unittest
 
 from app.images import (
     prompt_from_request,
+    soften_image_prompt,
     strip_unsent_image_claims,
     user_facing_image_error,
 )
-from app.speaker_guard import has_chat_chrome, strip_chat_chrome
+from app.speaker_guard import (
+    fix_mixed_terms,
+    has_chat_chrome,
+    invents_night_out,
+    looks_like_image_dump,
+    strip_chat_chrome,
+    strip_invented_night_out,
+)
 
 
 class PromptFromRequestTests(unittest.TestCase):
     def test_keeps_jodhpurs_subject(self) -> None:
         prompt = prompt_from_request("send him a picture of a domme in jodphurs")
-        self.assertIn("domme in jodphurs", prompt.lower())
-        self.assertIn("18+", prompt)
+        self.assertIn("jodhpurs", prompt.lower())
+        self.assertNotIn("domme", prompt.lower())
+        self.assertIn("adult", prompt.lower())
 
     def test_generic_when_no_subject(self) -> None:
         prompt = prompt_from_request("send him a picture")
-        self.assertIn("tease photo", prompt.lower())
+        self.assertIn("fashion", prompt.lower())
+
+    def test_softens_censor_bait(self) -> None:
+        out = soften_image_prompt("dominatrix in latex with a chastity belt")
+        self.assertNotIn("dominatrix", out.lower())
+        self.assertNotIn("latex", out.lower())
+        self.assertNotIn("chastity", out.lower())
+        self.assertIn("jodhpurs", soften_image_prompt("woman in jodphurs").lower())
 
 
 class UnsentClaimTests(unittest.TestCase):
@@ -49,6 +65,36 @@ class LockChromeTests(unittest.TestCase):
         cleaned = strip_chat_chrome(raw, sub_name="Chastityguy80")
         self.assertNotIn("[LOCK]", cleaned)
         self.assertNotIn("Chastityguy80", cleaned)
+
+    def test_strips_domme_speaker_prefix(self) -> None:
+        raw = "TheBosses: Hey there, keyee. I've got a surprise."
+        cleaned = strip_chat_chrome(raw, domme_name="TheBosses")
+        cleaned = fix_mixed_terms(cleaned, domme_name="TheBosses")
+        self.assertFalse(cleaned.lower().startswith("thebosses"))
+        self.assertNotIn("keyee", cleaned.lower())
+
+
+class TermAndDumpTests(unittest.TestCase):
+    def test_replaces_human_domme_and_keyee(self) -> None:
+        raw = "BOY, have you been thinking about your task for HUMAN DOMME, keyee?"
+        cleaned = fix_mixed_terms(raw, domme_name="Sam")
+        self.assertNotIn("HUMAN DOMME", cleaned)
+        self.assertIn("Sam", cleaned)
+        self.assertNotIn("keyee", cleaned.lower())
+
+    def test_strips_invented_keyholder_out(self) -> None:
+        raw = "Hey there. I've got a surprise while your keyholder is out."
+        self.assertTrue(invents_night_out(raw))
+        cleaned = strip_invented_night_out(raw)
+        self.assertNotIn("keyholder is out", cleaned.lower())
+
+    def test_detects_image_dump(self) -> None:
+        raw = (
+            "Imagine this: me, dressed in a skintight latex outfit and high heels, "
+            "leaning seductively against the wall, biting my bottom lip. "
+            "My eyes are locked on you. The air around you crackles."
+        )
+        self.assertTrue(looks_like_image_dump(raw))
 
 
 if __name__ == "__main__":

@@ -84,28 +84,22 @@ def addressing_block(
     if role == "domme":
         return (
             "\n\n[WHO IS SPEAKING — CRITICAL]\n"
-            f"This message is from {speaker} — the HUMAN DOMME / Chaster KEYHOLDER.\n"
-            f"She is NOT locked. She is NOT the wearer. Do NOT give HER hygiene unlocks, "
-            f"orders to kneel, or talk about 'your cage' as hers.\n"
-            "UI already shows who spoke — NEVER invent labels like [You (@Keyholder):] "
-            "or [Keyholder: Domme]. Do not address yourself.\n"
-            "If Domme calls him slut/whore/boy she is teasing the LOCKEE — join her "
-            "in controlling him. Do not scold her. Do not call HER slut.\n"
-            "Briefly ack her, then give the lockee a concrete order. "
-            f"Wearer = lockee ({sub}). You ({bot_name}) are co-Domme — Dominant, having fun.\n"
-            "Speak only as yourself. Never write BOY:/Keyholder: scripts. "
-            "Never invent what he is doing unless someone typed it this turn.\n"
+            f"This message is from {speaker} — the keyholder. She has the keys.\n"
+            f"She is NOT locked. Do NOT give HER hygiene unlocks or cage orders.\n"
+            "UI already shows who spoke — no fake labels, no username plus colon.\n"
+            f"Wearer = lockee ({sub}). Never say keyee. You ({bot_name}) are her friend "
+            "helping her run the lock. Talk to her like a person. Encourage her.\n"
+            "Speak only as yourself. Never invent what he is doing unless someone typed it.\n"
         )
     return (
         "\n\n[WHO IS SPEAKING — CRITICAL]\n"
-        f"This message is from {speaker} — the HUMAN SUB / Chaster WEARER (lockee).\n"
-        "UI already shows who spoke — do NOT write [Keyholder: Domme] or open with his username.\n"
-        "If you address someone: 'lockee' for him, 'keyholder' for the human Domme. No usernames.\n"
-        f"You ({bot_name}) are AI Domme/keyholder — Dominant, here to have fun.\n"
-        "NEVER forge Domme/Sub speaker lines. Only you reply under your own name.\n"
-        "Never invent what he is doing (toilet, meals, location) unless he typed it.\n"
-        "Never demand he beg to be unlocked. He may beg to ease/stop punishments.\n"
-        "If he insults Dommes, punish — do not lecture-loop or play along.\n"
+        f"This message is from {speaker} — the lockee (wearer).\n"
+        "UI already shows who spoke — no fake labels, no usernames.\n"
+        "Say lockee for him, keyholder for her. Never say keyee.\n"
+        f"You ({bot_name}) help the keyholder. You are not her and not him.\n"
+        "Never invent what he is doing unless he typed it.\n"
+        "Never demand he beg to be unlocked. He may beg to ease punishments.\n"
+        "If he insults her, punish — do not play along.\n"
     )
 
 
@@ -198,16 +192,41 @@ _NIGHT_OUT_CLAIM = re.compile(
     r"on a date|"
     r"date night|"
     r"while she'?s out|"
-    r"while she is out"
+    r"while she is out|"
+    r"your keyholder is out|"
+    r"your keyholder is (?:otherwise )?engaged|"
+    r"your keyholder is busy|"
+    r"while your keyholder"
     r")\b",
     re.I,
 )
 _NIGHT_OUT_SENTENCE = re.compile(
     r"[^.!?\n]*\b("
     r"going out tonight|is going out|she'?s going out|on a date|date night|"
-    r"while she'?s out|while she is out"
+    r"while she'?s out|while she is out|"
+    r"your keyholder is out|your keyholder is (?:otherwise )?engaged|"
+    r"your keyholder is busy|while your keyholder"
     r")\b[^.!?\n]*[.!?]?",
     re.I,
+)
+_LABEL_LEAK = re.compile(
+    r"\b(HUMAN\s+DOMME|HUMAN\s+SUB|HUMAN\s+KEYHOLDER)\b",
+    re.I,
+)
+_KEYEE = re.compile(r"\bkeyee\b", re.I)
+_SELF_CAGED = re.compile(
+    r"[^.!?\n]*\bmy\s+(chastity(\s+belt)?|cage|device)\b[^.!?\n]*[.!?]?",
+    re.I,
+)
+_IMAGE_DUMP_HINTS = (
+    re.compile(r"\bimagine this\b", re.I),
+    re.compile(r"\bdressed in\b", re.I),
+    re.compile(r"\bskintight\b", re.I),
+    re.compile(r"\bleaning seductively\b", re.I),
+    re.compile(r"\bhigh heels\b", re.I),
+    re.compile(r"\bbiting .{0,24}lip\b", re.I),
+    re.compile(r"\bthe air around you\b", re.I),
+    re.compile(r"\beyes are locked on you\b", re.I),
 )
 _USER_SAID_NIGHT_OUT = re.compile(
     r"\b("
@@ -238,6 +257,29 @@ def fill_placeholders(
         return sub
 
     return _PLACEHOLDER.sub(repl, text or "")
+
+
+def fix_mixed_terms(
+    text: str,
+    *,
+    domme_name: str = "",
+    sub_name: str = "",
+) -> str:
+    """Stop leaked instruction labels and wrong lock vocabulary."""
+    her = (domme_name or "").strip() or "the keyholder"
+    out = text or ""
+    out = _LABEL_LEAK.sub(her, out)
+    out = _KEYEE.sub("lockee", out)
+    out = _SELF_CAGED.sub("", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    out = re.sub(r" {2,}", " ", out).strip()
+    return out
+
+
+def looks_like_image_dump(text: str) -> bool:
+    """True when the model wrote a photo-prompt essay instead of sending a picture."""
+    hits = sum(1 for pat in _IMAGE_DUMP_HINTS if pat.search(text or ""))
+    return hits >= 3
 
 
 def user_said_night_out(message: str) -> bool:
@@ -366,15 +408,16 @@ def strip_chat_chrome(
         s = _CHAT_CHROME.sub("", s).strip()
         s = _LOCK_CHROME.sub("", s).strip()
         s = _IMPERSONATE.sub("", s).strip()
-        # Strip username openers on the first few lines
+        # Strip username openers on the first few lines (Name, … or Name:)
         if i < 3:
             for uname in (sub_name, domme_name, bot_name):
                 u = (uname or "").strip().lstrip("@")
-                if u and re.match(rf"^@?{re.escape(u)}\s*,\s*", s, re.I):
-                    s = re.sub(rf"^@?{re.escape(u)}\s*,\s*", "", s, flags=re.I)
+                if u and re.match(rf"^@?{re.escape(u)}\s*[,:]\s*", s, re.I):
+                    s = re.sub(rf"^@?{re.escape(u)}\s*[,:]\s*", "", s, flags=re.I)
                     break
             else:
                 s = _LEADING_USERNAME.sub("", s)
+                s = re.sub(r"^[A-Za-z][A-Za-z0-9_\-]{2,31}\s*:\s+", "", s)
         # Drop trailing ", Keyholder." self-address leftovers
         s = re.sub(r",\s*Keyholder\.?\s*$", ".", s, flags=re.I)
         s = re.sub(r"\bKeyholder\s*,\s*$", "", s, flags=re.I).strip()

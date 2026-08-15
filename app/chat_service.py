@@ -26,8 +26,11 @@ from app.speaker_guard import (
     addressing_block,
     demands_beg_unlock,
     domme_teasing_lockee,
+    fill_placeholders,
+    fix_mixed_terms,
     has_chat_chrome,
     impersonates_human,
+    looks_like_image_dump,
     mistreats_domme_as_sub,
     repair_bot_submissive,
     repair_confused_domme_reply,
@@ -41,7 +44,6 @@ from app.speaker_guard import (
     strip_impersonation,
     strip_invented_night_out,
     strip_scripted_dialogue,
-    fill_placeholders,
     writes_scripted_dialogue,
 )
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
@@ -292,8 +294,8 @@ async def handle_chat_turn(
         if room == "group":
             user_line += (
                 "\n\n[DIRECTOR: Domme delegated in GROUP. You MUST choose a concrete "
-                "punishment NOW, announce it to BOY here, and start enforcing it. "
-                "Do not ask BOY what he wants.]"
+                "punishment NOW, announce it to the lockee here, and start enforcing it. "
+                "Do not ask him what he wants.]"
             )
         else:
             user_line += (
@@ -611,7 +613,7 @@ async def handle_chat_turn(
                     )
                 elif result.ok and intent.kind == "list_capabilities":
                     chaster_truth_reply = (
-                        f"BOY — lock control is for {her} and me. "
+                        f"Lockee — lock control is for {her} and me. "
                         "You don't get the control menu. Ask about your cage, toys, or orders."
                     )
                 elif result.ok and intent.kind in ("list_extensions", "list_history"):
@@ -832,35 +834,28 @@ async def handle_chat_turn(
     if room == "private":
         anti_loop = (
             "\n\nHARD RULES THIS TURN (PRIVATE CHANNEL):\n"
-            f"- You are ONLY talking to {speaker} (human Domme / keyholder). "
-            f"Address her as {title} (her name — not 'Mistress'). "
-            f"The Sub ({sub_nm}) cannot see this.\n"
-            f"- Your name is '{bot_name}'. You are AI Domme/keyholder — Dominant peer, "
-            "here to have fun. Never obedient/submissive.\n"
-            f"- NEVER treat {title} as locked. NEVER give her hygiene unlocks or cage orders.\n"
-            "- Femdom/matriarchal: you and she rule; he serves.\n"
-            "- Plan, scheme, encourage her meanness. Do not perform for the Sub here.\n"
-            "- To speak to the Sub, emit [[[GROUP]]]…[[[/GROUP]]] (that posts to Group).\n"
-            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE facts this turn. "
-            "Never invent remaining time, 'new length', totals, or keypad codes.\n"
-            "- Never claim lock changes unless confirmed by real lock facts this turn.\n"
-            "- If YOU grant a lock change from private, emit [[[LOCK]]]…[[[/LOCK]]].\n"
-            "- Never invent reminder schedules. Never repeat a previous bot message.\n"
-            "- Do not pretend this reply is already in Group unless you emitted GROUP tags.\n"
-            "- MEMORY: use stored facts/timeline/lock_log when relevant; do not invent memories.\n"
-            "- Speak only as yourself. Never write BOY: / Sub: / Keyholder: scripted dialogue.\n"
-            "- Never invent what he is doing (toilet, meals, travel, touching) unless she typed it.\n"
+            f"- You are ONLY talking to {title}. She is the keyholder — she has the keys. "
+            f"The lockee ({sub_nm}) cannot see this.\n"
+            f"- Your name is '{bot_name}'. You are her friend helping her run the lock. "
+            "Talk like a real person. Encourage her. Do not lecture.\n"
+            f"- NEVER treat {title} as locked. NEVER give her hygiene or cage orders.\n"
+            "- Never write the words HUMAN DOMME, keyee, or her username plus a colon.\n"
+            "- Plan with her. Do not perform at him here.\n"
+            "- To speak to him, emit [[[GROUP]]]…[[[/GROUP]]].\n"
+            "- LOCK NUMBERS: use ONLY [CHASTER LIVE STATUS] / ACTION DONE this turn.\n"
+            "- If YOU change the lock, emit [[[LOCK]]]…[[[/LOCK]]].\n"
+            "- Never invent that she is out. Never invent what he is doing unless she typed it.\n"
+            "- If she wants a picture for him, emit [[[IMAGE]]] only — do not describe the outfit in chat.\n"
         )
     else:
         if role == "domme":
             who_rules = (
-                f"- SPEAKER THIS TURN: {speaker} = HUMAN DOMME / KEYHOLDER. "
-                f"Answer HER as {title}.\n"
-                f"- The lockee is {sub_nm} (he/him). Do NOT speak to {title} as if she wears the cage.\n"
-                f"- Forbidden toward Domme: 'your chastity', 'hygiene unlock for you', "
-                f"'use that time wisely' aimed at her, 'be grateful' as lockee talk.\n"
+                f"- SPEAKER THIS TURN: {title} is the keyholder (she has the keys). "
+                f"Answer HER. Help and encourage her.\n"
+                f"- The lockee is {sub_nm} (he/him). Never call him keyee. "
+                f"Do NOT speak to {title} as if she wears the cage.\n"
                 f"- When she orders hygiene/time/settings, confirm the API result TO her, "
-                f"then you may tease {sub_nm} in third person or briefly.\n"
+                f"then you may tease the lockee briefly.\n"
             )
         else:
             who_rules = (
@@ -870,9 +865,8 @@ async def handle_chat_turn(
         anti_loop = (
             "\n\nHARD RULES THIS TURN (GROUP CHANNEL):\n"
             f"{who_rules}"
-            f"- Your name in chat is '{bot_name}'. You are the AI Domme/keyholder — "
-            "Dominant, here to have fun. Never claim to be the human Domme or Sub. "
-            "Never speak as if YOU are obedient, a slave, or 'serving her needs'.\n"
+            f"- Your name in chat is '{bot_name}'. You help the keyholder. "
+            "You are not her and not the lockee. Never write HUMAN DOMME or keyee.\n"
             "- NO FAKE LABELS: never write [You (@Keyholder):], [Keyholder: Domme], [Domme], [Sub], "
             "or open with usernames. Never address yourself. UI already shows who spoke. "
             "Lockee = wearer; human Domme = keyholder (partner — you are not talking to yourself).\n"
@@ -957,10 +951,9 @@ async def handle_chat_turn(
             rewrite_user = (
                 f"{user_line}\n\n"
                 "[SYSTEM: You are looping. Write a completely different reply. "
-                f"Acknowledge {title}, announce ONE specific cruel punishment for BOY "
-                "(e.g. locked longer, edges with no release, corner time, lines, ice, "
-                "denied orgasm for X days), and give the first order to start it. "
-                "Do not ask BOY what he wants.]"
+                f"Acknowledge {title}, announce ONE specific punishment for the lockee "
+                "(e.g. locked longer, edges with no release, corner time, lines), "
+                "and give the first order to start it. Do not ask him what he wants.]"
             )
             reply, messages = await agent.reply(
                 rewrite_user,
@@ -975,17 +968,16 @@ async def handle_chat_turn(
                 how_long = _hands_off_duration_hint(message)
                 reply = (
                     f"{title} — I've got him.\n\n"
-                    f"BOY… {title} is busy for {how_long}, so it's just the two of us. "
-                    "Let's have some fun. Hands on your cage — slow strokes for sixty "
-                    "seconds. No cumming. Start now."
+                    f"Lockee… {title} left you with me for {how_long}. "
+                    "Hands on your cage — slow strokes for sixty "
+                    "seconds. No release. Start now."
                 )
             else:
                 reply = (
-                    f"{title}, thank you — I'll take this. BOY, you came without permission, "
-                    "so you don't get a vote. Punishment: you're locked, denied, and you will "
-                    "edge twice tonight under our count with no orgasm — then cage back on. "
-                    f"Stroke slow for sixty seconds starting now. {title}, want me to make the "
-                    "edges nastier?"
+                    f"{title}, I've got this. Lockee, you came without permission, "
+                    "so you don't get a vote. You're locked and denied — edge twice "
+                    "tonight under our count, no orgasm, cage back on. "
+                    f"Stroke slow for sixty seconds starting now. {title}, want it meaner?"
                 )
             messages = list(history) + [
                 {"role": "user", "content": user_line},
@@ -1013,9 +1005,8 @@ async def handle_chat_turn(
                 title = domme_address(memory)
                 reply = (
                     f"{title} — leave him with me.\n\n"
-                    f"Well, BOY… it's just the two of us for {how_long}. "
-                    "Let's have some fun. Cage in hand — slow strokes. "
-                    "No release unless I say. Begin."
+                    f"Lockee — {title} left you with me for {how_long}. "
+                    "Cage in hand — slow strokes. No release unless I say. Begin."
                 )
                 messages = list(history) + [
                     {"role": "user", "content": user_line},
@@ -1150,6 +1141,17 @@ async def handle_chat_turn(
         domme_name=memory.domme_name or "",
         sub_name=memory.sub_name or "",
     )
+    visible_reply = fix_mixed_terms(
+        visible_reply,
+        domme_name=memory.domme_name or "",
+        sub_name=memory.sub_name or "",
+    )
+    visible_reply = strip_chat_chrome(
+        visible_reply,
+        sub_name=memory.sub_name or "",
+        domme_name=memory.domme_name or "",
+        bot_name=bot_name,
+    )
     night_clean = strip_invented_night_out(
         visible_reply, user_message=message
     )
@@ -1251,16 +1253,25 @@ async def handle_chat_turn(
                 re.I,
             )
         )
-        if not img_prompts and wants_pic:
+        dumped = looks_like_image_dump(cleaned or visible_reply)
+        if not img_prompts and (wants_pic or dumped):
             img_prompts = [prompt_from_request(message)]
         elif img_prompts and wants_pic:
             # Keep her requested subject if the model emitted a vague IMAGE tag
             her_prompt = prompt_from_request(message, fallback="")
-            if her_prompt and "photograph:" in her_prompt.lower():
+            if her_prompt and "photograph" in her_prompt.lower():
                 img_prompts = [her_prompt, *img_prompts]
         if img_prompts:
             # Always strip tags once we intend to generate (even if cleaned is empty)
             visible_reply = cleaned
+            if dumped or wants_pic:
+                visible_reply = strip_unsent_image_claims(visible_reply)
+                if dumped or looks_like_image_dump(visible_reply):
+                    visible_reply = (
+                        "On it — sending him that picture."
+                        if room == "private"
+                        else "Picture incoming."
+                    )
             target_room: Room = "group" if (room == "private" or wants_pic) else room
             for prompt in img_prompts[:2]:
                 try:
