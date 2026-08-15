@@ -43,6 +43,10 @@ class SessionStore:
             if len(bucket) > self._max_messages:
                 self._display[message.room] = bucket[-self._max_messages :]
 
+    def display_counts(self) -> dict[str, int]:
+        with self._lock:
+            return {room: len(msgs) for room, msgs in self._display.items()}
+
     def get_display(self, room: str) -> list[dict[str, Any]]:
         with self._lock:
             return [

@@ -320,11 +320,15 @@ def register_extension_routes(
                 detail="Only the Chaster keyholder can open private chat.",
             )
         speaker = "Domme" if sess.app_role == "domme" else "Sub"
+        counts = store.display_counts()
+        if sess.app_role != "domme":
+            counts = {"group": int(counts.get("group") or 0)}
         return {
             "room": room,
             "role": sess.app_role,
             "chaster_role": sess.role,
             "messages": store.get_display(room),
+            "room_counts": counts,
             "typing": list_typing(room, exclude=speaker),
             "hygiene": await _hygiene_view(),
             "lockbox": await _box_view(),

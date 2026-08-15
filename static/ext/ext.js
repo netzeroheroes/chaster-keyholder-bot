@@ -73,6 +73,7 @@
     typingTimer: null,
     typingLastSent: 0,
     displayName: "",
+    seenCounts: { group: null, private: null },
   };
 
   function apiDetail(data, fallback) {
@@ -140,6 +141,38 @@
     const el = els.input;
     el.style.height = "auto";
     el.style.height = Math.min(120, Math.max(44, el.scrollHeight)) + "px";
+  }
+
+  function renderTabBadges(counts) {
+    const rooms = counts && typeof counts === "object" ? counts : {};
+    ["group", "private"].forEach((room) => {
+      const n = Number(rooms[room] || 0);
+      if (state.seenCounts[room] == null) state.seenCounts[room] = n;
+      const seen = Number(state.seenCounts[room] || 0);
+      const unread = Math.max(0, n - seen);
+      const badge = document.querySelector(`[data-badge="${room}"]`);
+      if (!badge) return;
+      if (room === state.room) {
+        state.seenCounts[room] = n;
+        badge.classList.add("hidden");
+        badge.classList.remove("dot");
+        badge.textContent = "";
+        return;
+      }
+      if (unread <= 0) {
+        badge.classList.add("hidden");
+        badge.textContent = "";
+        return;
+      }
+      badge.classList.remove("hidden");
+      if (unread > 9) {
+        badge.textContent = "";
+        badge.classList.add("dot");
+      } else {
+        badge.textContent = String(unread);
+        badge.classList.remove("dot");
+      }
+    });
   }
 
   function updateRoomUi() {
@@ -818,6 +851,7 @@
     }
     if (data.hygiene) renderHygiene(data.hygiene);
     if (data.lockbox) renderBoxStatus(data.lockbox);
+    if (data.room_counts) renderTabBadges(data.room_counts);
   }
 
   async function sendMessage(text) {

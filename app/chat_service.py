@@ -46,6 +46,7 @@ from app.speaker_guard import (
     strip_leaked_instructions,
     strip_scripted_dialogue,
     strip_stage_directions,
+    wants_to_be_free,
     writes_scripted_dialogue,
 )
 from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
@@ -890,6 +891,13 @@ async def handle_chat_turn(
 
         user_line += chaster_note
 
+    if role == "sub" and room == "group" and wants_to_be_free(message):
+        user_line += (
+            "\n\n[DIRECTOR: He wants to be free. Do NOT dump lock numbers or remaining time. "
+            "Stay in the tease: maybe if he earns it. Continue a short journey beat. "
+            f"Say you will discuss it with {her}. Never unlock. Never list Chaster facts.]"
+        )
+
     recent = _recent_assistant_texts(history)
     title = domme_address(memory)
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
@@ -972,6 +980,8 @@ async def handle_chat_turn(
             "- HYGIENE: never emit LOCK tags or pillory for hygiene. "
             "He taps Hygiene → she sets a time and Approves → he taps Unlock, then Lock. "
             "Timer starts on Unlock. Late Lock can be punished.\n"
+            "- If he wants to be free: do NOT dump lock numbers. Tease — maybe if he earns it. "
+            "Continue a short journey beat. Say you'll discuss it with the keyholder. Never unlock.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:200]}" for t in recent)
@@ -1399,6 +1409,22 @@ async def handle_chat_turn(
         store.append_display(
             DisplayMessage(speaker=bot_name, content=visible_reply, room=room)
         )
+
+    if (
+        role == "sub"
+        and room == "group"
+        and wants_to_be_free(message)
+        and visible_reply
+    ):
+        note = (
+            f"Lockee asked to be free: “{(message or '').strip()[:160]}”\n"
+            "He heard he might earn it — and that we'd talk. "
+            "What do you want to do with that? Tease him longer, a task, a short unlock you control?"
+        )
+        try:
+            bridge.inject_private_note(store, note, speaker=bot_name)
+        except Exception:  # noqa: BLE001
+            log.exception("Could not ping private chat about release ask")
 
     save_sessions(store)
     save_scene(scene)

@@ -34,6 +34,25 @@ def looks_like_lock_hallucination(text: str, *, had_action_facts: bool) -> bool:
     return bool(_LOCK_CLAIM.search(text))
 
 
+_CLAIM_SENTENCE = re.compile(
+    r"[^.!?\n]*("
+    + _LOCK_CLAIM.pattern
+    + r")[^.!?\n]*[.!?]?",
+    re.I,
+)
+
+_JOURNEY_FALLBACK = (
+    "Maybe if you earn it. Stay with that ache — I'll talk to her about what comes next."
+)
+
+
+def _strip_lock_claim_sentences(text: str) -> str:
+    cleaned = _CLAIM_SENTENCE.sub("", text or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+    return cleaned
+
+
 def scrub_lock_hallucinations(
     text: str,
     *,
@@ -41,15 +60,12 @@ def scrub_lock_hallucinations(
     had_action_facts: bool,
 ) -> str | None:
     """
-    If the reply invents lock state without API action facts, return a corrected reply.
+    Drop invented lock-number sentences. Keep the tease.
     Returns None when the original text is acceptable.
     """
     if not looks_like_lock_hallucination(text, had_action_facts=had_action_facts):
         return None
-    rem = live_remaining or "whatever Chaster shows right now"
-    return (
-        "Your lock numbers come from Chaster - I don't invent them.\n\n"
-        f"Live remaining: {rem}. "
-        "No fake day totals, keypad codes, or 'new lengths'. "
-        "The Domme and I change the real lock when we decide."
-    )
+    cleaned = _strip_lock_claim_sentences(text)
+    if cleaned and len(cleaned) >= 20:
+        return cleaned
+    return _JOURNEY_FALLBACK

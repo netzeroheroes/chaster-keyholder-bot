@@ -514,6 +514,20 @@ def repair_confused_domme_reply(*, message: str = "") -> str:
     )
 
 
+_WANTS_FREE = re.compile(
+    r"\b("
+    r"be free|set (me )?free|let me (out|free)|"
+    r"unlock me|want(?:s|ed)? out|release me|"
+    r"take (it|the cage) off|i want (out|free)"
+    r")\b",
+    re.I,
+)
+
+
+def wants_to_be_free(message: str) -> bool:
+    return bool(_WANTS_FREE.search(message or ""))
+
+
 def demands_beg_unlock(reply: str) -> bool:
     return bool(_BEG_UNLOCK.search(reply or ""))
 

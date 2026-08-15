@@ -111,6 +111,22 @@ class GroupBridge:
     def wants_group_post(self, domme_message: str) -> bool:
         return bool(GROUP_INTENT.search(domme_message or ""))
 
+    def inject_private_note(
+        self,
+        store: SessionStore,
+        text: str,
+        *,
+        speaker: str = "Keyholder",
+    ) -> None:
+        """Keyholder-only note so a group beat can continue in private."""
+        sid = session_id_for("private")
+        history = store.get(sid)
+        history.append({"role": "assistant", "content": text})
+        store.set(sid, history)
+        store.append_display(
+            DisplayMessage(speaker=speaker or "Keyholder", content=text, room="private")
+        )
+
     def inject_group_bot_message(
         self,
         store: SessionStore,

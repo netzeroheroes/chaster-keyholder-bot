@@ -109,6 +109,8 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   background: var(--panel);
 }
 .room-tab {
+  position: relative;
+
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
@@ -124,6 +126,31 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   background: linear-gradient(135deg, #e08763, #c45d3a);
   border-color: transparent;
 }
+.tab-badge {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.15rem;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.22rem;
+  border-radius: 999px;
+  background: #e08763;
+  color: #1a100c;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 0.95rem;
+  text-align: center;
+  pointer-events: none;
+}
+.tab-badge.dot {
+  min-width: 0.55rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  padding: 0;
+  top: 0.15rem;
+  right: 0.2rem;
+}
+.room-tab.active .tab-badge { display: none !important; }
 .room-tab.kinks-tab {
   margin-left: auto;
   border-color: rgba(224, 135, 99, 0.45);

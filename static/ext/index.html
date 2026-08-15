@@ -38,12 +38,14 @@
       </div>
     </header>
     <nav id="roomTabs" class="room-tabs" aria-label="Chat rooms">
-      <button type="button" class="room-tab active" data-room="group">Group</button>
+      <button type="button" class="room-tab active" data-room="group">
+        Group<span class="tab-badge hidden" data-badge="group" aria-label="New messages"></span>
+      </button>
       <button type="button" class="room-tab hyg-tab hidden" id="hygRequestBtn">Hygiene</button>
       <button type="button" class="room-tab kh-action hidden" id="hygUnlockBtn" title="Hygiene unlock — starts the timer">Unlock</button>
       <button type="button" class="room-tab kh-action hidden" id="hygRelockBtn" title="Hygiene lock — stop the timer">Lock</button>
       <button type="button" class="room-tab hidden" data-room="private" id="privateTab">
-        Private
+        Private<span class="tab-badge hidden" data-badge="private" aria-label="New messages"></span>
       </button>
       <button type="button" class="room-tab kh-action hidden" id="teaseNowBtn">
         Tease now

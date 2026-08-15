@@ -1,7 +1,12 @@
 import unittest
 
 from app.cage_practice import orders_caged_touch, rewrite_caged_touch
-from app.speaker_guard import mistreats_domme_as_sub, strip_leaked_instructions
+from app.lock_guard import scrub_lock_hallucinations
+from app.speaker_guard import (
+    mistreats_domme_as_sub,
+    strip_leaked_instructions,
+    wants_to_be_free,
+)
 from app.chaster import BLOCKED_EXTENSION_SLUGS
 from app.rad_lockbox import summarize_lockbox
 
@@ -49,6 +54,25 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(
             mistreats_domme_as_sub("I gave you a hygiene unlock. Use that time wisely.")
         )
+
+    def test_wants_to_be_free(self) -> None:
+        self.assertTrue(wants_to_be_free("i would to be free"))
+        self.assertTrue(wants_to_be_free("please unlock me"))
+        self.assertFalse(wants_to_be_free("hello"))
+
+    def test_scrub_keeps_tease_not_fact_dump(self) -> None:
+        src = (
+            "Stay with that ache. I added 3 days to your lock. "
+            "Maybe if you earn it."
+        )
+        out = scrub_lock_hallucinations(
+            src, live_remaining="hidden", had_action_facts=False
+        )
+        self.assertIsNotNone(out)
+        low = (out or "").lower()
+        self.assertNotIn("don't invent", low)
+        self.assertNotIn("live remaining", low)
+        self.assertTrue("earn" in low or "ache" in low)
 
     def test_hygiene_plugin_blocked(self) -> None:
         self.assertIn("temporary-opening", BLOCKED_EXTENSION_SLUGS)
