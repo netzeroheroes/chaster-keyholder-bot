@@ -105,6 +105,12 @@ class PrivateKeyholderTests(unittest.TestCase):
             )
         )
         self.assertFalse(should_take_to_private("tell him he's staying locked"))
+        self.assertTrue(
+            should_take_to_private(
+                "so he's going to get unlocked for 1 hr tonight what should we do to him"
+            )
+        )
+        self.assertTrue(should_take_to_private("what should we do with him"))
 
     def test_private_user_line_hard_rule(self) -> None:
         line = format_user_line(

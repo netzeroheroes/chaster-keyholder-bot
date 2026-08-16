@@ -1524,6 +1524,7 @@ async def handle_chat_turn(
 
     group_posts: list[str] = []
     image_urls: list[str] = []
+    open_private = False
     visible_reply = fill_placeholders(
         reply,
         domme_name=memory.domme_name or "",
@@ -1585,14 +1586,22 @@ async def handle_chat_turn(
             visible_reply = softened
         if role == "domme" and should_take_to_private(message) and raw_group:
             try:
+                store.append_display(
+                    DisplayMessage(
+                        speaker=speaker,
+                        content=message,
+                        room="private",
+                    )
+                )
                 bridge.inject_private_note(
                     store,
-                    "He can see Group, so I kept this here:\n\n" + raw_group,
+                    raw_group,
                     speaker=bot_name,
                 )
                 visible_reply = (
                     "I'll take that to Private. He doesn't get the plan."
                 )
+                open_private = True
             except Exception:  # noqa: BLE001
                 log.exception("Could not move plan into private")
         if role == "domme" and wants_week_plan(message):
@@ -1847,6 +1856,7 @@ async def handle_chat_turn(
         "role": role,
         "group_posts": group_posts,
         "image_urls": image_urls,
+        "open_private": open_private,
     }
 
 

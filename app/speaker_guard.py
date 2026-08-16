@@ -669,8 +669,9 @@ _SOFT_TEASE = (
 _PLANNING_ASK = re.compile(
     r"\b("
     r"ideas?|suggestions?|"
-    r"what (can|should|could) i|"
-    r"how (can|do) i|"
+    r"what (can|should|could|shall) (?:i|we)|"
+    r"what (?:do|should) we do|"
+    r"how (can|do) (?:i|we)|"
     r"what (games|hints)|"
     r"give me (some |a few |a )?(hints?|ideas?|games?|teasers?)|"
     r"plan (the )?week|"

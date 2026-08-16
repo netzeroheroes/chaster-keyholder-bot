@@ -987,7 +987,10 @@
       state.lastCount = -1;
       state.stickToBottom = true;
       const posted = data.group_posts || [];
-      if (posted.length && state.room !== "group") {
+      if (data.open_private && state.role === "domme") {
+        setStatus("Moved the plan to Private.");
+        await switchRoom("private");
+      } else if (posted.length && state.room !== "group") {
         setStatus(`Posted ${posted.length} to Group.`);
         await switchRoom("group");
       } else {
