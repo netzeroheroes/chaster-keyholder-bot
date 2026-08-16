@@ -68,17 +68,21 @@ class BotLockPermissionTests(unittest.TestCase):
     def test_group_voice_uses_miss_g_sample(self) -> None:
         self.ctrl.bot_voice_sample = ""
         text = rc.format_voice_block(room="group")
-        self.assertIn("Mind games with the lock time", text)
-        self.assertIn("pathetic thing is locked", text)
+        self.assertIn("Bratty mind games", text)
+        self.assertIn("talked her into locking", text)
         self.assertNotIn("I tap the metal cage", text)
-        self.assertNotIn("Mind games with the lock time", rc.format_voice_block(room="private"))
+        self.assertNotIn("Bratty mind games", rc.format_voice_block(room="private"))
 
     def test_group_prompt_is_short_mind_games(self) -> None:
-        from app.scene import DEFAULT_GROUP_PROMPT
+        from app.scene import DEFAULT_GROUP_PROMPT, DEFAULT_PRIVATE_PROMPT
 
         self.assertIn("mind games", DEFAULT_GROUP_PROMPT.lower())
-        self.assertLess(len(DEFAULT_GROUP_PROMPT), 1400)
+        self.assertIn("girlfriend", DEFAULT_GROUP_PROMPT.lower())
+        self.assertIn("break him", DEFAULT_GROUP_PROMPT.lower())
+        self.assertLess(len(DEFAULT_GROUP_PROMPT), 1600)
         self.assertNotIn("WHEN HE SPEAKS", DEFAULT_GROUP_PROMPT)
+        self.assertIn("best friend", DEFAULT_PRIVATE_PROMPT.lower())
+        self.assertIn("break him", DEFAULT_PRIVATE_PROMPT.lower())
 
 
 if __name__ == "__main__":

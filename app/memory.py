@@ -290,7 +290,8 @@ class LongTermMemory:
         domme = snap.get("domme_name") or "the keyholder"
         sub = snap.get("sub_name") or "the lockee"
         lines = [
-            f"You are {bot}. She ({domme}) is the keyholder. He ({sub}) is the lockee.",
+            f"You are {bot}. She ({domme}) is his girlfriend and the keyholder. "
+            f"He ({sub}) is the lockee. You talked her into locking him.",
             f"Limits: {', '.join(snap['hard_limits']) or 'ask / learn'}.",
             f"Kinks: {', '.join(snap['kinks']) or 'discovering'}.",
         ]
