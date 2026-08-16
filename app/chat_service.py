@@ -59,6 +59,7 @@ from app.speaker_guard import (
     strip_leaked_instructions,
     strip_scripted_dialogue,
     strip_stage_directions,
+    strip_word_salad,
     wants_to_be_free,
     writes_scripted_dialogue,
 )
@@ -1537,6 +1538,12 @@ async def handle_chat_turn(
     )
     visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
+    cleaned_salad = strip_word_salad(visible_reply)
+    if cleaned_salad != (visible_reply or "").strip():
+        log.warning("Stripped word-salad from %s reply", room)
+        visible_reply = cleaned_salad or (
+            "Pick one of his kinks and use it. Keep the hour as play, then lock him."
+        )
     if room == "private":
         rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")
         rem = (rem_m.group(1).strip() if rem_m else "") or live_remaining

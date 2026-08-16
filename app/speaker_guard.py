@@ -865,3 +865,52 @@ def rewrite_beg_unlock(reply: str) -> str:
         flags=re.I,
     )
     return text
+
+
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_ACCENT = re.compile(r"[À-ÿ]")
+_INVENTED_VIOLENCE = re.compile(r"\b(raped?|rape)\b", re.I)
+_STOP = frozenset(
+    "the a an and or but if to of in on for with his him he she we i you that this "
+    "is are was were be been being at as by from not no so it its our your their "
+    "when what who how then than too just about into over after before".split()
+)
+
+
+def looks_like_salad_sentence(sent: str) -> bool:
+    """True for garbled / mixed-language / invented-violence sentences."""
+    text = (sent or "").strip()
+    if not text:
+        return False
+    if _INVENTED_VIOLENCE.search(text):
+        return True
+    words = re.findall(r"[A-Za-zÀ-ÿ']+", text)
+    if len(words) < 6:
+        return bool(_ACCENT.search(text) and len(words) >= 3)
+    longish = sum(1 for w in words if len(w) >= 8)
+    stops = sum(1 for w in words if w.lower() in _STOP)
+    exotic = sum(1 for w in words if _ACCENT.search(w))
+    if exotic and longish >= 2:
+        return True
+    run = 0
+    for word in words:
+        if len(word) >= 8:
+            run += 1
+            if run >= 3:
+                return True
+        else:
+            run = 0
+    if longish / len(words) >= 0.4 and stops / len(words) <= 0.18:
+        return True
+    return False
+
+
+def strip_word_salad(text: str, *, fallback: str = "") -> str:
+    """Drop word-salad sentences; keep the coherent ones."""
+    raw = (text or "").strip()
+    if not raw:
+        return (fallback or "").strip()
+    parts = _SENT_SPLIT.split(raw)
+    kept = [p.strip() for p in parts if p.strip() and not looks_like_salad_sentence(p)]
+    out = " ".join(kept).strip()
+    return out or (fallback or "").strip()

@@ -87,7 +87,7 @@ class ChatAgent:
                 "messages": messages,
                 # Cap so OpenRouter credit checks don't reserve a huge completion
                 "max_tokens": max_tokens,
-                "temperature": 1.05,
+                "temperature": 0.9,
             }
             if use_penalties:
                 # Light penalties — high frequency_penalty makes her clipped and robotic

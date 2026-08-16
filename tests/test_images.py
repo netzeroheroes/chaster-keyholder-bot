@@ -15,6 +15,7 @@ from app.speaker_guard import (
     strip_invented_night_out,
     strip_leaked_instructions,
     strip_stage_directions,
+    strip_word_salad,
 )
 
 
@@ -133,6 +134,28 @@ class TermAndDumpTests(unittest.TestCase):
             "My eyes are locked on you. The air around you crackles."
         )
         self.assertTrue(looks_like_image_dump(raw))
+
+    def test_strips_word_salad_keeps_kink_plan(self) -> None:
+        raw = (
+            "Since we're rummaging through his mind, let's wind him up with his "
+            "top secret fantasies - don't miss the ticket that says 'cuckold'. "
+            "Picture his face when he realizes we know. "
+            "I'll throw in the cache of the days we raped without pounding him "
+            "into term after épousing the appendix, battered prodigious viginity "
+            "and greying his realism towards nausea."
+        )
+        cleaned = strip_word_salad(raw)
+        self.assertIn("cuckold", cleaned)
+        self.assertIn("Picture his face", cleaned)
+        self.assertNotIn("épousing", cleaned)
+        self.assertNotIn("raped", cleaned)
+        self.assertNotIn("viginity", cleaned)
+
+    def test_keeps_plain_private_plan(self) -> None:
+        raw = (
+            "Cuckold tonight. Unlock him, tease that, then lock him at the end."
+        )
+        self.assertEqual(strip_word_salad(raw), raw)
 
 
 if __name__ == "__main__":
