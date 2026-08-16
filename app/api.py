@@ -187,6 +187,8 @@ class ControlsUpdate(BaseModel):
     bot_allow_freeze: bool | None = None
     bot_allow_hide_timer: bool | None = None
     bot_allow_pillory: bool | None = None
+    bot_voice: str | None = None
+    bot_voice_sample: str | None = None
 
 
 def create_api(

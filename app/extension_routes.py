@@ -83,6 +83,8 @@ _CONFIG_KEYS = (
     "bot_allow_freeze",
     "bot_allow_hide_timer",
     "bot_allow_pillory",
+    "bot_voice",
+    "bot_voice_sample",
     "bot_name",
     "domme_title",
 )
@@ -482,6 +484,8 @@ def register_extension_routes(
         cfg.setdefault("bot_allow_freeze", True)
         cfg.setdefault("bot_allow_hide_timer", True)
         cfg.setdefault("bot_allow_pillory", True)
+        cfg.setdefault("bot_voice", "cruel")
+        cfg.setdefault("bot_voice_sample", "")
         return cfg
 
     def _sync_controls_from_config(cfg: dict[str, Any]) -> dict[str, Any]:

@@ -16,6 +16,8 @@
     autopilotPunishSeconds: document.getElementById("autopilotPunishSeconds"),
     botName: document.getElementById("botName"),
     dommeTitle: document.getElementById("dommeTitle"),
+    botVoice: document.getElementById("botVoice"),
+    botVoiceSample: document.getElementById("botVoiceSample"),
   };
 
   let configurationToken = "";
@@ -98,6 +100,8 @@
       autopilot_punish_seconds: Number(els.autopilotPunishSeconds.value) || 600,
       bot_name: els.botName.value.trim() || "Keyholder",
       domme_title: els.dommeTitle.value.trim() || "Mistress",
+      bot_voice: els.botVoice?.value || "cruel",
+      bot_voice_sample: (els.botVoiceSample?.value || "").trim().slice(0, 800),
     };
   }
 
@@ -140,6 +144,13 @@
     els.autopilotPunishSeconds.value = cfg.autopilot_punish_seconds ?? 600;
     els.botName.value = cfg.bot_name || "Keyholder";
     els.dommeTitle.value = cfg.domme_title || "Mistress";
+    if (els.botVoice) {
+      const v = String(cfg.bot_voice || "cruel").toLowerCase();
+      els.botVoice.value = ["cruel", "warm", "playful", "humiliatrix"].includes(v)
+        ? v
+        : "cruel";
+    }
+    if (els.botVoiceSample) els.botVoiceSample.value = cfg.bot_voice_sample || "";
   }
 
   function postParent(payload) {

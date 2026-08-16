@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     bot_allow_freeze: bool = True
     bot_allow_hide_timer: bool = True
     bot_allow_pillory: bool = True
+    bot_voice: str = "cruel"
+    bot_voice_sample: str = ""
 
     # Chaster partner extension (iframe) hosting
     # Main/config pages must be public HTTPS; content is token-gated.

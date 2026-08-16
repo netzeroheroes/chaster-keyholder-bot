@@ -48,6 +48,14 @@ class BotLockPermissionTests(unittest.TestCase):
         self.assertIn("Enabled:", text)
         self.assertIn("Disabled: hide/show timer", text)
 
+    def test_voice_block_uses_preset_and_sample(self) -> None:
+        self.ctrl.bot_voice = "warm"
+        self.ctrl.bot_voice_sample = "Mmm. Stay denied, darling."
+        text = rc.format_voice_block()
+        self.assertIn("Tone: warm", text)
+        self.assertIn("Stay denied, darling", text)
+        self.assertNotIn("humiliatrix", text)
+
 
 if __name__ == "__main__":
     unittest.main()

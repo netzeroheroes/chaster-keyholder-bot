@@ -18,6 +18,22 @@
     <p class="title">Bot timings &amp; lock controls</p>
     <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
 
+    <p class="title" style="font-size:1rem">Voice</p>
+    <p class="meta">How she talks. Paste a few lines in her voice if you have them.</p>
+    <label class="field">
+      <span>Tone</span>
+      <select id="botVoice">
+        <option value="cruel" selected>Cruel</option>
+        <option value="warm">Warm</option>
+        <option value="playful">Playful</option>
+        <option value="humiliatrix">Humiliatrix</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>How she sounds (optional)</span>
+      <textarea id="botVoiceSample" rows="3" placeholder="1–3 lines in her voice"></textarea>
+    </label>
+
     <p class="title" style="font-size:1rem">Enable</p>
     <p class="meta">What the bot may do on the lock. You can still do these in Chaster yourself.</p>
     <label class="check"><input type="checkbox" id="botAllowAddTime" checked /> Add time</label>

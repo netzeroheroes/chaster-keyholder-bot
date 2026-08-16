@@ -243,49 +243,6 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   --bot: #32243a;
   --domme: #4a2e58;
 }
-.enable-bar {
-  flex: 0 0 auto;
-  padding: 0.65rem 0.9rem 0.75rem;
-  background: #2a2118;
-  border-bottom: 1px solid rgba(224, 135, 99, 0.35);
-}
-.enable-bar-title {
-  margin: 0 0 0.45rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #f3d2b4;
-}
-.enable-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.85rem;
-}
-.enable-toggles .check {
-  font-size: 0.88rem;
-}
-.enable-bar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  margin-top: 0.55rem;
-}
-.enable-bar-actions .btn {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
-}
-.enable-bar-actions .status {
-  padding: 0;
-  min-height: 0;
-}
-.app.room-private .enable-bar {
-  background: #32243a;
-  border-bottom-color: rgba(196, 150, 220, 0.35);
-}
-.app.room-private .enable-bar-title {
-  color: #f3e0ff;
-}
 
 .app.room-private .room-hint {
   background: #4a2a62;
@@ -418,7 +375,7 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   padding: 0.65rem 0.75rem 0.35rem;
   align-items: end;
 }
-textarea, input[type="text"], input[type="number"] {
+textarea, input[type="text"], input[type="number"], select {
   width: 100%;
   border: 1px solid var(--line);
   background: rgba(0,0,0,0.25);

@@ -44,6 +44,9 @@ class RuntimeControls:
     bot_allow_freeze: bool = True
     bot_allow_hide_timer: bool = True
     bot_allow_pillory: bool = True
+    # How the AI Domme talks (Settings → Voice)
+    bot_voice: str = "cruel"
+    bot_voice_sample: str = ""
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -72,6 +75,8 @@ class RuntimeControls:
             bot_allow_freeze=getattr(settings, "bot_allow_freeze", True),
             bot_allow_hide_timer=getattr(settings, "bot_allow_hide_timer", True),
             bot_allow_pillory=getattr(settings, "bot_allow_pillory", True),
+            bot_voice=getattr(settings, "bot_voice", "cruel") or "cruel",
+            bot_voice_sample=getattr(settings, "bot_voice_sample", "") or "",
         )
 
     @classmethod
@@ -205,4 +210,44 @@ def format_bot_lock_permissions() -> str:
             + ". Do not emit [[[LOCK]]] tags for these. "
             "If she asks, say it is turned off in Settings → Enable."
         )
+    return "\n".join(lines)
+
+
+VOICE_PRESETS = {
+    "cruel": (
+        "Dry, precise, a little mean. Enjoy his wait. Do not soothe him. "
+        "Do not recap the rules."
+    ),
+    "warm": (
+        "Fond and firmly in control. Tease with affection. Still deny. "
+        "Never turn into a therapist."
+    ),
+    "playful": (
+        "Light, wicked, laughing at him. Short dares. Not a lecture."
+    ),
+    "humiliatrix": (
+        "Degrading and specific. The cage is the joke. Never kind for free."
+    ),
+}
+
+
+def format_voice_block() -> str:
+    """Inject Settings → Voice into the model prompt."""
+    try:
+        controls = get_controls()
+    except RuntimeError:
+        return ""
+    key = str(getattr(controls, "bot_voice", "") or "cruel").strip().lower()
+    if key not in VOICE_PRESETS:
+        key = "cruel"
+    flavour = VOICE_PRESETS[key]
+    sample = str(getattr(controls, "bot_voice_sample", "") or "").strip()[:800]
+    lines = [
+        "[VOICE — Settings]",
+        f"Tone: {key}. {flavour}",
+        "Match this tone in every reply. Do not name the setting.",
+    ]
+    if sample:
+        lines.append("Match this sample of her voice:")
+        lines.append(sample)
     return "\n".join(lines)

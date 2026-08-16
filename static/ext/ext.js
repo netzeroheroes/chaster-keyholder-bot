@@ -8,9 +8,6 @@
     sessionMeta: document.getElementById("sessionMeta"),
     boxStatus: document.getElementById("boxStatus"),
     settingsBtn: document.getElementById("settingsBtn"),
-    enableBar: document.getElementById("enableBar"),
-    enableBarSave: document.getElementById("enableBarSave"),
-    enableBarStatus: document.getElementById("enableBarStatus"),
     kinksBtn: document.getElementById("kinksBtn"),
     settingsPanel: document.getElementById("settingsPanel"),
     settingsClose: document.getElementById("settingsClose"),
@@ -184,13 +181,6 @@
     });
     els.app.classList.toggle("room-private", state.room === "private");
     els.app.classList.toggle("room-group", state.room !== "private");
-    const kh = state.role === "domme" || state.chasterRole === "keyholder";
-    if (els.enableBar) {
-      els.enableBar.classList.toggle(
-        "hidden",
-        !(kh && state.room === "private")
-      );
-    }
     if (state.room === "private") {
       els.heading.textContent = "Private";
       els.roomHint.textContent = "Private — lockee cannot see this";
@@ -313,7 +303,6 @@
       if (els.quickLockBtn) els.quickLockBtn.classList.remove("hidden");
     } else {
       els.privateTab.classList.add("hidden");
-      if (els.enableBar) els.enableBar.classList.add("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
@@ -555,40 +544,28 @@
   }
 
   const ENABLE_FLAGS = [
-    ["bot_allow_add_time", "setBotAllowAddTime", "barBotAllowAddTime"],
-    ["bot_allow_remove_time", "setBotAllowRemoveTime", "barBotAllowRemoveTime"],
-    ["bot_allow_freeze", "setBotAllowFreeze", "barBotAllowFreeze"],
-    ["bot_allow_hide_timer", "setBotAllowHideTimer", "barBotAllowHideTimer"],
-    ["bot_allow_pillory", "setBotAllowPillory", "barBotAllowPillory"],
+    ["bot_allow_add_time", "setBotAllowAddTime"],
+    ["bot_allow_remove_time", "setBotAllowRemoveTime"],
+    ["bot_allow_freeze", "setBotAllowFreeze"],
+    ["bot_allow_hide_timer", "setBotAllowHideTimer"],
+    ["bot_allow_pillory", "setBotAllowPillory"],
   ];
 
   function setEnableFlags(cfg) {
     const flagOn = (key) => cfg[key] !== false;
-    ENABLE_FLAGS.forEach(([key, setId, barId]) => {
-      const on = flagOn(key);
+    ENABLE_FLAGS.forEach(([key, setId]) => {
       const formEl = document.getElementById(setId);
-      const barEl = document.getElementById(barId);
-      if (formEl) formEl.checked = on;
-      if (barEl) barEl.checked = on;
+      if (formEl) formEl.checked = flagOn(key);
     });
   }
 
   function readEnableFlags() {
     const out = {};
-    ENABLE_FLAGS.forEach(([key, setId, barId]) => {
-      const barEl = document.getElementById(barId);
+    ENABLE_FLAGS.forEach(([key, setId]) => {
       const formEl = document.getElementById(setId);
-      out[key] = barEl ? barEl.checked : formEl ? formEl.checked : true;
+      out[key] = formEl ? formEl.checked : true;
     });
     return out;
-  }
-
-  function syncEnableBarToForm() {
-    ENABLE_FLAGS.forEach(([, setId, barId]) => {
-      const barEl = document.getElementById(barId);
-      const formEl = document.getElementById(setId);
-      if (barEl && formEl) formEl.checked = barEl.checked;
-    });
   }
 
   async function loadEnableSettings() {
@@ -603,39 +580,7 @@
       if (!res.ok) return;
       fillSettings(data.config || {});
     } catch (_) {
-      /* bar stays at defaults until Settings is opened */
-    }
-  }
-
-  async function saveEnableSettings(statusEl) {
-    const note = statusEl || els.enableBarStatus;
-    if (note) note.textContent = "Saving…";
-    syncEnableBarToForm();
-    try {
-      const got = await fetch("/api/ext/settings/get", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ main_token: state.mainToken }),
-      });
-      const live = await got.json().catch(() => ({}));
-      if (!got.ok) throw new Error(apiDetail(live, "Could not load settings"));
-      const cfg = { ...(live.config || {}), ...readEnableFlags() };
-      const res = await fetch("/api/ext/settings/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          main_token: state.mainToken,
-          config: cfg,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
-      setEnableFlags(data.config || cfg);
-      if (note) note.textContent = "Saved.";
-      return data;
-    } catch (err) {
-      if (note) note.textContent = String(err.message || err);
-      throw err;
+      /* Settings stay at defaults until the panel is opened */
     }
   }
 
@@ -671,6 +616,15 @@
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
     g("setDommeTitle").value = cfg.domme_title || "Mistress";
+    const voiceEl = g("setBotVoice");
+    if (voiceEl) {
+      const v = String(cfg.bot_voice || "cruel").toLowerCase();
+      voiceEl.value = ["cruel", "warm", "playful", "humiliatrix"].includes(v)
+        ? v
+        : "cruel";
+    }
+    const sampleEl = g("setBotVoiceSample");
+    if (sampleEl) sampleEl.value = cfg.bot_voice_sample || "";
     const allowP = secondsToParts(cfg.hygiene_allowed_seconds ?? 600, "minutes");
     const lateP = secondsToParts(cfg.hygiene_late_punish_seconds ?? 1800, "minutes");
     if (g("hygAllowValue")) {
@@ -722,6 +676,8 @@
       autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
       bot_name: g("setBotName").value.trim() || "Keyholder",
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
+      bot_voice: g("setBotVoice")?.value || "cruel",
+      bot_voice_sample: (g("setBotVoiceSample")?.value || "").trim().slice(0, 800),
       hygiene_allowed_seconds: partsToSeconds(
         g("hygAllowValue")?.value || 10,
         g("hygAllowUnit")?.value || "minutes"
@@ -1073,15 +1029,6 @@
       openKinks();
     });
   }
-  if (els.enableBarSave) {
-    els.enableBarSave.addEventListener("click", async () => {
-      try {
-        await saveEnableSettings(els.enableBarStatus);
-      } catch (_) {
-        /* status already set */
-      }
-    });
-  }
   if (els.settingsClose) {
     els.settingsClose.addEventListener("click", closeSettings);
   }
@@ -1096,7 +1043,6 @@
       e.stopPropagation();
       els.settingsStatus.textContent = "Saving…";
       try {
-        syncEnableBarToForm();
         const cfg = readSettings();
         const res = await fetch("/api/ext/settings/save", {
           method: "POST",

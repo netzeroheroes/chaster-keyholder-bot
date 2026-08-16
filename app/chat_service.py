@@ -81,7 +81,7 @@ from app.punish import (
     is_mercy_plea,
     looks_like_obedience,
 )
-from app.runtime_controls import get_controls
+from app.runtime_controls import format_voice_block, get_controls
 from app.scene_builder import pick_toys, wants_scene_build
 from app.scene_interview import (
     apply_interview_answer,
@@ -1158,6 +1158,8 @@ async def handle_chat_turn(
         + "\n\n"
         + memory.prompt_block(room=room)
         + anti_loop
+        + "\n"
+        + format_voice_block()
         + "\n"
         + PRACTICE_BLOCK
     )
