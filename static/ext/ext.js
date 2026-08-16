@@ -522,6 +522,8 @@
     const note = `${action === "unlock" ? "Unlocking" : action === "lock" ? "Locking" : action}…`;
     if (statusEl) statusEl.textContent = note;
     if (chatStatus) chatStatus.textContent = note;
+    if (els.quickUnlockBtn) els.quickUnlockBtn.disabled = true;
+    if (els.quickLockBtn) els.quickLockBtn.disabled = true;
     try {
       const res = await fetch("/api/ext/lockbox/action", {
         method: "POST",
@@ -535,11 +537,21 @@
       const ls = data.last_sync || {};
       const done = ls.detail || `Lockbox ${action} done.`;
       if (statusEl) statusEl.textContent = done;
-      if (chatStatus) chatStatus.textContent = done;
+      if (chatStatus) {
+        chatStatus.textContent = data.chat
+          ? `${done} Conversation started.`
+          : data.chat_error || done;
+      }
+      if (action === "unlock" || action === "lock") {
+        await loadHistory();
+      }
     } catch (err) {
       const msg = String(err.message || err);
       if (statusEl) statusEl.textContent = msg;
       if (chatStatus) chatStatus.textContent = msg;
+    } finally {
+      if (els.quickUnlockBtn) els.quickUnlockBtn.disabled = false;
+      if (els.quickLockBtn) els.quickLockBtn.disabled = false;
     }
   }
 

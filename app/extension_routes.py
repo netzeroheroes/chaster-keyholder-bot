@@ -17,6 +17,7 @@ from app.autopilot import autopilot_status, run_unprompted_tick
 from app.bridge import GroupBridge
 from app.chaster import ChasterClient
 from app.chat_service import handle_chat_turn
+from app.play_thread import apply_play_updates, box_button_message
 from app.config import Settings
 from app.extension_auth import (
     ExtensionAuthCache,
@@ -699,6 +700,34 @@ def register_extension_routes(
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result
         snap["lockbox"] = await _box_view(force=True)
+        spoken = box_button_message(action)
+        if spoken and result.get("ok"):
+            apply_play_updates(
+                scene,
+                {"cage": "off_for_play" if action == "unlock" else "on"},
+            )
+            try:
+                save_scene(scene)
+            except Exception:  # noqa: BLE001
+                log.exception("Could not save play thread after lockbox %s", action)
+            try:
+                snap["chat"] = await handle_chat_turn(
+                    agent=agent,
+                    store=store,
+                    scene=scene,
+                    memory=memory,
+                    bridge=bridge,
+                    images=images,
+                    chaster=chaster,
+                    role="domme",
+                    room="private",
+                    message=spoken,
+                    chaster_role=sess.role,
+                    chaster_username=sess.speaker_username,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Lockbox %s conversation failed", action)
+                snap["chat_error"] = "Box changed; I couldn't start the chat."
         return snap
 
     def _hygiene_note(text: str, *, room: str = "private") -> None:

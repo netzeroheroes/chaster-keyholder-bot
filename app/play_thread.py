@@ -22,7 +22,13 @@ _UNCAGE = re.compile(
 )
 _EDGE = re.compile(r"\bedge(?:d| him| me)?\b", re.I)
 _KEEP_LOCKED = re.compile(
-    r"\b(keep him locked|stay locked|leave him locked|don'?t (?:let him out|unlock))\b",
+    r"\b("
+    r"keep him locked|stay locked|leave him locked|"
+    r"don'?t (?:let him out|unlock)|"
+    r"just locked(?: him)?|"
+    r"locked him back|"
+    r"back in the cage"
+    r")\b",
     re.I,
 )
 
@@ -39,6 +45,23 @@ def parse_play_updates(message: str) -> dict[str, str]:
     if _KEEP_LOCKED.search(text):
         out["cage"] = "on"
     return out
+
+
+BOX_BUTTON_LINES = {
+    "unlock": (
+        "I just unlocked the box. He's uncaged. "
+        "Help me play with him — tease him."
+    ),
+    "lock": (
+        "I just locked him back in the cage. "
+        "Keep going — tease him."
+    ),
+}
+
+
+def box_button_message(action: str) -> str | None:
+    """Spoken line when she taps Unlock / Lock — starts a Private turn + Group tease."""
+    return BOX_BUTTON_LINES.get((action or "").strip().lower())
 
 
 def wants_uncage_play(message: str) -> bool:
