@@ -29,7 +29,11 @@ _ADDRESSES_LISTENER_AS_SUB = re.compile(
     r"maybe if you earn it|"
     r"i('ll| will) talk to her|"
     r"talk to her about what comes next|"
-    r"\byou('re| are) (?:locked|denied|frozen|caged)\b"
+    r"\byou('re| are) (?:locked|denied|frozen|caged)\b|"
+    r"\bshe(?:'ll| will) (?:just )?hand you\b|"
+    r"\byou think she(?:'ll| will)\b|"
+    r"\btell her how (?:badly )?you(?:'re| are) begging\b|"
+    r"\bhand you freedom\b"
     r")",
     re.I,
 )

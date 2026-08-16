@@ -9,13 +9,20 @@ from app.chaster_actions import (
     seconds_for_scale,
 )
 from app.clock import asks_lock_remaining
+from app.chat_service import _clean_history_for_model, extract_spoken_user
 from app.roles import (
+    GROUP_KEYHOLDER_RULE,
     PRIVATE_HARD_RULE,
     format_user_line,
+    history_speaker_tag,
     is_bot_display_speaker,
     speaker_label,
 )
-from app.speaker_guard import enforce_private_keyholder_voice, talks_to_lockee
+from app.speaker_guard import (
+    enforce_private_keyholder_voice,
+    mistreats_domme_as_sub,
+    talks_to_lockee,
+)
 
 
 class PrivateKeyholderTests(unittest.TestCase):
@@ -32,6 +39,51 @@ class PrivateKeyholderTests(unittest.TestCase):
         self.assertTrue(is_bot_display_speaker("Keyholder", "Keyholder"))
         self.assertFalse(is_bot_display_speaker("Domme (@TheBosses)"))
         self.assertFalse(is_bot_display_speaker("Keyholder (@TheBosses)"))
+        self.assertFalse(is_bot_display_speaker("Lockee (@Chastityguy80)"))
+
+    def test_group_labels_are_keyholder_and_lockee(self) -> None:
+        kh = speaker_label("domme", chaster_username="TheBosses", room="group")
+        lockee = speaker_label("sub", chaster_username="Chastityguy80", room="group")
+        self.assertTrue(kh.startswith("Keyholder"))
+        self.assertTrue(lockee.startswith("Lockee"))
+        line = format_user_line(
+            "domme",
+            "i might unlock him for a bit tonight to play",
+            chaster_username="TheBosses",
+            room="group",
+        )
+        self.assertIn("KEYHOLDER", line.upper())
+        self.assertIn(GROUP_KEYHOLDER_RULE[:20], line)
+        self.assertIn("human keyholder", line.lower())
+
+    def test_history_keeps_role_tags(self) -> None:
+        blob = format_user_line(
+            "domme",
+            "i might unlock him for a bit tonight to play",
+            chaster_username="TheBosses",
+            room="group",
+        )
+        self.assertEqual(history_speaker_tag(blob), "Keyholder (@TheBosses)")
+        self.assertEqual(
+            extract_spoken_user(blob),
+            "i might unlock him for a bit tonight to play",
+        )
+        cleaned = _clean_history_for_model(
+            [
+                {"role": "user", "content": blob},
+                {"role": "assistant", "content": "Nice — take him out tonight."},
+            ],
+            room="group",
+        )
+        self.assertTrue(cleaned[0]["content"].startswith("Keyholder (@TheBosses):"))
+        self.assertTrue(cleaned[1]["content"].startswith("Bot:"))
+
+    def test_group_kh_reply_must_not_talk_to_him(self) -> None:
+        bad = (
+            "Oh, so you think she'll just hand you freedom so easily? "
+            "Maybe I should tell her how badly you're begging."
+        )
+        self.assertTrue(mistreats_domme_as_sub(bad))
 
     def test_private_user_line_hard_rule(self) -> None:
         line = format_user_line(

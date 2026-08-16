@@ -199,7 +199,7 @@
     if (m && m.from_bot === true) return true;
     if (m && m.from_bot === false) return false;
     const who = String((m && m.speaker) || "");
-    if (/^(Domme|Sub|Keyholder\s*[\(@])/i.test(who)) return false;
+    if (/^(Domme|Sub|Lockee|Keyholder\s*[\(@])/i.test(who)) return false;
     const bot = String(state.botName || "Keyholder");
     return !who || who === bot || /^keyholder$/i.test(who) || /^bot$/i.test(who);
   }
@@ -210,11 +210,9 @@
       if (!who || /^keyholder$/i.test(who)) return "Bot";
       return who;
     }
-    if (state.room === "private") {
-      if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
-      return who || "Keyholder";
-    }
-    return who || "Keyholder";
+    if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
+    if (/^Sub\b/i.test(who)) return who.replace(/^Sub/i, "Lockee");
+    return who || (state.room === "private" ? "Keyholder" : "Lockee");
   }
 
   function messageClass(m) {
@@ -222,7 +220,7 @@
     if (state.room === "private") return "Domme";
     const who = String((m && m.speaker) || "");
     if (who.startsWith("Domme") || who.startsWith("Keyholder")) return "Domme";
-    if (who.startsWith("Sub")) return "Sub";
+    if (who.startsWith("Sub") || who.startsWith("Lockee")) return "Sub";
     return "bot";
   }
 

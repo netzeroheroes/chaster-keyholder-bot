@@ -147,12 +147,15 @@ from app.images import (
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
 from app.roles import (
+    GROUP_KEYHOLDER_RULE,
+    GROUP_LOCKEE_RULE,
     PRIVATE_HARD_RULE,
     Room,
     Role,
     bot_label,
     domme_address,
     format_user_line,
+    history_speaker_tag,
     session_id_for,
     speaker_label,
 )
@@ -225,11 +228,11 @@ _THEY_SAID = re.compile(
     re.S,
 )
 _LABEL_OPEN = re.compile(
-    r"^\[(?:Domme|Sub|Keyholder)[^\]]*\]:\s*(.+)$",
+    r"^\[(?:Domme|Sub|Keyholder|Lockee)[^\]]*\]:\s*(.+)$",
     re.I,
 )
 _SPEAKER_OPEN = re.compile(
-    r"^(?:Domme|Sub|Keyholder)(?:\s+\([^)]+\))?:\s*(.+)$",
+    r"^(?:Domme|Sub|Keyholder|Lockee)(?:\s+\([^)]+\))?:\s*(.+)$",
     re.I,
 )
 
@@ -278,17 +281,39 @@ def _clean_history_for_model(
             spoken = extract_spoken_user(content)
             if not spoken:
                 continue
-            content = spoken
+            tag = history_speaker_tag(content)
+            content = f"{tag}: {spoken}" if tag else spoken
+        elif role == "assistant" and not re.match(r"^Bot\b", content, re.I):
+            content = f"Bot: {content}"
         cleaned.append({"role": role, "content": content})
     return cleaned[-limit:]
 
 
-def _focus_user_payload(message: str, *, speaker: str, extras: str = "") -> str:
+def _focus_user_payload(
+    message: str,
+    *,
+    speaker: str,
+    extras: str = "",
+    role: Role | None = None,
+    room: Room | None = None,
+) -> str:
     said = (message or "").strip()
+    if role == "domme":
+        who = (
+            f"{speaker} is the KEYHOLDER (his girlfriend). She has the keys. "
+            "Reply TO her. Talk about him as he/him."
+        )
+    elif role == "sub":
+        who = (
+            f"{speaker} is the LOCKEE. Reply TO him. She is the keyholder."
+        )
+    else:
+        who = f"Speaker: {speaker}. Reply to those words."
     parts = [
         "THEY SAID (answer this — do not ignore it):",
         f'"""{said}"""',
-        f"Speaker: {speaker}. Reply to those words. Use the chat history as context.",
+        who,
+        "History lines are tagged Keyholder: / Lockee: / Bot: — believe the tags.",
     ]
     extra = (extras or "").strip()
     if extra:
@@ -438,14 +463,24 @@ async def handle_chat_turn(
         extra_notes.append(persona_director(room=room))
     if room == "group" and role != "domme" and watching_unlock_countdown(message):
         extra_notes.append(countdown_director())
-    if room == "private":
+    if role == "domme":
         play_bits = parse_play_updates(message)
         if play_bits:
             apply_play_updates(scene, play_bits)
         play_note = format_play_block(scene, this_turn=play_bits)
-        if play_note:
+        if play_note and room == "private":
             extra_notes.append(play_note)
+        elif play_note and room == "group":
+            extra_notes.append(
+                "[DIRECTOR: She is planning play with him. Stay on her idea. "
+                "Reply TO her. Do not talk to him as 'you'.]"
+            )
+    if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
+    elif room == "group":
+        extra_notes.append(
+            f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
+        )
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):
         if room == "private":
             extra_notes.append(
@@ -1209,14 +1244,15 @@ async def handle_chat_turn(
             )
     else:
         who = (
-            f"{title} just spoke — add one short beat. Do not spoil her plan."
+            f"{title} (KEYHOLDER) just spoke. Reply TO her about him. "
+            "Do not talk to him as 'you'. Do not spoil her plan."
             if role == "domme"
-            else f"He just spoke — answer him in character. {title} is the keyholder."
+            else f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder."
         )
         anti_loop = (
             "\nTHIS TURN — GROUP:\n"
             f"{who}\n"
-            "Short. A mind game about the lock. No (brackets). No lock-number dump.\n"
+            "Short. No (brackets). No lock-number dump.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
@@ -1240,6 +1276,8 @@ async def handle_chat_turn(
         message,
         speaker=speaker,
         extras="\n\n".join(n for n in extra_notes if n and str(n).strip()),
+        role=role,
+        room=room,
     )
 
     store.append_display(

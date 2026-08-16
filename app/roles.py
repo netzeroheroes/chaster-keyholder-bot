@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -9,9 +10,21 @@ Role = Literal["domme", "sub"]
 Room = Literal["private", "group"]
 
 SPEAKER = {
-    "domme": "Domme",
-    "sub": "Sub",
+    "domme": "Keyholder",
+    "sub": "Lockee",
 }
+
+GROUP_KEYHOLDER_RULE = (
+    "HARD RULE — GROUP, KEYHOLDER SPEAKING: She just spoke. Reply TO her. "
+    "He can see this. Talk about him as he/him. "
+    "Never treat her as locked. Never say she will 'hand you' freedom. "
+    "Never tell 'her' how badly 'you' are begging — that is talking to him."
+)
+
+GROUP_LOCKEE_RULE = (
+    "HARD RULE — GROUP, LOCKEE SPEAKING: He just spoke. Reply TO him. "
+    "She is the keyholder. You are not her. Do not offer unlock."
+)
 
 PRIVATE_HARD_RULE = (
     "HARD RULE — PRIVATE CHAT: This room is ONLY the keyholder and you (the bot). "
@@ -42,7 +55,9 @@ def speaker_label(
     room: Room | None = None,
 ) -> str:
     """Human-readable speaker tag used in UI + model context."""
-    base = "Keyholder" if room == "private" else SPEAKER[role]
+    base = SPEAKER[role] if role in SPEAKER else "Keyholder"
+    if room == "private":
+        base = "Keyholder"
     handle = (chaster_username or "").strip().lstrip("@")
     if handle:
         return f"{base} (@{handle})"
@@ -63,7 +78,7 @@ def is_bot_display_speaker(speaker: str, bot_name: str = "") -> bool:
     if not who:
         return True
     low = who.lower()
-    if low.startswith("domme") or low.startswith("sub"):
+    if low.startswith("domme") or low.startswith("sub") or low.startswith("lockee"):
         return False
     if low.startswith("keyholder (") or low.startswith("keyholder (@"):
         return False
@@ -96,6 +111,23 @@ def domme_address(
     return "the Domme"
 
 
+_STORED_TAG = re.compile(
+    r"^\[(?P<label>Keyholder|Domme|Lockee|Sub)(?P<rest>\s+\([^)]+\))?\]:",
+    re.I,
+)
+
+
+def history_speaker_tag(content: str) -> str:
+    """Turn a stored [Domme (@X)]: blob into 'Keyholder (@X)' for model history."""
+    m = _STORED_TAG.match((content or "").lstrip())
+    if not m:
+        return ""
+    raw = m.group("label").lower()
+    role = "Keyholder" if raw in {"keyholder", "domme"} else "Lockee"
+    rest = (m.group("rest") or "").strip()
+    return f"{role} {rest}".strip() if rest else role
+
+
 def format_user_line(
     role: Role,
     message: str,
@@ -111,9 +143,9 @@ def format_user_line(
     if room == "private":
         who = "human keyholder (this entire private room is her, except bot answers)"
     elif role == "domme":
-        who = "human Domme / Chaster keyholder"
+        who = "human keyholder (his girlfriend — she has the keys)"
     else:
-        who = "human Sub / Chaster wearer (lockee)"
+        who = "human lockee (the wearer — he is locked)"
     chaster_bit = ""
     cr = (chaster_role or "").strip().lower()
     handle = (chaster_username or "").strip().lstrip("@")
@@ -129,7 +161,12 @@ def format_user_line(
     elif room == "group":
         channel = (
             "[CHANNEL: GROUP — keyholder + lockee + you. Everyone can see this. "
-            "Help her run him. Do not workshop strategy out loud.]"
+            + (
+                GROUP_KEYHOLDER_RULE
+                if role == "domme"
+                else GROUP_LOCKEE_RULE
+            )
+            + "]"
         )
     else:
         channel = ""
@@ -147,8 +184,7 @@ def format_user_line(
     return (
         f"[{label}]: {message}\n"
         f"[IDENTITY: This message is from the {who}.{chaster_bit} "
-        f"You are her AI friend helping run the lock — a separate person. "
-        f"Never speak as {SPEAKER[role]}.]\n"
+        f"You are the bot — a separate person. Never speak as {SPEAKER[role]}.]\n"
         f"{address}"
         + (f"\n{channel}" if channel else "")
     )
