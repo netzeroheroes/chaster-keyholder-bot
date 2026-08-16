@@ -675,7 +675,10 @@ _PLANNING_ASK = re.compile(
     r"what (games|hints)|"
     r"give me (some |a few |a )?(hints?|ideas?|games?|teasers?)|"
     r"plan (the )?week|"
-    r"keep him (horny|needy|submissive|denied|desperate)"
+    r"keep him (horny|needy|submissive|denied|desperate)|"
+    r"wh?ich (?:of )?(?:his )?(?:toys?|kinks?|fetishes)|"
+    r"(?:choose|pick) (?:one|a toy|a kink)|"
+    r"use against him"
     r")\b",
     re.I,
 )

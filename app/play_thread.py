@@ -164,6 +164,10 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
         bits.append("unlock window " + thread["window"])
     if thread.get("flavors"):
         bits.append("flavors: " + thread["flavors"])
+    if thread.get("kink"):
+        bits.append("use kink " + thread["kink"])
+    if thread.get("toy"):
+        bits.append("use toy " + thread["toy"])
     try:
         from app.play_session import snapshot as play_snap
 

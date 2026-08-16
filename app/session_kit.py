@@ -210,6 +210,131 @@ async def load_wearer_catalog(
     return catalog
 
 
+_KIT_CHOICE = re.compile(
+    r"\b("
+    r"wh?ich (?:of )?(?:his )?(?:toys?|kinks?|fetishes).{0,48}"
+    r"(?:use|tonight|today|against|choose|pick)|"
+    r"wh?ich should we use|"
+    r"(?:choose|pick) (?:one|a toy|a kink)|"
+    r"use against him|"
+    r"use on him today|"
+    r"incorporate"
+    r")\b",
+    re.I,
+)
+
+
+def wants_kit_choice(message: str) -> bool:
+    """True when she wants a named toy/kink pick, not a catalog dump."""
+    return bool(_KIT_CHOICE.search(message or ""))
+
+
+def asked_kit_focus(message: str) -> str:
+    text = (message or "").lower()
+    wants_toys = bool(re.search(r"\btoys?\b", text))
+    wants_kinks = bool(re.search(r"\b(kinks?|fetishes)\b", text))
+    if wants_toys and not wants_kinks:
+        return "toys"
+    if wants_kinks and not wants_toys:
+        return "kinks"
+    return "both"
+
+
+def kit_lists_for_choice(
+    *,
+    session_kinks: list[Any] | None = None,
+    session_toys: list[Any] | None = None,
+    memory_kinks: list[Any] | None = None,
+    catalog: dict[str, Any] | None = None,
+) -> tuple[list[str], list[str], str]:
+    """Prefer her ticked kit, then his real Chaster profile, then memory."""
+    kinks = clean_names(session_kinks)
+    toys = clean_names(session_toys)
+    source = "kit" if (kinks or toys) else ""
+    cat = catalog if isinstance(catalog, dict) else {}
+    real = str(cat.get("source") or "") in {"chaster", "mixed"}
+    if not kinks and real:
+        ranked: list[str] = []
+        for want in ("love", "like", "curious", "other"):
+            for item in cat.get("kinks") or []:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("rating") or "other") == want:
+                    ranked.append(str(item.get("name") or ""))
+        kinks = clean_names(ranked)
+        if kinks:
+            source = "profile" if source != "kit" else "kit+profile"
+    if not kinks:
+        kinks = clean_names(memory_kinks)
+        if kinks and not source:
+            source = "memory"
+    if not toys and real:
+        toys = clean_names(
+            [
+                item.get("name") if isinstance(item, dict) else item
+                for item in (cat.get("toys") or [])
+            ]
+        )
+        if toys:
+            source = "profile" if source != "kit" else "kit+profile"
+    return kinks, toys, source or "none"
+
+
+def parse_named_kit_pick(
+    message: str,
+    *,
+    kinks: list[str] | None = None,
+    toys: list[str] | None = None,
+) -> dict[str, str]:
+    text = (message or "").lower()
+    out: dict[str, str] = {}
+    for name in clean_names(kinks):
+        if len(name) >= 3 and name.lower() in text:
+            out["kink"] = name
+            break
+    for name in clean_names(toys):
+        if len(name) >= 3 and name.lower() in text:
+            out["toy"] = name
+            break
+    return out
+
+
+def format_kit_choice_block(
+    *,
+    kinks: list[str] | None,
+    toys: list[str] | None,
+    focus: str = "both",
+    source: str = "",
+) -> str:
+    kink_list = clean_names(kinks)
+    toy_list = clean_names(toys)
+    lines = [
+        "[KIT CHOICE — she asked you to pick. NAME the item from this list.]",
+    ]
+    if source:
+        lines.append(f"Source: {source}.")
+    if focus in {"kinks", "both"}:
+        lines.append(
+            "Kinks you may name: " + (", ".join(kink_list) if kink_list else "(none on file)")
+        )
+    if focus in {"toys", "both"}:
+        lines.append(
+            "Toys you may name: " + (", ".join(toy_list) if toy_list else "(none on file)")
+        )
+    if not kink_list and not toy_list:
+        lines.append(
+            "No list loaded. Tell her to open Kinks and tick, or that his "
+            "Chaster profile is empty. Do not invent a toy or kink."
+        )
+    else:
+        lines.append(
+            "Pick ONE concrete name. Do not say 'the one that makes him squirm' "
+            "or 'the one that breaks him'. If she said choose one, decide — "
+            "do not ask her which. Tie it to tonight's scene. Stay inside hard limits."
+        )
+    return "\n".join(lines)
+
+
 def wants_week_plan(message: str) -> bool:
     text = (message or "").strip()
     if not text:

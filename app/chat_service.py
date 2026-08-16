@@ -116,8 +116,14 @@ from app.scene_interview import (
     wants_cancel_interview,
 )
 from app.session_kit import (
+    asked_kit_focus,
+    format_kit_choice_block,
     format_week_plan_private_note,
     format_week_planner_block,
+    kit_lists_for_choice,
+    load_wearer_catalog,
+    parse_named_kit_pick,
+    wants_kit_choice,
     wants_week_plan,
 )
 
@@ -486,6 +492,44 @@ async def handle_chat_turn(
                 "[DIRECTOR: She is planning play with him. Stay on her idea. "
                 "Reply TO her. Do not talk to him as 'you'.]"
             )
+        if wants_kit_choice(message):
+            catalog = None
+            if chaster and chaster.configured:
+                try:
+                    catalog = await load_wearer_catalog(
+                        chaster=chaster,
+                        memory=memory,
+                        scene=scene,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("Kit choice catalog failed")
+            kinks, toys, kit_source = kit_lists_for_choice(
+                session_kinks=list(scene.session_kinks or []),
+                session_toys=list(scene.session_toys or []),
+                memory_kinks=list(getattr(memory, "kinks", None) or []),
+                catalog=catalog,
+            )
+            focus = asked_kit_focus(message)
+            if focus == "both":
+                focus = str((scene.play_thread or {}).get("kit_focus") or "both")
+            else:
+                apply_play_updates(scene, {"kit_focus": focus})
+            named = parse_named_kit_pick(message, kinks=kinks, toys=toys)
+            if named:
+                apply_play_updates(scene, named)
+            if room == "private":
+                extra_notes.append(
+                    format_kit_choice_block(
+                        kinks=kinks,
+                        toys=toys,
+                        focus=focus,
+                        source=kit_source,
+                    )
+                )
+            else:
+                extra_notes.append(
+                    "[DIRECTOR: She is picking a toy or kink. Do not name the list here.]"
+                )
     if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     elif room == "group":
@@ -1034,7 +1078,13 @@ async def handle_chat_turn(
                 )
                 if result.ok:
                     chaster_note = f"\n\n[{result.facts}]"
-                    if intent.kind in (
+                    if intent.kind == "list_kinks" and wants_kit_choice(message):
+                        chaster_note += (
+                            "\n[DIRECTOR: She wants a pick, not a dump. "
+                            "Name one item from the kit/profile list. "
+                            "Do not paste the catalog.]"
+                        )
+                    elif intent.kind in (
                         "list_capabilities",
                         "list_kinks",
                         "list_history",
