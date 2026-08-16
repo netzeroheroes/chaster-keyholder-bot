@@ -33,7 +33,14 @@ _ADDRESSES_LISTENER_AS_SUB = re.compile(
     r"\bshe(?:'ll| will) (?:just )?hand you\b|"
     r"\byou think she(?:'ll| will)\b|"
     r"\btell her how (?:badly )?you(?:'re| are) begging\b|"
-    r"\bhand you freedom\b"
+    r"\bhand you freedom\b|"
+    r"(?:^|[,.!?]\s+)pet\b|"
+    r"\bpet[,.!?]"
+    r"|"
+    r"\bpatience,?\s+pet\b|"
+    r"\byou(?:'ll| will) earn (?:your )?(?:release|freedom|unlock)\b|"
+    r"\bthe cage waits\b|"
+    r"\bespecially about her\b"
     r")",
     re.I,
 )
@@ -47,7 +54,10 @@ _LOCKEE_ORDER_SENTENCE = re.compile(
     r"stay with that ache|"
     r"maybe if you earn it|"
     r"i('ll| will) talk to her|"
-    r"talk to her about what comes next"
+    r"talk to her about what comes next|"
+    r"patience,?\s+pet|"
+    r"you(?:'ll| will) earn (?:your )?(?:release|freedom|unlock)|"
+    r"the cage waits"
     r")\b[^.!?\n]*[.!?]?",
     re.I,
 )

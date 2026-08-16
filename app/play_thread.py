@@ -29,6 +29,10 @@ _FLAVOR = re.compile(
     r")\b",
     re.I,
 )
+_WINDOW = re.compile(
+    r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b",
+    re.I,
+)
 _KEEP_LOCKED = re.compile(
     r"\b("
     r"keep him locked|stay locked|leave him locked|"
@@ -44,14 +48,21 @@ _KEEP_LOCKED = re.compile(
 def parse_play_updates(message: str) -> dict[str, str]:
     text = message or ""
     out: dict[str, str] = {}
+    unlocked = bool(
+        _UNCAGE.search(text)
+        or re.search(r"\bunlocked\b", text, re.I)
+    )
+    if unlocked:
+        out["cage"] = "off_for_play"
     if _SESSION.search(text) or (
-        _TONIGHT.search(text) and (_UNCAGE.search(text) or re.search(r"\bplay\b", text, re.I))
+        _TONIGHT.search(text)
+        and (unlocked or re.search(r"\bplay\b", text, re.I))
     ):
         out["session"] = "tonight"
-    if _UNCAGE.search(text):
-        out["cage"] = "off_for_play"
     if _EDGE.search(text):
         out["edge"] = "yes"
+    if re.search(r"\btease him\b", text, re.I):
+        out["tease"] = "yes"
     if _KEEP_LOCKED.search(text):
         out["cage"] = "on"
     flavors = []
@@ -61,6 +72,14 @@ def parse_play_updates(message: str) -> dict[str, str]:
             flavors.append(item)
     if flavors:
         out["flavors"] = ", ".join(flavors)
+    wm = _WINDOW.search(text)
+    if wm and (out.get("cage") == "off_for_play" or _TONIGHT.search(text)):
+        n = wm.group(1)
+        unit = wm.group(2).lower()
+        label = "hour" if unit.startswith("h") else "minute"
+        if float(n) != 1:
+            label += "s"
+        out["window"] = f"{n} {label}"
     return out
 
 
@@ -120,6 +139,10 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
         bits.append("keep him locked")
     if thread.get("edge") == "yes":
         bits.append("edge him")
+    if thread.get("tease") == "yes":
+        bits.append("tease him while uncaged")
+    if thread.get("window"):
+        bits.append("unlock window " + thread["window"])
     if thread.get("flavors"):
         bits.append("flavors: " + thread["flavors"])
     if not bits:

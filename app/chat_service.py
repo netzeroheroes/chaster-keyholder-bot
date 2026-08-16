@@ -1245,9 +1245,10 @@ async def handle_chat_turn(
         else:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
-                f"Talk to {title} only — she is the keyholder. Answer what she just said.\n"
+                f"{title} is the KEYHOLDER — his girlfriend. He is not in this room.\n"
+                "Reply TO her. Plan with her. Never call her pet or darling.\n"
+                "Never tell her she will earn release. Talk about him as he/him.\n"
                 "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
-                "Do not tease him in this room.\n"
             )
     else:
         who = (
@@ -1542,6 +1543,12 @@ async def handle_chat_turn(
         if rem:
             fallback = f"His lock remaining is {rem}." + (
                 " It is frozen." if frozen else ""
+            )
+        elif format_play_block(scene):
+            fallback = (
+                f"{title} — you're the keyholder. He cannot see this. "
+                "Tonight's scene: unlock him, tease him, lock him back. "
+                "What beat do you want next?"
             )
         else:
             fallback = (

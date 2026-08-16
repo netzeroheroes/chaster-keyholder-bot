@@ -64,6 +64,16 @@ class PlayThreadTests(unittest.TestCase):
         self.assertIn("SCENE WE ARE ORGANISING", text)
         self.assertIn("do not invent chores", text.lower())
 
+    def test_parses_one_hour_unlock_tonight(self) -> None:
+        bits = parse_play_updates(
+            "so he's going to get unlocked for 1 hr tonight what should we do to him"
+        )
+        self.assertEqual(bits.get("session"), "tonight")
+        self.assertEqual(bits.get("cage"), "off_for_play")
+        self.assertIn("1", bits.get("window") or "")
+        tease = parse_play_updates("should i tease him whilst he's uncaged")
+        self.assertEqual(tease.get("tease"), "yes")
+
     def test_keep_locked_can_override(self) -> None:
         scene = SceneState()
         apply_play_updates(scene, parse_play_updates("uncaged"))

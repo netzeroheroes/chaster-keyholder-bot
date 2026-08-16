@@ -86,6 +86,12 @@ class PrivateKeyholderTests(unittest.TestCase):
             "Maybe I should tell her how badly you're begging."
         )
         self.assertTrue(mistreats_domme_as_sub(bad))
+        self.assertTrue(
+            talks_to_lockee("Patience, pet, the cage waits for no one.")
+        )
+        self.assertTrue(
+            talks_to_lockee("You'll earn your release, but not a moment sooner.")
+        )
 
     def test_private_ask_leaves_group(self) -> None:
         self.assertTrue(
