@@ -39,6 +39,7 @@ from app.speaker_guard import (
     mistreats_domme_as_sub,
     strip_lockee_addressing,
     talks_to_lockee,
+    rewrite_keyholder_as_you,
     repair_bot_submissive,
     repair_confused_domme_reply,
     repair_domme_misaddress,
@@ -1306,14 +1307,15 @@ async def handle_chat_turn(
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
                 f"{title} is the KEYHOLDER — his girlfriend. He is not in this room.\n"
-                "Reply TO her. Plan with her. Never call her pet or darling.\n"
+                "Reply TO her as you. Never 'she lets him out'. "
+                "Plan with her. Never call her pet or darling.\n"
                 "Never tell her she will earn release. Talk about him as he/him.\n"
                 "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
             )
     else:
         who = (
-            f"{title} (KEYHOLDER) just spoke. Reply TO her about him. "
-            "Do not talk to him as 'you'. Do not spoil her plan."
+            f"{title} (KEYHOLDER) just spoke. Reply TO her as you. "
+            "Never 'she lets him out'. Do not talk to him as 'you'. Do not spoil her plan."
             if role == "domme"
             else f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder."
         )
@@ -1603,6 +1605,11 @@ async def handle_chat_turn(
         visible_reply = cleaned_salad or (
             "Pick one of his kinks and use it. Keep the hour as play, then lock him."
         )
+    if room == "private" or role == "domme":
+        you_form = rewrite_keyholder_as_you(visible_reply)
+        if you_form != (visible_reply or ""):
+            log.warning("Rewrote keyholder she→you in %s reply", room)
+            visible_reply = you_form
     if room == "private":
         rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")
         rem = (rem_m.group(1).strip() if rem_m else "") or live_remaining

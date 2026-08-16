@@ -15,8 +15,8 @@ SPEAKER = {
 }
 
 GROUP_KEYHOLDER_RULE = (
-    "HARD RULE — GROUP, KEYHOLDER SPEAKING: She just spoke. Reply TO her. "
-    "He can see this. Talk about him as he/him. "
+    "HARD RULE — GROUP, KEYHOLDER SPEAKING: She just spoke. Reply TO her as you. "
+    "Never 'she lets him out' — that is you. He can see this. Talk about him as he/him. "
     "Never treat her as locked. Never say she will 'hand you' freedom. "
     "Never tell 'her' how badly 'you' are begging — that is talking to him."
 )
@@ -172,7 +172,8 @@ def format_user_line(
         channel = ""
     if room == "private" or role == "domme":
         address = (
-            "[ADDRESS: Reply TO her — she is the keyholder and has the keys. "
+            "[ADDRESS: Reply TO her as you. You are talking to the keyholder. "
+            "Never 'she lets him out' or 'she has the keys' — that is you. "
             "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "
             "The lockee is a different person (he/him). Never call him keyee.]"
         )

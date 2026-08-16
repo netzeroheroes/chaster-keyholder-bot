@@ -21,6 +21,8 @@ from app.roles import (
 from app.speaker_guard import (
     enforce_private_keyholder_voice,
     mistreats_domme_as_sub,
+    refers_to_keyholder_as_she,
+    rewrite_keyholder_as_you,
     should_take_to_private,
     talks_to_lockee,
     wants_private_chat,
@@ -79,6 +81,20 @@ class PrivateKeyholderTests(unittest.TestCase):
         )
         self.assertTrue(cleaned[0]["content"].startswith("Keyholder (@TheBosses):"))
         self.assertTrue(cleaned[1]["content"].startswith("Bot:"))
+
+    def test_she_lets_him_out_becomes_you(self) -> None:
+        raw = (
+            "Great! I have some ideas on how we can tease and torment him "
+            "even more before she lets him out."
+        )
+        self.assertTrue(refers_to_keyholder_as_she(raw))
+        fixed = rewrite_keyholder_as_you(raw)
+        self.assertIn("before you let him out", fixed)
+        self.assertNotIn("she lets", fixed.lower())
+        self.assertEqual(
+            rewrite_keyholder_as_you("She has the keys."),
+            "you have the keys.",
+        )
 
     def test_group_kh_reply_must_not_talk_to_him(self) -> None:
         bad = (

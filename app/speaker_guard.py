@@ -870,6 +870,71 @@ def rewrite_beg_unlock(reply: str) -> str:
     return text
 
 
+_SHE_KEYHOLDER_ACT = re.compile(
+    r"\b(?P<pre>before |until |when |after |once )?"
+    r"she(?P<ll>'ll| will)?"
+    r"(?P<just> just)?"
+    r" (?P<verb>lets|let|unlocks|unlock|releases|release|says|say|decides|decide)"
+    r"(?P<him> him)?"
+    r"(?P<out> out)?",
+    re.I,
+)
+_SHE_HAS_KEYS = re.compile(
+    r"\bshe (?P<hold>has|holds|keeps) (?P<keys>(?:the )?keys)\b",
+    re.I,
+)
+_YOU_VERB = {
+    "lets": "let",
+    "let": "let",
+    "unlocks": "unlock",
+    "unlock": "unlock",
+    "releases": "release",
+    "release": "release",
+    "says": "say",
+    "say": "say",
+    "decides": "decide",
+    "decide": "decide",
+    "has": "have",
+    "holds": "hold",
+    "keeps": "keep",
+}
+
+
+def refers_to_keyholder_as_she(reply: str) -> bool:
+    """True when a to-her line talks about the keyholder as she/her-the-unlocker."""
+    text = reply or ""
+    return bool(_SHE_KEYHOLDER_ACT.search(text) or _SHE_HAS_KEYS.search(text))
+
+
+def rewrite_keyholder_as_you(reply: str) -> str:
+    """She is the person we are talking to — say you, not she."""
+    text = reply or ""
+
+    def _act(match: re.Match[str]) -> str:
+        pre = match.group("pre") or ""
+        ll = match.group("ll") or ""
+        just = match.group("just") or ""
+        verb = _YOU_VERB.get((match.group("verb") or "").lower(), match.group("verb"))
+        him = match.group("him") or ""
+        out = match.group("out") or ""
+        if ll.strip() == "will":
+            you = "you will"
+        elif ll == "'ll":
+            you = "you'll"
+        else:
+            you = "you"
+        return f"{pre}{you}{just} {verb}{him}{out}"
+
+    def _keys(match: re.Match[str]) -> str:
+        hold = _YOU_VERB.get((match.group("hold") or "").lower(), "have")
+        keys = match.group("keys") or "the keys"
+        return f"you {hold} {keys}"
+
+    text = _SHE_KEYHOLDER_ACT.sub(_act, text)
+    text = _SHE_HAS_KEYS.sub(_keys, text)
+    return text
+
+
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ACCENT = re.compile(r"[À-ÿ]")
 _INVENTED_VIOLENCE = re.compile(r"\b(raped?|rape)\b", re.I)
