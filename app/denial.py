@@ -12,10 +12,34 @@ _INTAKE = re.compile(
     r"\b("
     r"intake|"
     r"interview him|"
-    r"ask (?:him )?(?:about )?(?:his )?(?:cage|cock|orgasm)|"
+    r"ask (?:him )?(?:about )?(?:his )?(?:cage|cock|orgasm|kinks?|limits?)|"
+    r"kinks? and limits?|"
     r"get (?:his )?(?:details|dossier)|"
     r"how long (?:should|shall) (?:he|we) (?:stay )?lock"
     r")\b",
+    re.I,
+)
+
+_PERSONA_ASK = re.compile(
+    r"\b("
+    r"tell me about (?:your )?(?:persona|yourself)|"
+    r"what(?:'s| is) your persona|"
+    r"describe (?:your )?persona"
+    r")\b",
+    re.I,
+)
+
+_HARD_LIMIT = re.compile(
+    r"\bhard limits?\b[:\s]+([a-z0-9][\w\s,/&'-]{1,80})",
+    re.I,
+)
+_SOFT_LIMIT = re.compile(
+    r"\bsoft limits?\b[:\s]+([a-z0-9][\w\s,/&'-]{1,80})",
+    re.I,
+)
+_KINK_LIST = re.compile(
+    r"\b(?:kinks?|fetishes|i(?:'m| am) into|i like|i love)\b[:\s]+"
+    r"([a-z0-9][\w\s,/&'-]{1,80})",
     re.I,
 )
 
@@ -48,6 +72,72 @@ _GOAL = re.compile(
 
 def wants_intake(message: str) -> bool:
     return bool(_INTAKE.search(message or ""))
+
+
+def wants_persona(message: str) -> bool:
+    return bool(_PERSONA_ASK.search(message or ""))
+
+
+def _split_items(blob: str) -> list[str]:
+    parts = re.split(r"\s*(?:,|/|&|\band\b)\s*", (blob or "").strip())
+    out: list[str] = []
+    for part in parts:
+        item = part.strip(" .")
+        if 2 <= len(item) <= 40:
+            out.append(item)
+    return out
+
+
+def parse_kink_limit_updates(message: str) -> dict[str, list[str]]:
+    """Pull spoken kinks / limits. Conservative — only labelled lists."""
+    text = message or ""
+    out: dict[str, list[str]] = {}
+    hm = _HARD_LIMIT.search(text)
+    if hm:
+        items = _split_items(hm.group(1))
+        if items:
+            out["hard_limits"] = items
+    sm = _SOFT_LIMIT.search(text)
+    if sm:
+        items = _split_items(sm.group(1))
+        if items:
+            out["soft_limits"] = items
+    km = _KINK_LIST.search(text)
+    if km:
+        items = _split_items(km.group(1))
+        if items:
+            out["kinks"] = items
+    return out
+
+
+def apply_kink_limit_updates(memory: Any, updates: dict[str, list[str]]) -> dict[str, list[str]]:
+    if not updates:
+        return {}
+    fields: dict[str, list[str]] = {}
+    for key, items in updates.items():
+        cur = [str(x) for x in (getattr(memory, key, None) or []) if str(x).strip()]
+        seen = {x.lower() for x in cur}
+        for item in items:
+            low = item.lower()
+            if low not in seen:
+                cur.append(item)
+                seen.add(low)
+        fields[key] = cur
+    memory.update_fields(**fields)
+    return updates
+
+
+def persona_director(*, room: str) -> str:
+    if room == "private":
+        return (
+            "[DIRECTOR: Persona. Two sentences to HER. You are her co-keyholder: "
+            "creative, you like roleplay, bondage, humiliation, mind games — as tools "
+            "she can run on him. No fake age. You are not his girlfriend-mistress.]"
+        )
+    return (
+        "[DIRECTOR: Persona. Two sentences max. Co-keyholder with her. Creative. "
+        "Do not claim he came to you. Do not offer unlock.]"
+    )
 
 
 def _parse_date_fragment(m: re.Match[str], *, today: date) -> str | None:
@@ -177,6 +267,6 @@ def intake_director(*, room: str) -> str:
             "Do not decide his lock length. Suggest a period for her to accept.]"
         )
     return (
-        "[DIRECTOR: Intake in Group. Ask him ONE thing this turn "
-        "(cage, last orgasm, or a limit) — not a form. She is the keyholder.]"
+        "[DIRECTOR: Intake in Group. Ask him ONE short thing this turn "
+        "(kinks, a limit, cage, or last orgasm) — not a form. She is the keyholder.]"
     )

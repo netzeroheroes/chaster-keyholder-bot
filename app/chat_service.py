@@ -69,10 +69,14 @@ from app.clock import (
 )
 from app.denial import (
     apply_denial_updates,
+    apply_kink_limit_updates,
     format_denial_block,
     intake_director,
     parse_denial_updates,
+    parse_kink_limit_updates,
+    persona_director,
     wants_intake,
+    wants_persona,
 )
 from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
@@ -413,8 +417,18 @@ async def handle_chat_turn(
             + ". Use them. Do not re-ask.]"
         )
     extra_notes.append(format_denial_block(memory))
+    kink_bits = parse_kink_limit_updates(message)
+    if kink_bits:
+        apply_kink_limit_updates(memory, kink_bits)
+        extra_notes.append(
+            "[DIRECTOR: Stored kinks/limits this turn: "
+            + "; ".join(f"{k}={', '.join(v)}" for k, v in kink_bits.items())
+            + ". Use them. Do not re-ask.]"
+        )
     if role == "domme" and wants_intake(message):
         extra_notes.append(intake_director(room=room))
+    if wants_persona(message):
+        extra_notes.append(persona_director(room=room))
     if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):

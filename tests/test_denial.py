@@ -7,7 +7,9 @@ from app.denial import (
     format_denial_block,
     format_seasonal_block,
     parse_denial_updates,
+    parse_kink_limit_updates,
     wants_intake,
+    wants_persona,
 )
 
 
@@ -15,7 +17,18 @@ class DenialTests(unittest.TestCase):
     def test_intake_phrases(self) -> None:
         self.assertTrue(wants_intake("interview him"))
         self.assertTrue(wants_intake("ask about his cage"))
+        self.assertTrue(wants_intake("tell me your kinks and limits"))
         self.assertFalse(wants_intake("double it"))
+        self.assertTrue(wants_persona("please tell me about your persona"))
+        self.assertFalse(wants_persona("double it"))
+
+    def test_parses_kinks_and_hard_limits(self) -> None:
+        bits = parse_kink_limit_updates(
+            "I like humiliation and bondage. Hard limits: blood, public exposure"
+        )
+        self.assertIn("humiliation", [x.lower() for x in bits["kinks"]])
+        self.assertIn("bondage", [x.lower() for x in bits["kinks"]])
+        self.assertTrue(any("blood" in x.lower() for x in bits["hard_limits"]))
 
     def test_parses_orgasm_ago_and_cage(self) -> None:
         today = date(2026, 8, 16)
