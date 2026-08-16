@@ -64,6 +64,20 @@
       </button>
     </nav>
     <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
+    <section id="enableBar" class="enable-bar hidden" aria-label="Bot lock actions">
+      <p class="enable-bar-title">Enable — what the bot may do</p>
+      <div class="enable-toggles">
+        <label class="check"><input type="checkbox" id="barBotAllowAddTime" checked /> Add time</label>
+        <label class="check"><input type="checkbox" id="barBotAllowRemoveTime" checked /> Remove time</label>
+        <label class="check"><input type="checkbox" id="barBotAllowFreeze" checked /> Freeze / unfreeze</label>
+        <label class="check"><input type="checkbox" id="barBotAllowHideTimer" checked /> Hide / show timer</label>
+        <label class="check"><input type="checkbox" id="barBotAllowPillory" checked /> Pillory</label>
+      </div>
+      <div class="enable-bar-actions">
+        <button type="button" class="btn" id="enableBarSave">Save</button>
+        <p id="enableBarStatus" class="status"></p>
+      </div>
+    </section>
     <div id="hygieneBar" class="hygiene-bar hidden">
       <p id="hygieneCopy" class="hygiene-copy">Hygiene: idle</p>
       <div id="hygKhAsk" class="hyg-ask hidden">
@@ -111,6 +125,14 @@
         Default sizes for lock time tweaks, auto-punish, and autopilot. Saved on this session.
       </p>
       <form id="settingsForm" class="cfg" novalidate>
+        <p class="title" id="enableSection">Enable</p>
+        <p class="meta">What the bot may do on the lock. You can still do these in Chaster yourself.</p>
+        <label class="check"><input type="checkbox" id="setBotAllowAddTime" checked /> Add time</label>
+        <label class="check"><input type="checkbox" id="setBotAllowRemoveTime" checked /> Remove time</label>
+        <label class="check"><input type="checkbox" id="setBotAllowFreeze" checked /> Freeze / unfreeze</label>
+        <label class="check"><input type="checkbox" id="setBotAllowHideTimer" checked /> Hide / show timer</label>
+        <label class="check"><input type="checkbox" id="setBotAllowPillory" checked /> Pillory</label>
+
         <p class="title">Time adjustments</p>
         <p class="meta">Soft / "a little" uses the minimum. Default, hard, and escalated auto-punish are capped by the maximum.</p>
         <label class="field duration-field">

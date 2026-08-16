@@ -65,6 +65,19 @@ class CagePracticeTests(unittest.TestCase):
             mistreats_domme_as_sub("I gave you a hygiene unlock. Use that time wisely.")
         )
 
+    def test_watch_the_clock_sub_is_misaddress(self) -> None:
+        reply = (
+            "I've updated his lock to 10 days, 29 hours, and 32 minutes. "
+            "Now, lean against the wall and watch the clock, sub."
+        )
+        self.assertTrue(mistreats_domme_as_sub(reply))
+        from app.speaker_guard import strip_lockee_addressing
+
+        cleaned = strip_lockee_addressing(reply)
+        self.assertIn("his lock", cleaned.lower())
+        self.assertNotIn("sub", cleaned.lower())
+        self.assertNotIn("lean against", cleaned.lower())
+
     def test_extracts_spoken_from_bloated_user(self) -> None:
         blob = (
             "[Domme (@TheBosses)]: maybe let him out of it maybe you could drop him some hint's\n"

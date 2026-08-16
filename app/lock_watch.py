@@ -297,7 +297,7 @@ async def react_to_lock_events(
 
         text, _ = extract_lock_commands(text)
         store.append_display(
-            DisplayMessage(speaker=bot, content=text, room="group")
+            DisplayMessage(speaker=bot, content=text, room="group", from_bot=True)
         )
         # Keep model history loosely aware
         sid = session_id_for("group")

@@ -15,6 +15,38 @@ _SUB_AS_YOU = re.compile(
     r")",
     re.I,
 )
+# Orders / vocatives aimed at the lockee while talking to the keyholder
+_ADDRESSES_LISTENER_AS_SUB = re.compile(
+    r"("
+    r"(?:,|\bnow,)\s*(?:sub|lockee|boy|wearer)\b|"
+    r"\b(?:sub|lockee)\s*[.!]?\s*$|"
+    r"\blean against the wall\b|"
+    r"\bwatch the clock\b|"
+    r"\bhands on (?:the|your) cage\b|"
+    r"\beyes down\b|"
+    r"\bstay denied\b|"
+    r"\bstay with that ache\b|"
+    r"maybe if you earn it|"
+    r"i('ll| will) talk to her|"
+    r"talk to her about what comes next|"
+    r"\byou('re| are) (?:locked|denied|frozen|caged)\b"
+    r")",
+    re.I,
+)
+_LOCKEE_ORDER_SENTENCE = re.compile(
+    r"[^.!?\n]*\b("
+    r"lean against the wall|"
+    r"watch the clock|"
+    r"hands on (?:the|your) cage|"
+    r"eyes down|"
+    r"stay denied|"
+    r"stay with that ache|"
+    r"maybe if you earn it|"
+    r"i('ll| will) talk to her|"
+    r"talk to her about what comes next"
+    r")\b[^.!?\n]*[.!?]?",
+    re.I,
+)
 _ABOUT_HIM = re.compile(
     r"\b(him|his|he|lockee|wearer|chastityguy)\b",
     re.I,
@@ -56,6 +88,8 @@ def mistreats_domme_as_sub(reply: str, *, user_message: str = "") -> bool:
     text = (reply or "").strip()
     if not text:
         return False
+    if _ADDRESSES_LISTENER_AS_SUB.search(text):
+        return True
     # She asked for ideas about him — never replace the answer with a role lecture
     if asking_play_ideas(user_message):
         return False
@@ -65,6 +99,40 @@ def mistreats_domme_as_sub(reply: str, *, user_message: str = "") -> bool:
     if _ABOUT_HIM.search(text):
         return False
     return True
+
+
+def strip_lockee_addressing(reply: str) -> str:
+    """Keep lock facts; drop sentences that order the listener as the lockee."""
+    text = reply or ""
+    text = _LOCKEE_ORDER_SENTENCE.sub("", text)
+    text = re.sub(
+        r"(?:,|\bnow,)\s*(?:sub|lockee|boy|wearer)\b",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\b(?:sub|lockee)\s*[.!]?\s*$", "", text, flags=re.I)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip(" \n,")
+
+
+def talks_to_lockee(reply: str) -> bool:
+    """True when a reply is aimed at the lockee, not the keyholder."""
+    return mistreats_domme_as_sub(reply or "")
+
+
+def enforce_private_keyholder_voice(reply: str, *, fallback: str) -> str:
+    """Private chat may only speak to the keyholder."""
+    text = (reply or "").strip()
+    if text and not talks_to_lockee(text):
+        return text
+    cleaned = strip_lockee_addressing(text)
+    if cleaned and not talks_to_lockee(cleaned):
+        return cleaned
+    return (fallback or "").strip() or (
+        "You're the keyholder. He cannot see this. What do you want done to his lock?"
+    )
 
 
 def sounds_like_bot_submissive(reply: str) -> bool:

@@ -365,6 +365,17 @@ class ChasterClient:
         else:
             await self.session_action("remove_time", abs(seconds), lock_id=lock_id)
 
+    async def update_time_keyholder(self, lock_id: str, duration_seconds: int) -> None:
+        """Keyholder lock-updater fallback when the extension action does not stick."""
+        seconds = int(duration_seconds)
+        if seconds == 0:
+            return
+        await self._request(
+            "POST",
+            f"/locks/{lock_id}/update-time",
+            json_body={"duration": seconds},
+        )
+
     async def set_freeze(self, lock_id: str, is_frozen: bool) -> None:
         await self.session_action(
             "freeze" if is_frozen else "unfreeze",

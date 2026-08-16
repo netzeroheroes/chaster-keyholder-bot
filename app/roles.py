@@ -13,6 +13,16 @@ SPEAKER = {
     "sub": "Sub",
 }
 
+PRIVATE_HARD_RULE = (
+    "HARD RULE — PRIVATE CHAT: This room is ONLY the keyholder and you (the bot). "
+    "The lockee is never here and cannot see this. "
+    "Every human line is the keyholder. Never the lockee. "
+    "Never call her sub. Never order her to lean / watch the clock / stay denied. "
+    "Never say 'maybe if you earn it' or 'I'll talk to her' — you are already talking to her. "
+    "If she asks about his time, lock, freeze, or timer, quote [CHASTER LIVE STATUS] plainly. "
+    "Do not tease him in this room."
+)
+
 
 def session_id_for(room: Room) -> str:
     return f"room:{room}"
@@ -29,21 +39,38 @@ def speaker_label(
     memory: LongTermMemory | None = None,
     *,
     chaster_username: str | None = None,
+    room: Room | None = None,
 ) -> str:
     """Human-readable speaker tag used in UI + model context."""
-    base = SPEAKER[role]
+    base = "Keyholder" if room == "private" else SPEAKER[role]
     handle = (chaster_username or "").strip().lstrip("@")
     if handle:
         return f"{base} (@{handle})"
     if memory is None:
         return base
-    if role == "domme":
+    if role == "domme" or room == "private":
         name = (memory.domme_name or "").strip()
         title = (memory.domme_title or "").strip()
         bits = [b for b in (name, title) if b]
         return f"{base} ({' / '.join(bits)})" if bits else base
     name = (memory.sub_name or "").strip()
     return f"{base} ({name})" if name else base
+
+
+def is_bot_display_speaker(speaker: str, bot_name: str = "") -> bool:
+    """True when a stored display line is the bot, not the human keyholder."""
+    who = (speaker or "").strip()
+    if not who:
+        return True
+    low = who.lower()
+    if low.startswith("domme") or low.startswith("sub"):
+        return False
+    if low.startswith("keyholder (") or low.startswith("keyholder (@"):
+        return False
+    bot = (bot_name or "").strip()
+    if bot and who == bot:
+        return True
+    return low in {"keyholder", "bot"}
 
 
 def bot_label(memory: LongTermMemory | None = None) -> str:
@@ -78,8 +105,12 @@ def format_user_line(
     chaster_username: str | None = None,
     room: Room | None = None,
 ) -> str:
-    label = speaker_label(role, memory, chaster_username=chaster_username)
-    if role == "domme":
+    label = speaker_label(
+        role, memory, chaster_username=chaster_username, room=room
+    )
+    if room == "private":
+        who = "human keyholder (this entire private room is her, except bot answers)"
+    elif role == "domme":
         who = "human Domme / Chaster keyholder"
     else:
         who = "human Sub / Chaster wearer (lockee)"
@@ -91,7 +122,7 @@ def format_user_line(
         chaster_bit = f" Chaster identity: {', '.join(bits)}."
     if room == "private":
         channel = (
-            "[CHANNEL: PRIVATE — only you and the keyholder. "
+            f"[{PRIVATE_HARD_RULE} "
             "The lockee cannot see this. Talk to her like a friend. "
             "Use [[[GROUP]]] if you need to speak to him.]"
         )
@@ -102,7 +133,7 @@ def format_user_line(
         )
     else:
         channel = ""
-    if role == "domme":
+    if room == "private" or role == "domme":
         address = (
             "[ADDRESS: Reply TO her — she is the keyholder and has the keys. "
             "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "

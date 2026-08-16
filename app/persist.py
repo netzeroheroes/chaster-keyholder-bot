@@ -6,6 +6,7 @@ from pathlib import Path
 
 from openai.types.chat import ChatCompletionMessageParam
 
+from app.roles import is_bot_display_speaker
 from app.scene import SceneState
 from app.sessions import DisplayMessage, SessionStore
 
@@ -88,14 +89,19 @@ def load_sessions(store: SessionStore, path: Path = SESSIONS_PATH) -> None:
     for room, msgs in display.items():
         if not isinstance(msgs, list):
             continue
-        parsed_display[room] = [
-            DisplayMessage(
-                speaker=str(m.get("speaker", "Bot")),
-                content=str(m.get("content", "")),
-                room=str(m.get("room", room)),
-                image_url=m.get("image_url"),
+        parsed_display[room] = []
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            speaker = str(m.get("speaker", "Bot"))
+            parsed_display[room].append(
+                DisplayMessage(
+                    speaker=speaker,
+                    content=str(m.get("content", "")),
+                    room=str(m.get("room", room)),
+                    image_url=m.get("image_url"),
+                    from_bot=bool(m.get("from_bot"))
+                    or is_bot_display_speaker(speaker),
+                )
             )
-            for m in msgs
-            if isinstance(m, dict)
-        ]
     store.import_state(parsed_sessions, parsed_display)

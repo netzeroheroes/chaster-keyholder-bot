@@ -160,29 +160,41 @@ async def run_unprompted_tick(
         < max(0.0, min(1.0, float(getattr(c, "autopilot_chaster_chance", 0.35))))
     ):
         # Chaster is the main lever — prefer real lock detriment
-        action = random.choice(["add_time", "add_time", "freeze", "hide_time"])
+        from app.runtime_controls import bot_lock_action_allowed
+
+        pool: list[str] = []
+        if bot_lock_action_allowed("add_time", seconds=60):
+            pool.extend(["add_time", "add_time"])
+        if bot_lock_action_allowed("freeze"):
+            pool.append("freeze")
+        if bot_lock_action_allowed("hide_time"):
+            pool.append("hide_time")
+        action = random.choice(pool) if pool else ""
+        intent = None
         if action == "add_time":
             secs = int(getattr(c, "autopilot_punish_seconds", None) or 600)
             intent = ChasterIntent(kind="add_time", seconds=max(60, secs))
         elif action == "freeze":
             intent = ChasterIntent(kind="freeze")
-        else:
+        elif action == "hide_time":
             intent = ChasterIntent(kind="hide_time")
-        try:
-            result = await asyncio.wait_for(
-                run_chaster_intent(
-                    chaster, intent, requested_by=f"{bot} (autopilot)"
-                ),
-                timeout=20.0,
-            )
-        except asyncio.TimeoutError:
-            log.warning("Autopilot Chaster nudge timed out (%s)", intent.kind)
-            chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
-            result = None
-        except Exception:  # noqa: BLE001
-            log.exception("Autopilot Chaster nudge failed")
-            chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
-            result = None
+        result = None
+        if intent is not None:
+            try:
+                result = await asyncio.wait_for(
+                    run_chaster_intent(
+                        chaster, intent, requested_by=f"{bot} (autopilot)"
+                    ),
+                    timeout=20.0,
+                )
+            except asyncio.TimeoutError:
+                log.warning("Autopilot Chaster nudge timed out (%s)", intent.kind)
+                chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
+                result = None
+            except Exception:  # noqa: BLE001
+                log.exception("Autopilot Chaster nudge failed")
+                chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
+                result = None
         if result is not None:
             if result.ok and not result.blocked:
                 chaster_line = (

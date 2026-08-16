@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     autopilot_chaster_chance: float = 0.25
     autopilot_punish_seconds: int = 600
 
+    # What the bot may do on the lock (overridden by Settings → Enable)
+    bot_allow_add_time: bool = True
+    bot_allow_remove_time: bool = True
+    bot_allow_freeze: bool = True
+    bot_allow_hide_timer: bool = True
+    bot_allow_pillory: bool = True
+
     # Chaster partner extension (iframe) hosting
     # Main/config pages must be public HTTPS; content is token-gated.
     standalone_ui_enabled: bool = True

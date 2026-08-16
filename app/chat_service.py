@@ -12,14 +12,19 @@ from app.bridge import GroupBridge
 from app.chaster import ChasterClient
 from app.chaster_actions import (
     ChasterIntent,
+    apply_scale_command,
     extract_lock_commands,
-    fetch_live_status_block,
+    fetch_live_lock_summary,
     format_capabilities_reply,
     format_group_lock_confirm,
+    format_live_status_block,
+    format_scale_reply,
     format_truth_reply,
     parse_chaster_intent,
+    parse_scale_command,
     run_chaster_intent,
     run_tour_step,
+    seconds_for_scale,
 )
 from app.lock_guard import scrub_lock_hallucinations
 from app.speaker_guard import (
@@ -30,7 +35,10 @@ from app.speaker_guard import (
     has_chat_chrome,
     impersonates_human,
     looks_like_image_dump,
+    enforce_private_keyholder_voice,
     mistreats_domme_as_sub,
+    strip_lockee_addressing,
+    talks_to_lockee,
     repair_bot_submissive,
     repair_confused_domme_reply,
     repair_domme_misaddress,
@@ -107,6 +115,7 @@ from app.images import (
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
 from app.roles import (
+    PRIVATE_HARD_RULE,
     Room,
     Role,
     bot_label,
@@ -220,6 +229,7 @@ def _clean_history_for_model(
     history: list[ChatCompletionMessageParam],
     *,
     limit: int = 24,
+    room: Room | None = None,
 ) -> list[ChatCompletionMessageParam]:
     """Keep a short real conversation — not last turn's rule dump."""
     cleaned: list[ChatCompletionMessageParam] = []
@@ -229,6 +239,8 @@ def _clean_history_for_model(
             continue
         content = str(msg.get("content") or "").strip()
         if not content:
+            continue
+        if room == "private" and role == "assistant" and talks_to_lockee(content):
             continue
         if role == "user":
             spoken = extract_spoken_user(content)
@@ -341,7 +353,7 @@ async def handle_chat_turn(
 ) -> dict[str, Any]:
     sid = session_id_for(room)
     raw_history = store.get(sid)
-    history = _sanitize_history(_clean_history_for_model(raw_history))
+    history = _sanitize_history(_clean_history_for_model(raw_history, room=room))
 
     # If history is already poisoned with loop lines, cut them out before prompting
     if any(
@@ -360,13 +372,19 @@ async def handle_chat_turn(
         if role == "sub" and not (memory.sub_name or "").strip():
             memory.update_fields(sub_name=handle)
 
-    speaker = speaker_label(role, memory, chaster_username=handle or None)
+    if room == "private":
+        role = "domme"
+    speaker = speaker_label(
+        role, memory, chaster_username=handle or None, room=room
+    )
     her = domme_address(memory)
     extra_notes: list[str] = [
         f"Speaker this turn: {speaker} "
-        f"({'keyholder' if role == 'domme' else 'lockee'}).",
+        f"({'keyholder' if (room == 'private' or role == 'domme') else 'lockee'}).",
         format_clock_block(),
     ]
+    if room == "private":
+        extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
         extra_notes.append(
@@ -419,7 +437,9 @@ async def handle_chat_turn(
         hist.append({"role": "assistant", "content": reply})
         store.set(sid_m, hist)
         store.append_display(DisplayMessage(speaker=speaker, content=message, room=room))
-        store.append_display(DisplayMessage(speaker=bot_name, content=reply, room=room))
+        store.append_display(
+            DisplayMessage(speaker=bot_name, content=reply, room=room, from_bot=True)
+        )
         save_sessions(store)
         return {
             "reply": reply,
@@ -428,6 +448,36 @@ async def handle_chat_turn(
             "group_posts": [],
             "image_urls": [],
         }
+
+    # double / triple / halve — API only, never the model
+    scale_word = parse_scale_command(message)
+    if role == "domme" and scale_word:
+        if not (chaster and chaster.configured):
+            return _memory_command_result(
+                "Chaster isn't linked, so I didn't change the lock."
+            )
+        try:
+            scale_result = await apply_scale_command(
+                chaster, message, requested_by=speaker
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Scale lock command failed")
+            return _memory_command_result(
+                "That didn't take on his lock. Nothing changed."
+            )
+        if scale_result is not None:
+            reply = format_scale_reply(scale_word, scale_result)
+            if scale_result.ok and not scale_result.blocked:
+                rem = ""
+                if isinstance(scale_result.lock, dict):
+                    rem = str(scale_result.lock.get("remaining") or "")
+                memory.log_lock_event(
+                    action="add_time",
+                    remaining=rem,
+                    by=speaker,
+                    detail=scale_word,
+                )
+            return _memory_command_result(reply)
 
     if asks_clock_time(message) and not asks_lock_remaining(message):
         return _memory_command_result(format_clock_reply(role=role))
@@ -592,14 +642,18 @@ async def handle_chat_turn(
             log.exception("Chaster name sync failed")
 
         # Always inject a fresh lock snapshot so the model cannot invent numbers
+        live_secs = None
         try:
-            live = await fetch_live_status_block(chaster, requested_by=speaker)
-            chaster_note = f"\n\n[{live}]"
-            m_rem = re.search(
-                r"- Remaining:\s*([^\n(]+)", live
+            live_summary = await fetch_live_lock_summary(
+                chaster, requested_by=speaker
             )
-            if m_rem:
-                live_remaining = m_rem.group(1).strip()
+            rem_raw = live_summary.get("remaining_seconds")
+            if rem_raw is not None:
+                live_secs = int(rem_raw)
+            if live_summary.get("remaining"):
+                live_remaining = str(live_summary.get("remaining"))
+            live = format_live_status_block(live_summary, requested_by=speaker)
+            chaster_note = f"\n\n[{live}]"
         except Exception:  # noqa: BLE001
             log.exception("Live Chaster status fetch failed")
             chaster_note = (
@@ -630,6 +684,15 @@ async def handle_chat_turn(
         except Exception:  # noqa: BLE001
             log.exception("Hygiene director failed")
 
+        try:
+            from app.runtime_controls import format_bot_lock_permissions
+
+            perms = format_bot_lock_permissions()
+            if perms:
+                chaster_note += f"\n\n{perms}"
+        except Exception:  # noqa: BLE001
+            log.exception("Lock permission director failed")
+
         context_bits: list[str] = []
         for msg in history[-10:]:
             content = str(msg.get("content") or "")
@@ -658,12 +721,23 @@ async def handle_chat_turn(
                         kind, secs = decision
                         if kind == "deny":
                             deny_hygiene()
-                            chaster_truth_reply = "Denied. He may request again."
+                            group_line = "Hygiene denied. You may request again."
                             if room == "group":
+                                chaster_truth_reply = group_line
                                 bridge.inject_private_note(
                                     store,
                                     "You denied hygiene. He may request again.",
                                     speaker=bot_name,
+                                )
+                            else:
+                                chaster_truth_reply = "Denied. He may request again."
+                                store.append_display(
+                                    DisplayMessage(
+                                        speaker=bot_name,
+                                        content=group_line,
+                                        room="group",
+                                        from_bot=True,
+                                    )
                                 )
                         else:
                             view = approve_hygiene(allowed_seconds=secs)
@@ -683,6 +757,7 @@ async def handle_chat_turn(
                                             "Lock before time's up or there will be a consequence."
                                         ),
                                         room="group",
+                                        from_bot=True,
                                     )
                                 )
                             else:
@@ -700,9 +775,34 @@ async def handle_chat_turn(
                 log.exception("Hygiene chat approve failed")
 
         tour = ChasterTour.load()
-        intent = None if chaster_truth_reply else parse_chaster_intent(
-            message, context=context
-        )
+        scale_word = parse_scale_command(message)
+        intent = None
+        if not chaster_truth_reply and scale_word and role == "domme":
+            if live_secs is None or live_secs <= 0:
+                chaster_truth_reply = (
+                    "I can't read his remaining time from Chaster, "
+                    "so I didn't change the lock."
+                )
+            else:
+                intent = ChasterIntent(
+                    kind="add_time",
+                    seconds=seconds_for_scale(scale_word, live_secs),
+                    reason=scale_word,
+                )
+        elif not chaster_truth_reply:
+            intent = parse_chaster_intent(
+                message, context=context, remaining_seconds=live_secs
+            )
+        if (
+            room == "private"
+            and not chaster_truth_reply
+            and not scale_word
+            and (
+                asks_lock_remaining(message)
+                or (intent is not None and intent.kind == "status")
+            )
+        ):
+            intent = ChasterIntent(kind="status")
 
         # Stepwise feature tour: "1 by 1" / "next"
         if role == "domme" and (
@@ -818,9 +918,14 @@ async def handle_chat_turn(
                     ):
                         chaster_truth_reply = format_capabilities_reply(result)
                     else:
+                        truth_label = (
+                            intent.reason
+                            if intent.reason in {"double", "triple", "halve"}
+                            else intent.kind
+                        )
                         chaster_truth_reply = format_truth_reply(
                             requested_by=speaker,
-                            step_label=intent.kind,
+                            step_label=truth_label,
                             step_num=1,
                             step_total=1,
                             result=result,
@@ -1020,6 +1125,7 @@ async def handle_chat_turn(
         if wants_him_told(message):
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
+                f"{PRIVATE_HARD_RULE}\n"
                 f"She asked you to DO it. One short line to {title} here — no how-to.\n"
                 "Then [[[GROUP]]] one mystery tease for him. Do not whisper to him here.\n"
                 "Do not reveal the plan, toys, or what happens later.\n"
@@ -1027,10 +1133,13 @@ async def handle_chat_turn(
         else:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
-                f"Talk to {title} only. Answer what she just said.\n"
+                f"{PRIVATE_HARD_RULE}\n"
+                f"Talk to {title} only. Answer what she just said — she is the keyholder.\n"
+                "If she asked about his lock time, quote [CHASTER LIVE STATUS] plainly.\n"
                 "Plans and hint lists stay here. [[[GROUP]]] only if she said "
                 "tell him / drop him a hint — and that line must not reveal the plan.\n"
-                "You cannot touch him. Tease, advise her, or change the lock.\n"
+                "You cannot touch him. Advise her, or change the lock. "
+                "Do not tease him in this room.\n"
             )
     else:
         who = (
@@ -1104,13 +1213,22 @@ async def handle_chat_turn(
                         continue
                     short.append(msg)
 
-            rewrite_user = (
-                f"{user_line}\n\n"
-                "[SYSTEM: You are looping. Write a completely different reply. "
-                f"Acknowledge {title}, announce ONE specific punishment for the lockee "
-                "(e.g. locked longer, edges with no release, corner time, lines), "
-                "and give the first order to start it. Do not ask him what he wants.]"
-            )
+            if room == "private":
+                rewrite_user = (
+                    f"{user_line}\n\n"
+                    "[SYSTEM: You are looping. Answer the keyholder only. "
+                    "She is not the lockee. Do not call her sub. "
+                    "If she asked about his lock, quote [CHASTER LIVE STATUS]. "
+                    "Do not order him in this room.]"
+                )
+            else:
+                rewrite_user = (
+                    f"{user_line}\n\n"
+                    "[SYSTEM: You are looping. Write a completely different reply. "
+                    f"Acknowledge {title}, announce ONE specific punishment for the lockee "
+                    "(e.g. locked longer, edges with no release, corner time, lines), "
+                    "and give the first order to start it. Do not ask him what he wants.]"
+                )
             reply, messages = await agent.reply(
                 rewrite_user,
                 history=short,
@@ -1306,6 +1424,41 @@ async def handle_chat_turn(
     )
     visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
+    if room == "private":
+        rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")
+        rem = (rem_m.group(1).strip() if rem_m else "") or live_remaining
+        frozen = bool(re.search(r"- Frozen:\s*True", chaster_note or "", re.I))
+        if rem:
+            fallback = f"His lock remaining is {rem}." + (
+                " It is frozen." if frozen else ""
+            )
+        else:
+            fallback = (
+                f"{title} — you're the keyholder. He cannot see this. "
+                "What do you want done to his lock?"
+            )
+        fixed = enforce_private_keyholder_voice(visible_reply, fallback=fallback)
+        if fixed != (visible_reply or "").strip():
+            log.warning("Enforced private keyholder-only voice")
+        visible_reply = re.sub(
+            r"\[\[\[GROUP\]\]\].*?\[\[\[/GROUP\]\]\]",
+            "",
+            fixed or "",
+            flags=re.I | re.S,
+        )
+        visible_reply = re.sub(
+            r"\[\[\[/?GROUP\]\]\]", "", visible_reply, flags=re.I
+        ).strip()
+    elif role == "domme" and mistreats_domme_as_sub(
+        visible_reply, user_message=message
+    ):
+        cleaned = strip_lockee_addressing(visible_reply)
+        if not cleaned or mistreats_domme_as_sub(cleaned, user_message=message):
+            cleaned = (
+                f"{title} — that was for him, not you. You're the keyholder."
+            ).strip()
+        log.warning("Stripped lockee-addressing from %s reply", room)
+        visible_reply = cleaned
     if room == "group":
         raw_group = visible_reply
         softened = soften_group_tease(visible_reply)
@@ -1404,6 +1557,7 @@ async def handle_chat_turn(
                     domme_title=title,
                     intent=lint,
                     result=result,
+                    room=room,
                 )
                 if conf:
                     confirms.append(conf)
@@ -1499,6 +1653,7 @@ async def handle_chat_turn(
                             content="Sent a tease picture.",
                             room=target_room,
                             image_url=result["url"],
+                            from_bot=True,
                         )
                     )
                     if target_room == "group" and room == "private":
@@ -1535,7 +1690,9 @@ async def handle_chat_turn(
     )
     if visible_reply:
         store.append_display(
-            DisplayMessage(speaker=bot_name, content=visible_reply, room=room)
+            DisplayMessage(
+                speaker=bot_name, content=visible_reply, room=room, from_bot=True
+            )
         )
 
     if (

@@ -42,7 +42,10 @@ _LOCK_TIME_ASK = re.compile(
     r"when (do|will) i (get out|unlock)|"
     r"how much (lock )?time|"
     r"lock time|"
-    r"end date"
+    r"end date|"
+    r"what(?:'s| is) his (?:lock )?time|"
+    r"his time looking|"
+    r"how(?:'s|s| is) (?:his |the )?(?:lock|timer)"
     r")\b",
     re.I,
 )

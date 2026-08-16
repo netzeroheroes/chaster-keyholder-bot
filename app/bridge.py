@@ -131,7 +131,12 @@ class GroupBridge:
         history.append({"role": "assistant", "content": text})
         store.set(sid, history)
         store.append_display(
-            DisplayMessage(speaker=speaker or "Keyholder", content=text, room="private")
+            DisplayMessage(
+                speaker=speaker or "Keyholder",
+                content=text,
+                room="private",
+                from_bot=True,
+            )
         )
 
     def inject_group_bot_message(
@@ -150,7 +155,12 @@ class GroupBridge:
         history.append(assistant)
         store.set(sid, history)
         store.append_display(
-            DisplayMessage(speaker=speaker or "Keyholder", content=text, room="group")
+            DisplayMessage(
+                speaker=speaker or "Keyholder",
+                content=text,
+                room="group",
+                from_bot=True,
+            )
         )
 
     async def publish_group_messages(

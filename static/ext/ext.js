@@ -8,6 +8,9 @@
     sessionMeta: document.getElementById("sessionMeta"),
     boxStatus: document.getElementById("boxStatus"),
     settingsBtn: document.getElementById("settingsBtn"),
+    enableBar: document.getElementById("enableBar"),
+    enableBarSave: document.getElementById("enableBarSave"),
+    enableBarStatus: document.getElementById("enableBarStatus"),
     kinksBtn: document.getElementById("kinksBtn"),
     settingsPanel: document.getElementById("settingsPanel"),
     settingsClose: document.getElementById("settingsClose"),
@@ -195,6 +198,37 @@
     }
   }
 
+  function isBotMessage(m) {
+    if (m && m.from_bot === true) return true;
+    if (m && m.from_bot === false) return false;
+    const who = String((m && m.speaker) || "");
+    if (/^(Domme|Sub|Keyholder\s*[\(@])/i.test(who)) return false;
+    const bot = String(state.botName || "Keyholder");
+    return !who || who === bot || /^keyholder$/i.test(who) || /^bot$/i.test(who);
+  }
+
+  function displayWho(m) {
+    const who = String((m && m.speaker) || "");
+    if (isBotMessage(m)) {
+      if (!who || /^keyholder$/i.test(who)) return "Bot";
+      return who;
+    }
+    if (state.room === "private") {
+      if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
+      return who || "Keyholder";
+    }
+    return who || "Keyholder";
+  }
+
+  function messageClass(m) {
+    if (isBotMessage(m)) return "bot";
+    if (state.room === "private") return "Domme";
+    const who = String((m && m.speaker) || "");
+    if (who.startsWith("Domme") || who.startsWith("Keyholder")) return "Domme";
+    if (who.startsWith("Sub")) return "Sub";
+    return "bot";
+  }
+
   function renderMessages(messages) {
     const prev = state.lastCount;
     const grew = messages.length > prev && prev >= 0;
@@ -202,12 +236,8 @@
     els.messages.innerHTML = "";
     for (const m of messages) {
       const div = document.createElement("div");
-      const who = String(m.speaker || "Keyholder");
-      const cls = who.startsWith("Domme")
-        ? "Domme"
-        : who.startsWith("Sub")
-          ? "Sub"
-          : "bot";
+      const who = displayWho(m);
+      const cls = messageClass(m);
       div.className = `msg ${cls}`;
       div.innerHTML = `<span class="who">${who}</span>`;
       if (m.content && !String(m.content).startsWith("[image]")) {
@@ -244,6 +274,7 @@
     const s = data.session || {};
     state.role = s.app_role;
     state.chasterRole = s.role;
+    state.botName = data.bot_name || "Keyholder";
     const handle =
       s.role === "keyholder" ? s.keyholder_username : s.wearer_username;
     state.displayName = handle
@@ -268,6 +299,7 @@
 
     if (s.app_role === "domme" || s.role === "keyholder") {
       els.privateTab.classList.remove("hidden");
+      if (els.enableBar) els.enableBar.classList.remove("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");
@@ -275,6 +307,7 @@
       if (els.quickLockBtn) els.quickLockBtn.classList.remove("hidden");
     } else {
       els.privateTab.classList.add("hidden");
+      if (els.enableBar) els.enableBar.classList.add("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
@@ -285,6 +318,9 @@
     updateRoomUi();
     els.gate.classList.add("hidden");
     els.app.classList.remove("hidden");
+    if (s.app_role === "domme" || s.role === "keyholder") {
+      loadEnableSettings();
+    }
   }
 
   const UNIT_SEC = { minutes: 60, hours: 3600, days: 86400 };
@@ -512,6 +548,91 @@
     }
   }
 
+  const ENABLE_FLAGS = [
+    ["bot_allow_add_time", "setBotAllowAddTime", "barBotAllowAddTime"],
+    ["bot_allow_remove_time", "setBotAllowRemoveTime", "barBotAllowRemoveTime"],
+    ["bot_allow_freeze", "setBotAllowFreeze", "barBotAllowFreeze"],
+    ["bot_allow_hide_timer", "setBotAllowHideTimer", "barBotAllowHideTimer"],
+    ["bot_allow_pillory", "setBotAllowPillory", "barBotAllowPillory"],
+  ];
+
+  function setEnableFlags(cfg) {
+    const flagOn = (key) => cfg[key] !== false;
+    ENABLE_FLAGS.forEach(([key, setId, barId]) => {
+      const on = flagOn(key);
+      const formEl = document.getElementById(setId);
+      const barEl = document.getElementById(barId);
+      if (formEl) formEl.checked = on;
+      if (barEl) barEl.checked = on;
+    });
+  }
+
+  function readEnableFlags() {
+    const out = {};
+    ENABLE_FLAGS.forEach(([key, setId, barId]) => {
+      const barEl = document.getElementById(barId);
+      const formEl = document.getElementById(setId);
+      out[key] = barEl ? barEl.checked : formEl ? formEl.checked : true;
+    });
+    return out;
+  }
+
+  function syncEnableBarToForm() {
+    ENABLE_FLAGS.forEach(([, setId, barId]) => {
+      const barEl = document.getElementById(barId);
+      const formEl = document.getElementById(setId);
+      if (barEl && formEl) formEl.checked = barEl.checked;
+    });
+  }
+
+  async function loadEnableSettings() {
+    if (!state.mainToken) return;
+    try {
+      const res = await fetch("/api/ext/settings/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      fillSettings(data.config || {});
+    } catch (_) {
+      /* bar stays at defaults until Settings is opened */
+    }
+  }
+
+  async function saveEnableSettings(statusEl) {
+    const note = statusEl || els.enableBarStatus;
+    if (note) note.textContent = "Saving…";
+    syncEnableBarToForm();
+    try {
+      const got = await fetch("/api/ext/settings/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ main_token: state.mainToken }),
+      });
+      const live = await got.json().catch(() => ({}));
+      if (!got.ok) throw new Error(apiDetail(live, "Could not load settings"));
+      const cfg = { ...(live.config || {}), ...readEnableFlags() };
+      const res = await fetch("/api/ext/settings/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          main_token: state.mainToken,
+          config: cfg,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Save failed"));
+      setEnableFlags(data.config || cfg);
+      if (note) note.textContent = "Saved.";
+      return data;
+    } catch (err) {
+      if (note) note.textContent = String(err.message || err);
+      throw err;
+    }
+  }
+
   function fillSettings(cfg) {
     const g = (id) => document.getElementById(id);
     const minSec =
@@ -527,6 +648,7 @@
     g("minAddUnit").value = minP.unit;
     g("maxAddValue").value = maxP.value;
     g("maxAddUnit").value = maxP.unit;
+    setEnableFlags(cfg);
     g("setAutoPunishEnabled").checked = !!cfg.auto_punish_enabled;
     g("setAutoPunishSeconds").value = cfg.auto_punish_seconds ?? 600;
     g("setAutopilotEnabled").checked = !!cfg.autopilot_enabled;
@@ -581,6 +703,7 @@
       soft_add_time_seconds: minSec,
       hard_add_time_seconds: maxSec,
       default_add_time_seconds: maxSec,
+      ...readEnableFlags(),
       auto_punish_enabled: g("setAutoPunishEnabled").checked,
       auto_punish_seconds: Number(g("setAutoPunishSeconds").value) || 600,
       autopilot_enabled: g("setAutopilotEnabled").checked,
@@ -944,6 +1067,15 @@
       openKinks();
     });
   }
+  if (els.enableBarSave) {
+    els.enableBarSave.addEventListener("click", async () => {
+      try {
+        await saveEnableSettings(els.enableBarStatus);
+      } catch (_) {
+        /* status already set */
+      }
+    });
+  }
   if (els.settingsClose) {
     els.settingsClose.addEventListener("click", closeSettings);
   }
@@ -958,6 +1090,7 @@
       e.stopPropagation();
       els.settingsStatus.textContent = "Saving…";
       try {
+        syncEnableBarToForm();
         const cfg = readSettings();
         const res = await fetch("/api/ext/settings/save", {
           method: "POST",
@@ -977,6 +1110,7 @@
         } else {
           els.settingsStatus.textContent = "Saved. Autopilot uses these live values.";
         }
+        setEnableFlags(data.config || cfg);
       } catch (err) {
         els.settingsStatus.textContent = String(err.message || err);
       }

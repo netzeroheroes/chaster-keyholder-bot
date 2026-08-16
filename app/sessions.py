@@ -10,10 +10,11 @@ from openai.types.chat import ChatCompletionMessageParam
 
 @dataclass
 class DisplayMessage:
-    speaker: str  # Domme | Sub | Bot
+    speaker: str  # Domme | Sub | Keyholder | Bot
     content: str
     room: str
     image_url: str | None = None
+    from_bot: bool = False
 
 
 class SessionStore:
@@ -55,6 +56,7 @@ class SessionStore:
                     "content": m.content,
                     "room": m.room,
                     "image_url": m.image_url,
+                    "from_bot": bool(m.from_bot),
                 }
                 for m in self._display[room]
             ]
@@ -80,6 +82,7 @@ class SessionStore:
                             "content": m.content,
                             "room": m.room,
                             "image_url": m.image_url,
+                            "from_bot": bool(m.from_bot),
                         }
                         for m in msgs
                     ]

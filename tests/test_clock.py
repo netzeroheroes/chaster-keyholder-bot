@@ -20,6 +20,7 @@ class ClockTests(unittest.TestCase):
         self.assertFalse(asks_clock_time("hello"))
         self.assertFalse(asks_lock_remaining("what time is it?"))
         self.assertTrue(asks_lock_remaining("how long left on the lock"))
+        self.assertTrue(asks_lock_remaining("what's his time looking like now"))
         self.assertTrue(asks_clock_time("what time is it") and not asks_lock_remaining(
             "what time is it"
         ))

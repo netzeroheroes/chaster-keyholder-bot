@@ -38,6 +38,12 @@ class RuntimeControls:
     hard_add_time_seconds: int = 86400
     hygiene_allowed_seconds: int = 600
     hygiene_late_punish_seconds: int = 1800
+    # What the bot may do on the lock (Settings → Enable)
+    bot_allow_add_time: bool = True
+    bot_allow_remove_time: bool = True
+    bot_allow_freeze: bool = True
+    bot_allow_hide_timer: bool = True
+    bot_allow_pillory: bool = True
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -61,6 +67,11 @@ class RuntimeControls:
             autopilot_allow_chaster=settings.autopilot_allow_chaster,
             autopilot_chaster_chance=settings.autopilot_chaster_chance,
             autopilot_punish_seconds=settings.autopilot_punish_seconds,
+            bot_allow_add_time=getattr(settings, "bot_allow_add_time", True),
+            bot_allow_remove_time=getattr(settings, "bot_allow_remove_time", True),
+            bot_allow_freeze=getattr(settings, "bot_allow_freeze", True),
+            bot_allow_hide_timer=getattr(settings, "bot_allow_hide_timer", True),
+            bot_allow_pillory=getattr(settings, "bot_allow_pillory", True),
         )
 
     @classmethod
@@ -140,3 +151,58 @@ def init_controls(settings: Settings) -> RuntimeControls:
     global _CONTROLS
     _CONTROLS = RuntimeControls.load(settings)
     return _CONTROLS
+
+
+BOT_LOCK_FLAGS = (
+    ("bot_allow_add_time", "add time"),
+    ("bot_allow_remove_time", "remove time"),
+    ("bot_allow_freeze", "freeze/unfreeze"),
+    ("bot_allow_hide_timer", "hide/show timer"),
+    ("bot_allow_pillory", "pillory"),
+)
+
+
+def bot_lock_flag_for(kind: str, *, seconds: int = 0) -> str | None:
+    if kind == "add_time":
+        return "bot_allow_remove_time" if int(seconds or 0) < 0 else "bot_allow_add_time"
+    return {
+        "freeze": "bot_allow_freeze",
+        "unfreeze": "bot_allow_freeze",
+        "toggle_freeze": "bot_allow_freeze",
+        "hide_time": "bot_allow_hide_timer",
+        "show_time": "bot_allow_hide_timer",
+        "pillory": "bot_allow_pillory",
+    }.get(kind)
+
+
+def bot_lock_action_allowed(kind: str, *, seconds: int = 0) -> bool:
+    flag = bot_lock_flag_for(kind, seconds=seconds)
+    if not flag:
+        return True
+    try:
+        controls = get_controls()
+    except RuntimeError:
+        return True
+    return bool(getattr(controls, flag, True))
+
+
+def format_bot_lock_permissions() -> str:
+    try:
+        controls = get_controls()
+    except RuntimeError:
+        return ""
+    on: list[str] = []
+    off: list[str] = []
+    for key, label in BOT_LOCK_FLAGS:
+        (on if getattr(controls, key, True) else off).append(label)
+    lines = ["[LOCK PERMISSIONS — Settings → Enable]"]
+    if on:
+        lines.append("Enabled: " + ", ".join(on) + ".")
+    if off:
+        lines.append(
+            "Disabled: "
+            + ", ".join(off)
+            + ". Do not emit [[[LOCK]]] tags for these. "
+            "If she asks, say it is turned off in Settings → Enable."
+        )
+    return "\n".join(lines)

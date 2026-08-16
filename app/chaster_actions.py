@@ -154,15 +154,46 @@ def extract_duration_seconds(text: str) -> int | None:
     return None
 
 
+_SCALE_CMD = re.compile(
+    r"(?:please\s+|can you\s+|could you\s+)?"
+    r"(double|triple|halve)"
+    r"(?:\s+(it|his(?:\s+lock)?(?:\s+time)?|the(?:\s+lock)?(?:\s+time)?))?"
+    r"\s*[.!]?",
+    re.I,
+)
+
+
+def parse_scale_command(message: str) -> str | None:
+    """Return double/triple/halve when the whole message is that order."""
+    m = _SCALE_CMD.fullmatch((message or "").strip())
+    return m.group(1).lower() if m else None
+
+
+def seconds_for_scale(word: str, remaining: int) -> int:
+    rem = int(remaining)
+    if word == "double":
+        return rem
+    if word == "triple":
+        return rem * 2
+    return -(rem // 2)
+
+
 def parse_chaster_intent(
     message: str,
     *,
     context: str = "",
+    remaining_seconds: int | None = None,
 ) -> ChasterIntent | None:
     text = (message or "").strip()
     if not text:
         return None
     low = text.lower()
+
+    word = parse_scale_command(text)
+    if word and remaining_seconds and int(remaining_seconds) > 0:
+        secs = seconds_for_scale(word, int(remaining_seconds))
+        if secs:
+            return ChasterIntent(kind="add_time", seconds=secs, reason=word)
 
     # Capability catalog (real lock controls — Domme menu)
     if re.search(
@@ -627,7 +658,12 @@ def parse_chaster_intent(
 
     if re.search(
         r"\b(how much|how long|remaining|left on|time (?:on|left)|lock time|"
-        r"what(?:'s| is) (?:his |the )?lock|check (?:his |the )?lock)\b",
+        r"what(?:'s| is) his (?:lock )?time|"
+        r"what(?:'s| is) (?:his |the )?lock|"
+        r"how(?:'s|s| is) (?:his |the )?(?:lock|timer)|"
+        r"hows his lock|"
+        r"check (?:his |the )?lock|"
+        r"his time looking)\b",
         low,
     ) and re.search(r"\b(lock|cage|chaster|time|timer)\b", low):
         return ChasterIntent(kind="status")
@@ -710,6 +746,31 @@ def format_duration(seconds: int | None) -> str:
     if secs and not days and not hours:
         parts.append(f"{secs}s")
     out = " ".join(parts)
+    return f"-{out}" if neg else out
+
+
+def format_spoken_duration(seconds: int | None) -> str:
+    """Normalized spoken remaining, e.g. '12 days, 10 hours, and 36 minutes'."""
+    if seconds is None:
+        return "unknown"
+    neg = seconds < 0
+    s = abs(int(seconds))
+    days, rem = divmod(s, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days} day" + ("s" if days != 1 else ""))
+    if hours:
+        parts.append(f"{hours} hour" + ("s" if hours != 1 else ""))
+    if minutes or not parts:
+        parts.append(f"{minutes} minute" + ("s" if minutes != 1 else ""))
+    if len(parts) == 1:
+        out = parts[0]
+    elif len(parts) == 2:
+        out = f"{parts[0]} and {parts[1]}"
+    else:
+        out = f"{', '.join(parts[:-1])}, and {parts[-1]}"
     return f"-{out}" if neg else out
 
 
@@ -937,13 +998,9 @@ def _status_lines(label: str, summary: dict[str, Any]) -> str:
     )
 
 
-async def fetch_live_status_block(
-    chaster: ChasterClient, *, requested_by: str = "system"
+def format_live_status_block(
+    current: dict[str, Any], *, requested_by: str = "system"
 ) -> str:
-    """Fresh lock snapshot for every chat turn — never invent numbers from memory."""
-    lock = await resolve_lock(chaster)
-    lock = await refresh_lock(chaster, lock)
-    current = summarize_lock(lock)
     return (
         "CHASTER LIVE STATUS (real API this turn — ONLY source of lock numbers):\n"
         f"- Requested context by: {requested_by}\n"
@@ -953,6 +1010,24 @@ async def fetch_live_status_block(
         "If you change the lock, emit [[[LOCK]]] tags so the API runs — "
         "do not narrate fake changes."
     )
+
+
+async def fetch_live_lock_summary(
+    chaster: ChasterClient, *, requested_by: str = "system"
+) -> dict[str, Any]:
+    """Fresh lock summary — remaining_seconds comes from endDate, not chat text."""
+    del requested_by
+    lock = await resolve_lock(chaster)
+    lock = await refresh_lock(chaster, lock)
+    return summarize_lock(lock)
+
+
+async def fetch_live_status_block(
+    chaster: ChasterClient, *, requested_by: str = "system"
+) -> str:
+    """Fresh lock snapshot for every chat turn — never invent numbers from memory."""
+    current = await fetch_live_lock_summary(chaster, requested_by=requested_by)
+    return format_live_status_block(current, requested_by=requested_by)
 
 
 def _facts_after(
@@ -1014,6 +1089,16 @@ def preflight_block_reason(intent: ChasterIntent, before: dict[str, Any]) -> str
     """Return a reason to refuse a mutating action, or None if OK to proceed."""
     if intent.kind not in MUTATING:
         return None
+    try:
+        from app.runtime_controls import bot_lock_action_allowed
+
+        if not bot_lock_action_allowed(intent.kind, seconds=int(intent.seconds or 0)):
+            return (
+                "Keyholder turned this off in Settings → Enable. "
+                "Nothing was changed."
+            )
+    except Exception:  # noqa: BLE001
+        pass
     status = str(before.get("status") or "")
     if status != "locked":
         return (
@@ -1029,6 +1114,90 @@ def preflight_block_reason(intent: ChasterIntent, before: dict[str, Any]) -> str
     if intent.kind == "show_time" and before.get("display_remaining_time"):
         return "Timer is already visible — no change needed."
     return None
+
+
+def _scale_stuck(
+    before_rem: int | None, after_rem: int | None, secs: int
+) -> bool:
+    if before_rem is None or after_rem is None:
+        return True
+    return abs(int(after_rem) - (int(before_rem) + int(secs))) > 180
+
+
+async def _apply_add_time_and_confirm(
+    chaster: ChasterClient,
+    lock: dict[str, Any],
+    lock_id: str,
+    secs: int,
+    before: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply add/remove, then retry leftover or keyholder API if remaining did not move."""
+    chunk = 7 * 86400
+    sign = 1 if secs >= 0 else -1
+    left = abs(int(secs))
+    while left > 0:
+        n = min(left, chunk)
+        await chaster.update_time(lock_id, sign * n)
+        left -= n
+    after = summarize_lock(await refresh_lock(chaster, lock))
+    if not _scale_stuck(before.get("remaining_seconds"), after.get("remaining_seconds"), secs):
+        return after
+    leftover = 0
+    if before.get("remaining_seconds") is not None and after.get("remaining_seconds") is not None:
+        leftover = (int(before["remaining_seconds"]) + secs) - int(
+            after["remaining_seconds"]
+        )
+    if abs(leftover) > 60:
+        log.warning(
+            "Extension add_time short: retry leftover=%s via keyholder updater", leftover
+        )
+        try:
+            await chaster.update_time_keyholder(lock_id, leftover)
+        except Exception:  # noqa: BLE001
+            log.exception("Keyholder update-time fallback failed")
+            try:
+                await chaster.update_time(lock_id, leftover)
+            except Exception:  # noqa: BLE001
+                log.exception("Extension leftover retry failed")
+        after = summarize_lock(await refresh_lock(chaster, lock))
+    return after
+
+
+async def apply_scale_command(
+    chaster: ChasterClient,
+    message: str,
+    *,
+    requested_by: str = "Keyholder",
+) -> ChasterActionResult | None:
+    """Run double/triple/halve against the live lock. None if the message is not that order."""
+    word = parse_scale_command(message)
+    if not word:
+        return None
+    return await run_chaster_intent(
+        chaster,
+        ChasterIntent(kind="add_time", seconds=1, reason=word),
+        requested_by=requested_by,
+    )
+
+
+def format_scale_reply(word: str, result: ChasterActionResult) -> str:
+    before = result.before or {}
+    after = result.lock or {}
+    was_s = before.get("remaining_seconds")
+    now_s = after.get("remaining_seconds")
+    was = format_spoken_duration(int(was_s)) if was_s is not None else "unknown"
+    now = format_spoken_duration(int(now_s)) if now_s is not None else "unknown"
+    verb = {"double": "doubled", "triple": "tripled", "halve": "halved"}.get(
+        word, "changed"
+    )
+    if not result.ok or result.blocked:
+        if "remaining seconds unavailable" in (result.facts or "").lower():
+            return "I can't read his remaining time, so I didn't change the lock."
+        return (
+            f"I tried to {word} it but Chaster did not apply the change. "
+            f"His lock is still {now}."
+        )
+    return f"I've {verb} it. His lock went from {was} to {now}."
 
 
 async def run_chaster_intent(
@@ -1625,6 +1794,26 @@ async def run_chaster_intent(
 
         if intent.kind == "add_time":
             secs = int(intent.seconds or 0)
+            if intent.reason in {"double", "triple", "halve"}:
+                rem_now = before.get("remaining_seconds")
+                if rem_now is None or int(rem_now) <= 0:
+                    facts = (
+                        f"CHASTER ACTION BLOCKED:\n"
+                        f"- Requested by: {requested_by}\n"
+                        f"- Requested action: {intent.reason}\n"
+                        f"- Reason: remaining seconds unavailable\n"
+                        f"{_status_lines('CURRENT LOCK STATUS', before)}\n"
+                        "Tell the requester the remaining time could not be read "
+                        "and that nothing was changed."
+                    )
+                    return ChasterActionResult(
+                        ok=True,
+                        facts=facts,
+                        lock=before,
+                        before=before,
+                        blocked=True,
+                    )
+                secs = seconds_for_scale(str(intent.reason), int(rem_now))
             try:
                 from app.runtime_controls import get_controls
 
@@ -1632,6 +1821,8 @@ async def run_chaster_intent(
             except Exception:  # noqa: BLE001
                 hi = 86400
             # Cap runaway LLM amounts to session maximum; never invent bigger adds
+            if intent.reason in {"double", "triple", "halve"}:
+                hi = min(max(hi, abs(secs)), 30 * 86400)
             if secs > hi:
                 log.info("Clamped add_time %s → max %s", secs, hi)
                 secs = hi
@@ -1639,8 +1830,42 @@ async def run_chaster_intent(
                 log.info("Clamped remove_time %s → -max %s", secs, hi)
                 secs = -hi
             intent = ChasterIntent(kind="add_time", seconds=secs, reason=intent.reason)
-            await chaster.update_time(lock_id, secs)
-            after = summarize_lock(await refresh_lock(chaster, lock))
+            after = await _apply_add_time_and_confirm(
+                chaster, lock, lock_id, secs, before
+            )
+            after_rem = after.get("remaining_seconds")
+            before_rem = before.get("remaining_seconds")
+            if (
+                intent.reason in {"double", "triple", "halve"}
+                and before_rem is not None
+                and after_rem is not None
+                and abs(int(after_rem) - (int(before_rem) + secs)) > 180
+            ):
+                log.error(
+                    "Scale %s did not stick on lock: before=%s add=%s after=%s",
+                    intent.reason,
+                    before_rem,
+                    secs,
+                    after_rem,
+                )
+                return ChasterActionResult(
+                    ok=False,
+                    error=(
+                        f"Chaster did not apply {intent.reason}: "
+                        f"remaining was {before_rem}s, now {after_rem}s"
+                    ),
+                    facts=_facts_after(
+                        action_line=(
+                            f"FAILED to apply {intent.reason}. "
+                            "Lock remaining did not change as requested."
+                        ),
+                        before=before,
+                        after=after,
+                        requested_by=requested_by,
+                    ),
+                    lock=after,
+                    before=before,
+                )
             sign = "+" if secs >= 0 else ""
             return ChasterActionResult(
                 ok=True,
@@ -2014,7 +2239,11 @@ def _extract_quoted_note(context: str) -> str:
 
 
 def _domme_lock_snapshot(summary: dict[str, Any]) -> str:
-    rem = summary.get("remaining") or "?"
+    rem_secs = summary.get("remaining_seconds")
+    if rem_secs is not None:
+        rem = format_spoken_duration(int(rem_secs))
+    else:
+        rem = summary.get("remaining") or "?"
     frozen = "frozen" if summary.get("is_frozen") else "not frozen"
     visible = (
         "timer visible to him"
@@ -2263,20 +2492,33 @@ def format_extensions_facts(
 
 def capabilities_text(summary: dict[str, Any], *, requested_by: str) -> str:
     """Domme-facing menu of real lock controls only."""
+    def _off(kind: str, seconds: int = 0) -> str:
+        try:
+            from app.runtime_controls import bot_lock_action_allowed
+
+            if bot_lock_action_allowed(kind, seconds=seconds):
+                return ""
+        except Exception:  # noqa: BLE001
+            return ""
+        return " — OFF in Settings → Enable"
+
     return "\n".join(
         [
             _domme_lock_snapshot(summary),
             "",
             "Here's what we can do to him on the lock, Mistress:",
-            '• Add time — say: "add 2 hours to his lock" / "add that time"',
-            '• Remove time — say: "remove 30 minutes from his lock"',
-            '• Freeze — say: "freeze his lock"',
-            '• Unfreeze — say: "unfreeze him"',
-            '• Toggle freeze — say: "toggle freeze"',
-            '• Hide the timer from him — say: "hide the timer"',
-            '• Show the timer again — say: "show the timer"',
+            '• Add time — say: "add 2 hours to his lock" / "add that time"'
+            + _off("add_time", 60),
+            '• Remove time — say: "remove 30 minutes from his lock"'
+            + _off("add_time", -60),
+            '• Freeze — say: "freeze his lock"' + _off("freeze"),
+            '• Unfreeze — say: "unfreeze him"' + _off("unfreeze"),
+            '• Toggle freeze — say: "toggle freeze"' + _off("toggle_freeze"),
+            '• Hide the timer from him — say: "hide the timer"' + _off("hide_time"),
+            '• Show the timer again — say: "show the timer"' + _off("show_time"),
             '• Pillory him (only if Pillory is on the lock) — say: '
-            '"pillory him for 15 minutes, 10 minutes per vote because teasing"',
+            '"pillory him for 15 minutes, 10 minutes per vote because teasing"'
+            + _off("pillory"),
             '• Message / push via lock history — say: '
             '"message him: Be good tonight" or '
             '"send him a lock message: Tease | Edge twice and wait"',
@@ -2395,6 +2637,8 @@ def format_truth_reply(
             reason = "I couldn't save a keyholder note on this account."
         elif "reminder" in facts.lower() or "notification" in facts.lower():
             reason = "I can't set reminder or custom notification texts on his lock."
+        elif "remaining seconds unavailable" in facts.lower():
+            reason = "I can't read his remaining time, so I didn't change the lock."
         else:
             reason = "I couldn't make that change."
         out = f"Mistress — {reason} {snap}".strip()
@@ -2418,6 +2662,14 @@ def format_truth_reply(
         action = "I've put him in the pillory."
     elif "history" in label or "message" in label or "push" in label:
         action = "I've posted a message to his lock history — he should get a push."
+    elif "status" in label:
+        action = "Here's his lock right now."
+    elif label == "double":
+        action = "I've doubled his remaining time."
+    elif label == "triple":
+        action = "I've tripled his remaining time."
+    elif label == "halve":
+        action = "I've halved his remaining time."
     elif "add" in label or "time" in label:
         action = "I've changed his lock time."
     elif "note" in label:
@@ -2724,36 +2976,71 @@ def format_group_lock_confirm(
     domme_title: str,
     intent: ChasterIntent,
     result: ChasterActionResult,
+    room: str = "group",
 ) -> str:
-    """Sub-facing confirmation after either Domme changes the lock."""
+    """Confirm a lock change. Group talks to him; private talks to her."""
     title = (domme_title or "the Domme").strip() or "the Domme"
     if not result.ok or result.blocked:
         return ""
     kind = intent.kind
+    him = room == "private"
     if kind == "show_time":
-        action = "I've shown you the timer"
+        action = "I've shown him the timer" if him else "I've shown you the timer"
     elif kind == "hide_time":
-        action = "I've hidden the timer again"
+        action = "I've hidden the timer from him" if him else "I've hidden the timer again"
     elif kind == "freeze":
-        action = "I've frozen you"
+        action = "I've frozen him" if him else "I've frozen you"
     elif kind == "unfreeze":
-        action = "I've unfrozen you — time moves again"
+        action = (
+            "I've unfrozen him — time is moving again"
+            if him
+            else "I've unfrozen you — time moves again"
+        )
     elif kind == "add_time":
-        mins = max(1, abs(int(intent.seconds)) // 60)
-        if intent.seconds < 0:
-            action = f"I've taken {mins} minutes off"
+        if intent.reason == "double":
+            action = (
+                "I've doubled his remaining time"
+                if him
+                else "I've doubled your remaining time"
+            )
+        elif intent.reason == "triple":
+            action = (
+                "I've tripled his remaining time"
+                if him
+                else "I've tripled your remaining time"
+            )
+        elif intent.reason == "halve":
+            action = (
+                "I've halved his remaining time"
+                if him
+                else "I've halved your remaining time"
+            )
         else:
-            action = f"I've added {mins} minutes"
+            mins = max(1, abs(int(intent.seconds)) // 60)
+            if intent.seconds < 0:
+                action = f"I've taken {mins} minutes off"
+            else:
+                action = f"I've added {mins} minutes"
     elif kind == "pillory":
-        action = "I've put you in the pillory"
+        action = "I've put him in the pillory" if him else "I've put you in the pillory"
     elif kind == "history_message":
-        action = "I've left a message on your lock"
+        action = (
+            "I've left a message on his lock" if him else "I've left a message on your lock"
+        )
     else:
-        action = "I've changed your lock"
+        action = "I've changed his lock" if him else "I've changed your lock"
     rem = ""
     lock = result.lock or {}
-    if isinstance(lock, dict) and lock.get("remaining"):
-        rem = f" Remaining: {lock.get('remaining')}."
+    if isinstance(lock, dict):
+        if lock.get("remaining_seconds") is not None:
+            rem = (
+                f" Remaining: "
+                f"{format_spoken_duration(int(lock['remaining_seconds']))}."
+            )
+        elif lock.get("remaining"):
+            rem = f" Remaining: {lock.get('remaining')}."
+    if him:
+        return f"{action}.{rem}".strip()
     return (
         f"{action}.{rem}\n"
         f"{title} and I decide your lock — remember that. — {bot_name}"

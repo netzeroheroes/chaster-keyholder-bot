@@ -58,6 +58,11 @@ const els = {
   chasterStatus: document.getElementById("chasterStatus"),
   chasterRefresh: document.getElementById("chasterRefresh"),
   chasterWearers: document.getElementById("chasterWearers"),
+  botAllowAddTime: document.getElementById("botAllowAddTime"),
+  botAllowRemoveTime: document.getElementById("botAllowRemoveTime"),
+  botAllowFreeze: document.getElementById("botAllowFreeze"),
+  botAllowHideTimer: document.getElementById("botAllowHideTimer"),
+  botAllowPillory: document.getElementById("botAllowPillory"),
   autoPunishEnabled: document.getElementById("autoPunishEnabled"),
   autoPunishSeconds: document.getElementById("autoPunishSeconds"),
   autopilotEnabled: document.getElementById("autopilotEnabled"),
@@ -145,14 +150,40 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
   const grew = messages.length > prevCount && prevCount >= 0;
 
   els.messages.innerHTML = "";
+  function isBotMessage(m) {
+    if (m && m.from_bot === true) return true;
+    if (m && m.from_bot === false) return false;
+    const who = String((m && m.speaker) || "");
+    if (/^(Domme|Sub|Keyholder\s*[\(@])/i.test(who)) return false;
+    return !who || /^keyholder$/i.test(who) || /^bot$/i.test(who);
+  }
+
+  function displayWho(m) {
+    const who = String((m && m.speaker) || "");
+    if (isBotMessage(m)) {
+      if (!who || /^keyholder$/i.test(who)) return "Bot";
+      return who;
+    }
+    if (state.room === "private") {
+      if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
+      return who || "Keyholder";
+    }
+    return who || "Keyholder";
+  }
+
+  function messageClass(m) {
+    if (isBotMessage(m)) return "bot";
+    if (state.room === "private") return "Domme";
+    const who = String((m && m.speaker) || "");
+    if (who.startsWith("Domme") || who.startsWith("Keyholder")) return "Domme";
+    if (who.startsWith("Sub")) return "Sub";
+    return "bot";
+  }
+
   for (const m of messages) {
     const div = document.createElement("div");
-    const who = String(m.speaker || "Keyholder");
-    const cls = who.startsWith("Domme")
-      ? "Domme"
-      : who.startsWith("Sub")
-        ? "Sub"
-        : "bot";
+    const who = displayWho(m);
+    const cls = messageClass(m);
     div.className = `msg ${cls}`;
     div.innerHTML = `<span class="who">${who}</span>`;
     if (m.content && !String(m.content).startsWith("[image]")) {
@@ -419,6 +450,12 @@ async function loadControls() {
   });
   if (!res.ok) return;
   const c = await res.json();
+  const flagOn = (key) => c[key] !== false;
+  if (els.botAllowAddTime) els.botAllowAddTime.checked = flagOn("bot_allow_add_time");
+  if (els.botAllowRemoveTime) els.botAllowRemoveTime.checked = flagOn("bot_allow_remove_time");
+  if (els.botAllowFreeze) els.botAllowFreeze.checked = flagOn("bot_allow_freeze");
+  if (els.botAllowHideTimer) els.botAllowHideTimer.checked = flagOn("bot_allow_hide_timer");
+  if (els.botAllowPillory) els.botAllowPillory.checked = flagOn("bot_allow_pillory");
   els.autoPunishEnabled.checked = !!c.auto_punish_enabled;
   els.autoPunishSeconds.value = c.auto_punish_seconds ?? 600;
   els.autopilotEnabled.checked = !!c.autopilot_enabled;
@@ -967,6 +1004,11 @@ if (els.saveControls) {
       body: JSON.stringify({
         role: "domme",
         pin: state.pin,
+        bot_allow_add_time: els.botAllowAddTime ? els.botAllowAddTime.checked : true,
+        bot_allow_remove_time: els.botAllowRemoveTime ? els.botAllowRemoveTime.checked : true,
+        bot_allow_freeze: els.botAllowFreeze ? els.botAllowFreeze.checked : true,
+        bot_allow_hide_timer: els.botAllowHideTimer ? els.botAllowHideTimer.checked : true,
+        bot_allow_pillory: els.botAllowPillory ? els.botAllowPillory.checked : true,
         auto_punish_enabled: els.autoPunishEnabled.checked,
         auto_punish_seconds: Number(els.autoPunishSeconds.value) || 600,
         autopilot_enabled: els.autopilotEnabled.checked,

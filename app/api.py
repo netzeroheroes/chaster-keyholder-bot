@@ -182,6 +182,11 @@ class ControlsUpdate(BaseModel):
     autopilot_allow_chaster: bool | None = None
     autopilot_chaster_chance: float | None = Field(default=None, ge=0.0, le=1.0)
     autopilot_punish_seconds: int | None = Field(default=None, ge=60, le=86400)
+    bot_allow_add_time: bool | None = None
+    bot_allow_remove_time: bool | None = None
+    bot_allow_freeze: bool | None = None
+    bot_allow_hide_timer: bool | None = None
+    bot_allow_pillory: bool | None = None
 
 
 def create_api(
@@ -601,6 +606,7 @@ def create_api(
                     content=f"[image] {body.prompt}",
                     room=body.room,
                     image_url=result["url"],
+                    from_bot=True,
                 )
             )
             save_sessions(store)

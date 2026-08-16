@@ -78,6 +78,11 @@ _CONFIG_KEYS = (
     "hard_add_time_seconds",
     "hygiene_allowed_seconds",
     "hygiene_late_punish_seconds",
+    "bot_allow_add_time",
+    "bot_allow_remove_time",
+    "bot_allow_freeze",
+    "bot_allow_hide_timer",
+    "bot_allow_pillory",
     "bot_name",
     "domme_title",
 )
@@ -472,6 +477,11 @@ def register_extension_routes(
         cfg.setdefault("hard_add_time_seconds", cfg["max_add_time_seconds"])
         cfg.setdefault("default_add_time_seconds", cfg["max_add_time_seconds"])
         cfg.setdefault("default_remove_time_seconds", 1800)
+        cfg.setdefault("bot_allow_add_time", True)
+        cfg.setdefault("bot_allow_remove_time", True)
+        cfg.setdefault("bot_allow_freeze", True)
+        cfg.setdefault("bot_allow_hide_timer", True)
+        cfg.setdefault("bot_allow_pillory", True)
         return cfg
 
     def _sync_controls_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -689,7 +699,7 @@ def register_extension_routes(
             bridge.inject_private_note(store, text, speaker=bot)
         else:
             store.append_display(
-                DisplayMessage(speaker=bot, content=text, room="group")
+                DisplayMessage(speaker=bot, content=text, room="group", from_bot=True)
             )
         from app.persist import save_sessions
 
@@ -788,6 +798,7 @@ def register_extension_routes(
                 raise HTTPException(status_code=403, detail="Only the keyholder can deny.")
             view = deny_hygiene()
             _hygiene_note("You denied hygiene. He may request again.", room="private")
+            _hygiene_note("Hygiene denied. You may request again.", room="group")
             return {"ok": True, "hygiene": view}
 
         if action == "reset":

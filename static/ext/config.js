@@ -81,6 +81,11 @@
       soft_add_time_seconds: minSec,
       hard_add_time_seconds: maxSec,
       default_add_time_seconds: maxSec,
+      bot_allow_add_time: document.getElementById("botAllowAddTime")?.checked !== false,
+      bot_allow_remove_time: document.getElementById("botAllowRemoveTime")?.checked !== false,
+      bot_allow_freeze: document.getElementById("botAllowFreeze")?.checked !== false,
+      bot_allow_hide_timer: document.getElementById("botAllowHideTimer")?.checked !== false,
+      bot_allow_pillory: document.getElementById("botAllowPillory")?.checked !== false,
       auto_punish_enabled: els.autoPunishEnabled.checked,
       auto_punish_seconds: Number(els.autoPunishSeconds.value) || 600,
       autopilot_enabled: els.autopilotEnabled.checked,
@@ -113,6 +118,16 @@
     g("minAddUnit").value = minP.unit;
     g("maxAddValue").value = maxP.value;
     g("maxAddUnit").value = maxP.unit;
+    const flagOn = (key) => cfg[key] !== false;
+    const setCheck = (id, key) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = flagOn(key);
+    };
+    setCheck("botAllowAddTime", "bot_allow_add_time");
+    setCheck("botAllowRemoveTime", "bot_allow_remove_time");
+    setCheck("botAllowFreeze", "bot_allow_freeze");
+    setCheck("botAllowHideTimer", "bot_allow_hide_timer");
+    setCheck("botAllowPillory", "bot_allow_pillory");
     els.autoPunishEnabled.checked = !!cfg.auto_punish_enabled;
     els.autoPunishSeconds.value = cfg.auto_punish_seconds ?? 600;
     els.autopilotEnabled.checked = !!cfg.autopilot_enabled;
