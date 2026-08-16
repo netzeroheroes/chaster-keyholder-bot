@@ -54,7 +54,16 @@ class BotLockPermissionTests(unittest.TestCase):
         text = rc.format_voice_block()
         self.assertIn("Tone: warm", text)
         self.assertIn("Stay denied, darling", text)
-        self.assertNotIn("humiliatrix", text)
+        self.assertIn("Intensity: firm", text)
+
+    def test_voice_includes_quirks_and_intensity(self) -> None:
+        self.ctrl.bot_voice = "elegant"
+        self.ctrl.bot_intensity = "strict"
+        self.ctrl.bot_quirks = "calls him pet"
+        text = rc.format_voice_block()
+        self.assertIn("Tone: elegant", text)
+        self.assertIn("Intensity: strict", text)
+        self.assertIn("calls him pet", text)
 
 
 if __name__ == "__main__":

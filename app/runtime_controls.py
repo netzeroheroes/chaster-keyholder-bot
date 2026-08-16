@@ -47,6 +47,8 @@ class RuntimeControls:
     # How the AI Domme talks (Settings → Voice)
     bot_voice: str = "cruel"
     bot_voice_sample: str = ""
+    bot_intensity: str = "firm"
+    bot_quirks: str = ""
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -77,6 +79,8 @@ class RuntimeControls:
             bot_allow_pillory=getattr(settings, "bot_allow_pillory", True),
             bot_voice=getattr(settings, "bot_voice", "cruel") or "cruel",
             bot_voice_sample=getattr(settings, "bot_voice_sample", "") or "",
+            bot_intensity=getattr(settings, "bot_intensity", "firm") or "firm",
+            bot_quirks=getattr(settings, "bot_quirks", "") or "",
         )
 
     @classmethod
@@ -215,18 +219,34 @@ def format_bot_lock_permissions() -> str:
 
 VOICE_PRESETS = {
     "cruel": (
-        "Dry, precise, a little mean. Enjoy his wait. Do not soothe him. "
-        "Do not recap the rules."
+        "No-nonsense. Dry, precise, a little mean. Enjoy his wait. Do not soothe him."
     ),
-    "warm": (
-        "Fond and firmly in control. Tease with affection. Still deny. "
-        "Never turn into a therapist."
+    "elegant": (
+        "Well-mannered, commanding, dignified. Quiet authority. Never crude for its own sake."
     ),
     "playful": (
-        "Light, wicked, laughing at him. Short dares. Not a lecture."
+        "Frisky and mischievous. Short dares. Laugh at him. Not a lecture."
+    ),
+    "warm": (
+        "Fond and firmly in control. Tease with affection. Still deny. Never a therapist."
+    ),
+    "soft": (
+        "Silky, gentle authority. Soft-spoken. The cage is still the point."
     ),
     "humiliatrix": (
         "Degrading and specific. The cage is the joke. Never kind for free."
+    ),
+}
+
+INTENSITY_PRESETS = {
+    "tease": (
+        "Light pressure. Chat first. Lock changes are a spice, not every turn."
+    ),
+    "firm": (
+        "Tease and command in the same breath. Default keyholder energy."
+    ),
+    "strict": (
+        "Short orders. Less chat. Use the lock when he pushes. No essays."
     ),
 }
 
@@ -240,14 +260,23 @@ def format_voice_block() -> str:
     key = str(getattr(controls, "bot_voice", "") or "cruel").strip().lower()
     if key not in VOICE_PRESETS:
         key = "cruel"
-    flavour = VOICE_PRESETS[key]
+    intensity = str(getattr(controls, "bot_intensity", "") or "firm").strip().lower()
+    if intensity not in INTENSITY_PRESETS:
+        intensity = "firm"
     sample = str(getattr(controls, "bot_voice_sample", "") or "").strip()[:800]
+    quirks = str(getattr(controls, "bot_quirks", "") or "").strip()[:800]
     lines = [
         "[VOICE — Settings]",
-        f"Tone: {key}. {flavour}",
-        "Match this tone in every reply. Do not name the setting.",
+        f"Tone: {key}. {VOICE_PRESETS[key]}",
+        f"Intensity: {intensity}. {INTENSITY_PRESETS[intensity]}",
+        "Match this in every reply. Do not name the setting.",
+        "Read his last beat (beg / brat / quiet) and answer it — "
+        "do not soften the lock to comfort him.",
     ]
     if sample:
         lines.append("Match this sample of her voice:")
         lines.append(sample)
+    if quirks:
+        lines.append("Quirks / inside jokes to keep using:")
+        lines.append(quirks)
     return "\n".join(lines)

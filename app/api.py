@@ -189,6 +189,8 @@ class ControlsUpdate(BaseModel):
     bot_allow_pillory: bool | None = None
     bot_voice: str | None = None
     bot_voice_sample: str | None = None
+    bot_intensity: str | None = None
+    bot_quirks: str | None = None
 
 
 def create_api(

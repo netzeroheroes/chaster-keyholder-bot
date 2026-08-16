@@ -18,6 +18,8 @@
     dommeTitle: document.getElementById("dommeTitle"),
     botVoice: document.getElementById("botVoice"),
     botVoiceSample: document.getElementById("botVoiceSample"),
+    botIntensity: document.getElementById("botIntensity"),
+    botQuirks: document.getElementById("botQuirks"),
   };
 
   let configurationToken = "";
@@ -102,6 +104,8 @@
       domme_title: els.dommeTitle.value.trim() || "Mistress",
       bot_voice: els.botVoice?.value || "cruel",
       bot_voice_sample: (els.botVoiceSample?.value || "").trim().slice(0, 800),
+      bot_intensity: els.botIntensity?.value || "firm",
+      bot_quirks: (els.botQuirks?.value || "").trim().slice(0, 800),
     };
   }
 
@@ -146,11 +150,15 @@
     els.dommeTitle.value = cfg.domme_title || "Mistress";
     if (els.botVoice) {
       const v = String(cfg.bot_voice || "cruel").toLowerCase();
-      els.botVoice.value = ["cruel", "warm", "playful", "humiliatrix"].includes(v)
-        ? v
-        : "cruel";
+      const voices = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix"];
+      els.botVoice.value = voices.includes(v) ? v : "cruel";
     }
     if (els.botVoiceSample) els.botVoiceSample.value = cfg.bot_voice_sample || "";
+    if (els.botIntensity) {
+      const i = String(cfg.bot_intensity || "firm").toLowerCase();
+      els.botIntensity.value = ["tease", "firm", "strict"].includes(i) ? i : "firm";
+    }
+    if (els.botQuirks) els.botQuirks.value = cfg.bot_quirks || "";
   }
 
   function postParent(payload) {

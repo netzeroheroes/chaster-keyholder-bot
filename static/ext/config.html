@@ -19,19 +19,33 @@
     <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
 
     <p class="title" style="font-size:1rem">Voice</p>
-    <p class="meta">How she talks. Paste a few lines in her voice if you have them.</p>
+    <p class="meta">Archetype, pressure, and quirks.</p>
     <label class="field">
       <span>Tone</span>
       <select id="botVoice">
         <option value="cruel" selected>Cruel</option>
-        <option value="warm">Warm</option>
+        <option value="elegant">Elegant</option>
         <option value="playful">Playful</option>
+        <option value="warm">Warm</option>
+        <option value="soft">Soft</option>
         <option value="humiliatrix">Humiliatrix</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Intensity</span>
+      <select id="botIntensity">
+        <option value="tease">Tease</option>
+        <option value="firm" selected>Firm</option>
+        <option value="strict">Strict</option>
       </select>
     </label>
     <label class="field">
       <span>How she sounds (optional)</span>
       <textarea id="botVoiceSample" rows="3" placeholder="1–3 lines in her voice"></textarea>
+    </label>
+    <label class="field">
+      <span>Quirks / inside jokes (optional)</span>
+      <textarea id="botQuirks" rows="2" placeholder="calls him pet; never says Mistress"></textarea>
     </label>
 
     <p class="title" style="font-size:1rem">Enable</p>

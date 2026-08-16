@@ -616,15 +616,21 @@
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
     g("setDommeTitle").value = cfg.domme_title || "Mistress";
+    const VOICES = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix"];
     const voiceEl = g("setBotVoice");
     if (voiceEl) {
       const v = String(cfg.bot_voice || "cruel").toLowerCase();
-      voiceEl.value = ["cruel", "warm", "playful", "humiliatrix"].includes(v)
-        ? v
-        : "cruel";
+      voiceEl.value = VOICES.includes(v) ? v : "cruel";
     }
     const sampleEl = g("setBotVoiceSample");
     if (sampleEl) sampleEl.value = cfg.bot_voice_sample || "";
+    const intensityEl = g("setBotIntensity");
+    if (intensityEl) {
+      const i = String(cfg.bot_intensity || "firm").toLowerCase();
+      intensityEl.value = ["tease", "firm", "strict"].includes(i) ? i : "firm";
+    }
+    const quirksEl = g("setBotQuirks");
+    if (quirksEl) quirksEl.value = cfg.bot_quirks || "";
     const allowP = secondsToParts(cfg.hygiene_allowed_seconds ?? 600, "minutes");
     const lateP = secondsToParts(cfg.hygiene_late_punish_seconds ?? 1800, "minutes");
     if (g("hygAllowValue")) {
@@ -678,6 +684,8 @@
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
       bot_voice: g("setBotVoice")?.value || "cruel",
       bot_voice_sample: (g("setBotVoiceSample")?.value || "").trim().slice(0, 800),
+      bot_intensity: g("setBotIntensity")?.value || "firm",
+      bot_quirks: (g("setBotQuirks")?.value || "").trim().slice(0, 800),
       hygiene_allowed_seconds: partsToSeconds(
         g("hygAllowValue")?.value || 10,
         g("hygAllowUnit")?.value || "minutes"

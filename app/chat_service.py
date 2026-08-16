@@ -106,6 +106,20 @@ _READ_ONLY_INTENTS = frozenset(
         "status",
     }
 )
+
+_AFTERCARE_ASK = re.compile(
+    r"\b("
+    r"aftercare|"
+    r"scene'?s over|"
+    r"the scene is over|"
+    r"we'?re done|"
+    r"wind(?:ing)? down|"
+    r"come down|"
+    r"check in with him|"
+    r"drop(?: the)? scene"
+    r")\b",
+    re.I,
+)
 from app.images import (
     ImageService,
     prompt_from_request,
@@ -385,6 +399,17 @@ async def handle_chat_turn(
     ]
     if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
+    if role == "domme" and _AFTERCARE_ASK.search(message or ""):
+        if room == "private":
+            extra_notes.append(
+                "[DIRECTOR: Aftercare. Help her land the scene — calm, specific. "
+                "No tease dump. He is not in this room.]"
+            )
+        else:
+            extra_notes.append(
+                "[DIRECTOR: Aftercare. Check in. Soften the voice, not the cage. "
+                "No pile-on tease. The lock can stay.]"
+            )
     user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
         extra_notes.append(
