@@ -18,6 +18,12 @@ from app.bridge import GroupBridge
 from app.chaster import ChasterClient
 from app.chat_service import handle_chat_turn
 from app.play_thread import apply_play_updates, box_button_message
+from app.play_session import (
+    mark_error as mark_play_error,
+    settle_on_lock,
+    snapshot as play_session_snapshot,
+    start_on_unlock,
+)
 from app.config import Settings
 from app.extension_auth import (
     ExtensionAuthCache,
@@ -318,6 +324,7 @@ def register_extension_routes(
             "autopilot": autopilot_status(settings),
             "hygiene": await _hygiene_view(),
             "lockbox": await _box_view(),
+            "play_session": play_session_snapshot(),
         }
 
     @api.post("/api/ext/history")
@@ -342,6 +349,7 @@ def register_extension_routes(
             "typing": list_typing(room, exclude=speaker),
             "hygiene": await _hygiene_view(),
             "lockbox": await _box_view(),
+            "play_session": play_session_snapshot(),
         }
 
     @api.post("/api/ext/typing")
@@ -393,6 +401,7 @@ def register_extension_routes(
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        result["play_session"] = play_session_snapshot()
         return result
 
     @api.post("/api/ext/config/get")
@@ -700,7 +709,81 @@ def register_extension_routes(
         snap["ok"] = bool(result.get("ok"))
         snap["last_sync"] = result
         snap["lockbox"] = await _box_view(force=True)
+        hygiene_busy = hygiene_snapshot().get("status") in {
+            "requested",
+            "approved",
+            "unlocked",
+        }
         spoken = box_button_message(action)
+        play_view = play_session_snapshot()
+        if result.get("ok") and action == "unlock" and not hygiene_busy:
+            play_view = start_on_unlock()
+            rate = float(play_view.get("rate") or 0)
+            if rate > 0:
+                spoken = (
+                    "I just unlocked the box. He's uncaged. "
+                    f"Timer started at {rate:g}x. Help me play with him — tease him."
+                )
+        elif result.get("ok") and action == "lock" and not hygiene_busy:
+            settled = settle_on_lock()
+            if settled:
+                play_view = settled
+                add = int(settled.get("add_seconds") or 0)
+                out = int(settled.get("out_seconds") or 0)
+                rate = float(settled.get("rate") or 0)
+                out_m = max(1, out // 60) if out else 0
+                add_m = max(1, add // 60) if add else 0
+                if add >= 60:
+                    try:
+                        from app.chaster_actions import ChasterIntent, run_chaster_intent
+
+                        applied = await run_chaster_intent(
+                            chaster,
+                            ChasterIntent(
+                                kind="add_time",
+                                seconds=add,
+                                reason="play session debt",
+                            ),
+                            requested_by="play session timer",
+                        )
+                        if applied.ok and not applied.blocked:
+                            _hygiene_note(
+                                f"Timed: {out_m} min out × {rate:g} = {add_m} min added.",
+                                room="private",
+                            )
+                            _hygiene_note(
+                                "Locked again. That hour had a price.",
+                                room="group",
+                            )
+                            spoken = (
+                                f"I just locked him back. He was out {out_m} min. "
+                                f"Add the {add_m} min we agreed at {rate:g}x."
+                            )
+                        else:
+                            mark_play_error(
+                                str(getattr(applied, "error", None) or "add_time failed")
+                            )
+                            _hygiene_note(
+                                f"Timed {out_m} min out. Could not add {add_m} min — add it?",
+                                room="private",
+                            )
+                            spoken = (
+                                f"I just locked him back. He was out {out_m} min. "
+                                f"The {add_m} min price failed — add it?"
+                            )
+                    except Exception:  # noqa: BLE001
+                        log.exception("Play session add_time failed")
+                        mark_play_error("add_time failed")
+                        _hygiene_note(
+                            f"Timed {out_m} min out. Could not add {add_m} min — add it?",
+                            room="private",
+                        )
+                elif out >= 30:
+                    spoken = (
+                        f"I just locked him back. He was out {out_m} min. "
+                        "No price set, so don't add time."
+                    )
+        snap["play_session"] = play_view
         if spoken and result.get("ok"):
             apply_play_updates(
                 scene,

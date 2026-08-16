@@ -28,6 +28,8 @@
     quickLockBtn: document.getElementById("quickLockBtn"),
     hygieneBar: document.getElementById("hygieneBar"),
     hygieneCopy: document.getElementById("hygieneCopy"),
+    playBar: document.getElementById("playBar"),
+    playCopy: document.getElementById("playCopy"),
     hygRequestBtn: document.getElementById("hygRequestBtn"),
     hygApproveBtn: document.getElementById("hygApproveBtn"),
     hygDenyBtn: document.getElementById("hygDenyBtn"),
@@ -284,6 +286,7 @@
     els.heading.textContent = data.bot_name || "Chat";
     renderAutopilotStatus(data.autopilot);
     renderHygiene(data.hygiene);
+    renderPlaySession(data.play_session);
     renderBoxStatus(data.lockbox);
     els.sessionMeta.textContent = [
       s.wearer_username && `Lockee: ${s.wearer_username}`,
@@ -426,6 +429,38 @@
     show(els.hygResetBtn, kh && status !== "idle");
   }
 
+  function renderPlaySession(st) {
+    const bar = els.playBar;
+    const copy = els.playCopy;
+    if (!bar || !copy) return;
+    const kh = state.chasterRole === "keyholder" || state.role === "domme";
+    if (!kh) {
+      bar.classList.add("hidden");
+      return;
+    }
+    const status = (st && st.status) || "idle";
+    const rate = Number(st && st.rate) || 0;
+    const elapsed = Number(st && st.elapsed_seconds) || 0;
+    const pending = Number(st && st.pending_add_seconds) || 0;
+    let text = "";
+    let showBar = false;
+    if (status === "running") {
+      showBar = true;
+      text =
+        rate > 0
+          ? `Out ${formatRemain(elapsed)} — ${rate}× → +${Math.max(
+              1,
+              Math.round(pending / 60)
+            )} min when you Lock`
+          : `Out ${formatRemain(elapsed)}. No price set — Lock will not add time.`;
+    } else if (rate > 0) {
+      showBar = true;
+      text = `Price: ${rate} min locked per min out. Unlock starts the timer.`;
+    }
+    copy.textContent = text || "Play: idle";
+    bar.classList.toggle("hidden", !showBar);
+  }
+
   function hygieneAllowedSeconds() {
     const value = els.hygTimeValue ? els.hygTimeValue.value : 10;
     const unit = els.hygTimeUnit ? els.hygTimeUnit.value : "minutes";
@@ -532,6 +567,7 @@
       if (!res.ok) throw new Error(apiDetail(data, "Lockbox action failed"));
       renderLockboxStatus(data);
       if (data.lockbox) renderBoxStatus(data.lockbox);
+      if (data.play_session) renderPlaySession(data.play_session);
       const ls = data.last_sync || {};
       const done = ls.detail || `Lockbox ${action} done.`;
       if (statusEl) statusEl.textContent = done;
@@ -959,6 +995,7 @@
       renderMessages(data.messages || []);
     }
     if (data.hygiene) renderHygiene(data.hygiene);
+    if (data.play_session) renderPlaySession(data.play_session);
     if (data.lockbox) renderBoxStatus(data.lockbox);
     if (data.room_counts) renderTabBadges(data.room_counts);
   }
@@ -984,6 +1021,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, res.statusText));
+      if (data.play_session) renderPlaySession(data.play_session);
       state.lastCount = -1;
       state.stickToBottom = true;
       const posted = data.group_posts || [];

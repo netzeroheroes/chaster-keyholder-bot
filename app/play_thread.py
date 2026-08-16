@@ -51,6 +51,11 @@ def parse_play_updates(message: str) -> dict[str, str]:
     unlocked = bool(
         _UNCAGE.search(text)
         or re.search(r"\bunlocked\b", text, re.I)
+        or re.search(
+            r"\b(hour outside|outside of (?:it|the cage)|out of the cage)\b",
+            text,
+            re.I,
+        )
     )
     if unlocked:
         out["cage"] = "off_for_play"
@@ -72,14 +77,28 @@ def parse_play_updates(message: str) -> dict[str, str]:
             flavors.append(item)
     if flavors:
         out["flavors"] = ", ".join(flavors)
-    wm = _WINDOW.search(text)
-    if wm and (out.get("cage") == "off_for_play" or _TONIGHT.search(text)):
-        n = wm.group(1)
-        unit = wm.group(2).lower()
-        label = "hour" if unit.startswith("h") else "minute"
-        if float(n) != 1:
-            label += "s"
-        out["window"] = f"{n} {label}"
+    from app.play_session import parse_play_rate
+
+    rate = parse_play_rate(text)
+    if rate is not None:
+        out["debt_rate"] = "off" if rate <= 0 else f"{rate:g}"
+    if out.get("cage") == "off_for_play" or _TONIGHT.search(text):
+        for wm in _WINDOW.finditer(text):
+            after = text[wm.end() : wm.end() + 24]
+            if re.search(r"^\s*(?:locked\s+)?per\s+(?:each\s+)?min", after, re.I):
+                continue
+            n = wm.group(1)
+            unit = wm.group(2).lower()
+            label = "hour" if unit.startswith("h") else "minute"
+            if float(n) != 1:
+                label += "s"
+            out["window"] = f"{n} {label}"
+            break
+    if not out.get("window") and (
+        out.get("cage") == "off_for_play" or _TONIGHT.search(text)
+    ):
+        if re.search(r"\b(?:an|one)\s+hours?\b", text, re.I):
+            out["window"] = "1 hour"
     return out
 
 
@@ -145,6 +164,22 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
         bits.append("unlock window " + thread["window"])
     if thread.get("flavors"):
         bits.append("flavors: " + thread["flavors"])
+    try:
+        from app.play_session import snapshot as play_snap
+
+        st = play_snap()
+        rate = float(st.get("rate") or 0)
+        if rate > 0:
+            bits.append(f"price {rate:g} min locked per min out")
+        elif thread.get("debt_rate") == "off":
+            bits.append("no time price")
+        if st.get("status") == "running":
+            bits.append("play timer running")
+    except Exception:  # noqa: BLE001
+        if thread.get("debt_rate") and thread.get("debt_rate") != "off":
+            bits.append(f"price {thread['debt_rate']} min locked per min out")
+        elif thread.get("debt_rate") == "off":
+            bits.append("no time price")
     if not bits:
         return ""
     lines = [
@@ -162,6 +197,9 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
                 "Do NOT make the Chaster timer, a hidden lock, or 'lock him as the game' "
                 "the activity. She may still change her mind and not unlock him — "
                 "that is a mind-game option, not the default plan.",
+                "Do NOT suggest 1 minute added per minute out — that is not a price. "
+                "A price is 2 min locked per min out (or the rate she names). "
+                "Time her Unlock to Lock. The system adds it. No LOCK tags for this.",
             ]
         )
     else:

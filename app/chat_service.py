@@ -76,6 +76,11 @@ from app.play_thread import (
     format_play_block,
     parse_play_updates,
 )
+from app.play_session import (
+    format_play_session_block,
+    parse_play_rate,
+    set_rate as set_play_rate,
+)
 from app.denial import (
     apply_denial_updates,
     apply_kink_limit_updates,
@@ -469,9 +474,13 @@ async def handle_chat_turn(
         play_bits = parse_play_updates(message)
         if play_bits:
             apply_play_updates(scene, play_bits)
+        play_rate = parse_play_rate(message)
+        if play_rate is not None:
+            set_play_rate(play_rate)
         play_note = format_play_block(scene, this_turn=play_bits)
         if play_note and room == "private":
             extra_notes.append(play_note)
+            extra_notes.append(format_play_session_block())
         elif play_note and room == "group":
             extra_notes.append(
                 "[DIRECTOR: She is planning play with him. Stay on her idea. "

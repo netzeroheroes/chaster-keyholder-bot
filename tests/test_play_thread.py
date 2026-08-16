@@ -1,5 +1,9 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from app import play_session as ps
 from app.play_thread import (
     apply_play_updates,
     box_button_message,
@@ -11,6 +15,15 @@ from app.scene import SceneState
 
 
 class PlayThreadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.patcher = patch.object(
+            ps, "PATH", Path(self.tmp.name) / "play_session.json"
+        )
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
     def test_detects_uncage_and_edge(self) -> None:
         self.assertTrue(wants_uncage_play("maybe i should let him out for some teasing"))
         self.assertTrue(wants_uncage_play("i want to edge him"))

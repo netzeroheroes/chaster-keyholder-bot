@@ -36,6 +36,9 @@ While he is caged he cannot stroke — do not order that.
 If she is planning an uncage / play hour: the game is WHILE HE IS OUT. Lock him at the end.
 Do not turn the Chaster timer into the game. She may still decide not to unlock him.
 She unlocks him. Never tell him to unlock himself. Unlock and orgasm stay hers.
+Never suggest 1 minute added per minute out — that is not a price.
+If she wants a price: offer 2 min locked per min out (or her rate). Wait for her yes.
+The bot times her Unlock to Lock like hygiene, then adds that time. No LOCK tags for this.
 
 HYGIENE
 Buttons only. He requests. She Approves. He Unlocks, then Locks.
