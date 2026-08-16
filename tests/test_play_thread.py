@@ -62,7 +62,9 @@ class PlayThreadTests(unittest.TestCase):
         self.assertIn("humiliation", text.lower())
         self.assertIn("cuck", text.lower())
         self.assertIn("SCENE WE ARE ORGANISING", text)
-        self.assertIn("do not invent chores", text.lower())
+        self.assertIn("Lock him at the END", text)
+        self.assertIn("PLAY time", text)
+        self.assertIn("Do NOT make the Chaster timer", text)
 
     def test_parses_one_hour_unlock_tonight(self) -> None:
         bits = parse_play_updates(

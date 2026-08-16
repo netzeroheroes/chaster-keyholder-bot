@@ -150,11 +150,26 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
     lines = [
         "[SCENE WE ARE ORGANISING — stay on this card; do not start a new scene]",
         "Her idea: " + "; ".join(bits) + ".",
-        "Build the next beat on THIS scene. Do not invent chores, cold showers, "
-        "or a different game unless she asked.",
-        "Chaster remaining / 'until Tuesday' is the timer, not a veto. She holds the keys.",
-        "She unlocks him. Never tell him to unlock himself.",
     ]
-    if thread.get("cage") == "off_for_play" or thread.get("edge") == "yes":
-        lines.append("Help her run the uncage / play / edge, then relock.")
+    if thread.get("cage") == "off_for_play" or thread.get("window"):
+        lines.extend(
+            [
+                "GAME ORDER — do not invert this:",
+                "1. Uncage him. The hour is PLAY time, not lock time.",
+                "2. The game is what SHE does to him while he is out "
+                "(tease, humiliation, cuck, edge).",
+                "3. Lock him at the END of the game.",
+                "Do NOT make the Chaster timer, a hidden lock, or 'lock him as the game' "
+                "the activity. She may still change her mind and not unlock him — "
+                "that is a mind-game option, not the default plan.",
+            ]
+        )
+    else:
+        lines.append(
+            "Build the next beat on THIS scene. Do not invent a different game unless she asked."
+        )
+    lines.append(
+        "Chaster remaining is the long lock, not tonight's game. She holds the keys. "
+        "Never tell him to unlock himself."
+    )
     return "\n".join(lines)
