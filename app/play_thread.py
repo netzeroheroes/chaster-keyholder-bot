@@ -21,6 +21,14 @@ _UNCAGE = re.compile(
     re.I,
 )
 _EDGE = re.compile(r"\bedge(?:d| him| me)?\b", re.I)
+_TONIGHT = re.compile(r"\btonight\b", re.I)
+_FLAVOR = re.compile(
+    r"\b("
+    r"humiliation|cuck(?:old(?:ry|ing)?)?|cuck\s+fetish|"
+    r"sph|cei|denial|chastity"
+    r")\b",
+    re.I,
+)
 _KEEP_LOCKED = re.compile(
     r"\b("
     r"keep him locked|stay locked|leave him locked|"
@@ -36,7 +44,9 @@ _KEEP_LOCKED = re.compile(
 def parse_play_updates(message: str) -> dict[str, str]:
     text = message or ""
     out: dict[str, str] = {}
-    if _SESSION.search(text):
+    if _SESSION.search(text) or (
+        _TONIGHT.search(text) and (_UNCAGE.search(text) or re.search(r"\bplay\b", text, re.I))
+    ):
         out["session"] = "tonight"
     if _UNCAGE.search(text):
         out["cage"] = "off_for_play"
@@ -44,6 +54,13 @@ def parse_play_updates(message: str) -> dict[str, str]:
         out["edge"] = "yes"
     if _KEEP_LOCKED.search(text):
         out["cage"] = "on"
+    flavors = []
+    for m in _FLAVOR.finditer(text):
+        item = re.sub(r"\s+", " ", m.group(1).strip().lower())
+        if item not in flavors:
+            flavors.append(item)
+    if flavors:
+        out["flavors"] = ", ".join(flavors)
     return out
 
 
@@ -73,6 +90,16 @@ def apply_play_updates(scene: Any, updates: dict[str, str]) -> dict[str, str]:
     if not updates:
         return {}
     thread = dict(getattr(scene, "play_thread", None) or {})
+    if updates.get("flavors") and thread.get("flavors"):
+        seen: list[str] = []
+        for item in (
+            str(thread.get("flavors") or "").split(",")
+            + str(updates.get("flavors") or "").split(",")
+        ):
+            bit = item.strip()
+            if bit and bit.lower() not in {x.lower() for x in seen}:
+                seen.append(bit)
+        updates = {**updates, "flavors": ", ".join(seen)}
     thread.update(updates)
     scene.update(play_thread=thread)
     return updates
@@ -93,17 +120,18 @@ def format_play_block(scene: Any, *, this_turn: dict[str, str] | None = None) ->
         bits.append("keep him locked")
     if thread.get("edge") == "yes":
         bits.append("edge him")
+    if thread.get("flavors"):
+        bits.append("flavors: " + thread["flavors"])
     if not bits:
         return ""
     lines = [
-        "[PLAY THREAD — stay on this; do not reset to 'he has to stay locked']",
+        "[SCENE WE ARE ORGANISING — stay on this card; do not start a new scene]",
         "Her idea: " + "; ".join(bits) + ".",
+        "Build the next beat on THIS scene. Do not invent chores, cold showers, "
+        "or a different game unless she asked.",
         "Chaster remaining / 'until Tuesday' is the timer, not a veto. She holds the keys.",
         "She unlocks him. Never tell him to unlock himself.",
     ]
     if thread.get("cage") == "off_for_play" or thread.get("edge") == "yes":
-        lines.append(
-            "Help her run the uncage / tease / edge, then relock. "
-            "Do not change the subject back to staying locked."
-        )
+        lines.append("Help her run the uncage / play / edge, then relock.")
     return "\n".join(lines)

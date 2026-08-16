@@ -42,6 +42,15 @@ _KINK_LIST = re.compile(
     r"([a-z0-9][\w\s,/&'-]{1,80})",
     re.I,
 )
+_NAMED_KINK = re.compile(
+    r"\b(humiliation|cuck(?:old(?:ry|ing)?)?|cuck\s+fetish|sph|cei)\b",
+    re.I,
+)
+_FETISH_OF = re.compile(r"\b(\w+)\s+fetish\b", re.I)
+_INCORPORATE = re.compile(
+    r"\bincorporate\b.{0,40}?\b(humiliation|cuck\w*|[\w-]{3,20})\b",
+    re.I,
+)
 
 _LAST_ORGASM = re.compile(
     r"\b(?:last\s+)?(?:came|orgasm(?:ed)?|ejaculat(?:ed|ion)|cum(?:med)?)\b"
@@ -103,10 +112,26 @@ def parse_kink_limit_updates(message: str) -> dict[str, list[str]]:
         if items:
             out["soft_limits"] = items
     km = _KINK_LIST.search(text)
+    found: list[str] = []
     if km:
-        items = _split_items(km.group(1))
-        if items:
-            out["kinks"] = items
+        found.extend(_split_items(km.group(1)))
+    for m in _NAMED_KINK.finditer(text):
+        found.append(re.sub(r"\s+", " ", m.group(1).strip()))
+    fm = _FETISH_OF.search(text)
+    if fm:
+        found.append(fm.group(1).strip())
+    im = _INCORPORATE.search(text)
+    if im:
+        found.append(im.group(1).strip())
+    kinks: list[str] = []
+    seen = set()
+    for item in found:
+        low = item.lower()
+        if low and low not in seen and low not in {"a", "bit", "his"}:
+            kinks.append(item)
+            seen.add(low)
+    if kinks:
+        out["kinks"] = kinks
     return out
 
 

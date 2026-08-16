@@ -29,6 +29,14 @@ class DenialTests(unittest.TestCase):
         self.assertIn("humiliation", [x.lower() for x in bits["kinks"]])
         self.assertIn("bondage", [x.lower() for x in bits["kinks"]])
         self.assertTrue(any("blood" in x.lower() for x in bits["hard_limits"]))
+        spoken = parse_kink_limit_updates(
+            "i want to incorporate a bit of humiliation into it"
+        )
+        self.assertTrue(any("humiliation" in x.lower() for x in spoken["kinks"]))
+        cuck = parse_kink_limit_updates(
+            "the pathetic thing has a bit of a cuck fetish"
+        )
+        self.assertTrue(any("cuck" in x.lower() for x in cuck["kinks"]))
 
     def test_parses_orgasm_ago_and_cage(self) -> None:
         today = date(2026, 8, 16)

@@ -27,7 +27,7 @@ class PlayThreadTests(unittest.TestCase):
         self.assertIn("edge him", text)
         self.assertIn("not a veto", text)
         self.assertIn("Never tell him to unlock himself", text)
-        self.assertIn("do not reset", text.lower())
+        self.assertIn("do not start a new scene", text.lower())
 
     def test_box_buttons_start_play_thread(self) -> None:
         unlock = box_button_message("unlock")
@@ -39,6 +39,30 @@ class PlayThreadTests(unittest.TestCase):
         self.assertIn("tease him", (lock or "").lower())
         self.assertEqual(parse_play_updates(lock or "").get("cage"), "on")
         self.assertIsNone(box_button_message("sync_time"))
+
+    def test_scene_card_keeps_tonight_and_flavors(self) -> None:
+        scene = SceneState()
+        apply_play_updates(
+            scene,
+            parse_play_updates(
+                "i might unlock him for a bit tonight what should i do with him"
+            ),
+        )
+        apply_play_updates(
+            scene,
+            parse_play_updates("i want to incorporate a bit of humiliation into it"),
+        )
+        apply_play_updates(
+            scene,
+            parse_play_updates("the pathetic thing has a bit of a cuck fetish"),
+        )
+        text = format_play_block(scene)
+        self.assertIn("tonight", text.lower())
+        self.assertIn("UNCAGED", text)
+        self.assertIn("humiliation", text.lower())
+        self.assertIn("cuck", text.lower())
+        self.assertIn("SCENE WE ARE ORGANISING", text)
+        self.assertIn("do not invent chores", text.lower())
 
     def test_keep_locked_can_override(self) -> None:
         scene = SceneState()
