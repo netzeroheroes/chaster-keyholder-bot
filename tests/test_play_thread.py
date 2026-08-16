@@ -25,7 +25,7 @@ class PlayThreadTests(unittest.TestCase):
         text = format_play_block(scene)
         self.assertIn("UNCAGED", text)
         self.assertIn("edge him", text)
-        self.assertIn("not a veto", text)
+        self.assertIn("long lock, not tonight's game", text)
         self.assertIn("Never tell him to unlock himself", text)
         self.assertIn("do not start a new scene", text.lower())
 
