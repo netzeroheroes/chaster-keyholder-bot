@@ -21,7 +21,9 @@ from app.roles import (
 from app.speaker_guard import (
     enforce_private_keyholder_voice,
     mistreats_domme_as_sub,
+    should_take_to_private,
     talks_to_lockee,
+    wants_private_chat,
 )
 
 
@@ -84,6 +86,19 @@ class PrivateKeyholderTests(unittest.TestCase):
             "Maybe I should tell her how badly you're begging."
         )
         self.assertTrue(mistreats_domme_as_sub(bad))
+
+    def test_private_ask_leaves_group(self) -> None:
+        self.assertTrue(
+            wants_private_chat(
+                "maybe you should message me in private and we can discuss it"
+            )
+        )
+        self.assertTrue(
+            should_take_to_private(
+                "i might unlock him for a bit tonight what should i do with him"
+            )
+        )
+        self.assertFalse(should_take_to_private("tell him he's staying locked"))
 
     def test_private_user_line_hard_rule(self) -> None:
         line = format_user_line(

@@ -49,6 +49,7 @@ from app.speaker_guard import (
     collapse_idea_list,
     looks_like_plan_spoiler,
     planning_stays_private,
+    should_take_to_private,
     soften_group_tease,
     wants_him_told,
     sounds_like_bot_submissive,
@@ -481,6 +482,12 @@ async def handle_chat_turn(
         extra_notes.append(
             f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
         )
+        if role == "domme" and should_take_to_private(message):
+            extra_notes.append(
+                "[DIRECTOR: She wants this off Group. One short Group line — no plan. "
+                "The real answer will be moved to Private. Do not discuss what to do "
+                "with him where he can read it.]"
+            )
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):
         if room == "private":
             extra_notes.append(
@@ -1569,20 +1576,18 @@ async def handle_chat_turn(
         if softened != visible_reply:
             log.warning("Softened group tease (no spoilers / homework)")
             visible_reply = softened
-        if (
-            role == "domme"
-            and planning_stays_private(message)
-            and raw_group
-            and looks_like_plan_spoiler(raw_group)
-        ):
+        if role == "domme" and should_take_to_private(message) and raw_group:
             try:
                 bridge.inject_private_note(
                     store,
-                    "He can see Group, so I kept the plan here:\n\n" + raw_group,
+                    "He can see Group, so I kept this here:\n\n" + raw_group,
                     speaker=bot_name,
                 )
+                visible_reply = (
+                    "I'll take that to Private. He doesn't get the plan."
+                )
             except Exception:  # noqa: BLE001
-                log.exception("Could not move spoiled plan into private")
+                log.exception("Could not move plan into private")
         if role == "domme" and wants_week_plan(message):
             try:
                 bridge.inject_private_note(

@@ -746,9 +746,33 @@ def collapse_idea_list(text: str) -> str:
     return "Want me to drop him one short hint in Group — without the plan?"
 
 
+_PRIVATE_ASK = re.compile(
+    r"\b("
+    r"(?:message|talk|chat|discuss|tell)(?: me)?(?: it)? in private|"
+    r"in private(?: chat)?|"
+    r"private chat|"
+    r"(?:go|switch|take (?:it|this|that)) to private|"
+    r"dm me|pm me"
+    r")\b",
+    re.I,
+)
+
+
 def planning_stays_private(message: str) -> bool:
     """True when she is asking for ideas/plans — those must not land in Group."""
     return bool(_PLANNING_ASK.search(message or ""))
+
+
+def wants_private_chat(message: str) -> bool:
+    """True when she asked to continue in Private, off Group."""
+    return bool(_PRIVATE_ASK.search(message or ""))
+
+
+def should_take_to_private(message: str) -> bool:
+    """Group planning / 'talk in private' — do not leave the scheme where he can read it."""
+    if wants_him_told(message):
+        return False
+    return wants_private_chat(message) or planning_stays_private(message)
 
 
 def wants_him_told(message: str) -> bool:
