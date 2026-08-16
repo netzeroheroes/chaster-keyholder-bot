@@ -57,6 +57,10 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
         updates["session_mode"] = raw["session_mode"]
     if isinstance(raw.get("scene_interview"), dict):
         updates["scene_interview"] = raw["scene_interview"]
+    if isinstance(raw.get("play_thread"), dict):
+        updates["play_thread"] = {
+            str(k): str(v) for k, v in raw["play_thread"].items() if str(v).strip()
+        }
     if updates:
         scene.update(**updates)
     save_scene(scene, path)

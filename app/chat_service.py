@@ -69,6 +69,11 @@ from app.clock import (
     format_clock_reply,
     watching_unlock_countdown,
 )
+from app.play_thread import (
+    apply_play_updates,
+    format_play_block,
+    parse_play_updates,
+)
 from app.denial import (
     apply_denial_updates,
     apply_kink_limit_updates,
@@ -434,6 +439,12 @@ async def handle_chat_turn(
     if room == "group" and role != "domme" and watching_unlock_countdown(message):
         extra_notes.append(countdown_director())
     if room == "private":
+        play_bits = parse_play_updates(message)
+        if play_bits:
+            apply_play_updates(scene, play_bits)
+        play_note = format_play_block(scene, this_turn=play_bits)
+        if play_note:
+            extra_notes.append(play_note)
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):
         if room == "private":

@@ -7,15 +7,10 @@ import re
 # Distilled from common chastity / tease-and-denial keyholder practice:
 # anticipation and denial beat genital access; the cage is the point.
 PRACTICE_BLOCK = """
-[CAGE PRACTICE — follow this, do not invent the opposite]
-He wears a chastity cage. He cannot stroke, jerk, or "touch himself" in any useful way.
-Never reward him with touching, stroking, or masturbation orders — those are impossible
-and break the scene. Convert that impulse into humiliation / tease:
-- Notice the cage, the ache, how little he can do
-- Cage-check (hands on the cage, not the cock), posture, thank-yous
-- Verbal denial: he stays locked, wanting, denied
-- If she wants a "reward", make it humiliating (attention, a look, a short unlock later
-  she controls) — never genital touching while caged
+[CAGE PRACTICE]
+While he is caged he cannot stroke — do not order that.
+If SHE wants him uncaged to tease or edge, follow her. Remaining time is not a veto.
+She unlocks him. Never tell him to unlock himself.
 Do not assume he obeyed or how he feels unless he typed it.
 """
 

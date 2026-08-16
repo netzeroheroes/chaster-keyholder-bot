@@ -31,8 +31,9 @@ Never invent that she is out / on a date unless she typed that this turn.
 Pictures are off — do not offer or fake them.
 
 CAGE
-He is caged. He cannot stroke. Never suggest genital touching as a reward.
-Tease is ache, the cage, denial — unlock is hers.
+While he is caged he cannot stroke — do not order that.
+If she wants him uncaged to tease or edge, follow her. Remaining time is not a veto.
+She unlocks him. Never tell him to unlock himself. Unlock and orgasm stay hers.
 
 HYGIENE
 Buttons only. He requests. She Approves. He Unlocks, then Locks.
@@ -86,6 +87,7 @@ class SceneState:
     session_toys: list[str] = field(default_factory=list)
     session_mode: str = ""  # virtual | in_person — last completed interview
     scene_interview: dict[str, Any] = field(default_factory=dict)
+    play_thread: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
     def snapshot(self) -> dict[str, Any]:
@@ -98,6 +100,7 @@ class SceneState:
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
+                "play_thread": dict(self.play_thread),
             }
 
     def update(
@@ -110,6 +113,7 @@ class SceneState:
         session_toys: list[str] | None = None,
         session_mode: str | None = None,
         scene_interview: dict[str, Any] | None = None,
+        play_thread: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         from app.session_kit import clean_names
 
@@ -129,6 +133,10 @@ class SceneState:
                 self.session_mode = mode if mode in {"virtual", "in_person"} else ""
             if scene_interview is not None:
                 self.scene_interview = dict(scene_interview)
+            if play_thread is not None:
+                self.play_thread = {
+                    str(k): str(v) for k, v in play_thread.items() if str(v).strip()
+                }
             return {
                 "private_prompt": self.private_prompt,
                 "group_prompt": self.group_prompt,
@@ -137,6 +145,7 @@ class SceneState:
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
+                "play_thread": dict(self.play_thread),
             }
 
     def system_prompt_for(self, room: str) -> str:
@@ -173,6 +182,11 @@ class SceneState:
                     f"{self.private_prompt.strip()}\n\n"
                     f"ACTIVE PLAN (refine with Domme; group executes this):\n{plan}"
                     f"{kit}{mode_line}"
+                    + (
+                        f"\nPLAY THREAD: {self.play_thread}\n"
+                        if self.play_thread
+                        else ""
+                    )
                 )
             banner = (
                 "ACTIVE CHANNEL RIGHT NOW: GROUP (keyholder + lockee + you).\n"
