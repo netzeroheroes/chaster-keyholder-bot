@@ -1205,7 +1205,7 @@ async def handle_chat_turn(
         anti_loop = (
             "\nTHIS TURN — GROUP:\n"
             f"{who}\n"
-            "(One beat.) Short spoken line. No labels, no rule recap, no lock-number dump.\n"
+            "Tease the predicament. No (brackets). No labels, no rule recap, no lock-number dump.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
@@ -1477,8 +1477,7 @@ async def handle_chat_turn(
         domme_name=memory.domme_name or "",
         sub_name=memory.sub_name or "",
     )
-    if room == "private":
-        visible_reply = strip_stage_directions(visible_reply)
+    visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
     if room == "private":
         rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")

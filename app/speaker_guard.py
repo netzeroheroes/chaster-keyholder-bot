@@ -371,6 +371,7 @@ _LEAKED_PROMPT = re.compile(
     re.I,
 )
 _STAGE_DIR = re.compile(r"\*[^*]{1,48}\*")
+_PAREN_DIR = re.compile(r"\([^)]{1,240}\)")
 
 
 _MALFORMED_LOCK = re.compile(
@@ -399,10 +400,12 @@ def strip_leaked_instructions(text: str) -> str:
 
 
 def strip_stage_directions(text: str) -> str:
-    """Drop *smirks* / *leans in* RP stage directions."""
+    """Drop *smirks*, (I tap the cage.), and other RP stage directions."""
     cleaned = _STAGE_DIR.sub("", text or "")
+    cleaned = _PAREN_DIR.sub("", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
     return cleaned.strip()
 
 

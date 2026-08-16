@@ -113,8 +113,8 @@ def watching_unlock_countdown(message: str) -> bool:
 def countdown_director() -> str:
     return (
         "[DIRECTOR: He is watching the unlock clock. Do not confirm his numbers. "
-        "(I tap the cage.) Short spoken line. The timer is not his. "
-        "A countdown is not an unlock. Do not offer a cum.]"
+        "Taunt the predicament — the cage, the wait. The timer is not his. "
+        "A countdown is not an unlock. Do not offer a cum. No (stage directions).]"
     )
 
 
