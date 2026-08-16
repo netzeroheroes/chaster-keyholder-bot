@@ -87,12 +87,12 @@ class ChatAgent:
                 "messages": messages,
                 # Cap so OpenRouter credit checks don't reserve a huge completion
                 "max_tokens": max_tokens,
-                "temperature": 0.9,
+                "temperature": 1.05,
             }
             if use_penalties:
-                # Some free/reasoning models reject or mishandle these
-                kwargs["frequency_penalty"] = 0.7
-                kwargs["presence_penalty"] = 0.5
+                # Light penalties — high frequency_penalty makes her clipped and robotic
+                kwargs["frequency_penalty"] = 0.35
+                kwargs["presence_penalty"] = 0.25
             if tool_schemas:
                 kwargs["tools"] = tool_schemas
                 kwargs["tool_choice"] = "auto"

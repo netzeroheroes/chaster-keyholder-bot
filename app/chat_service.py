@@ -1125,34 +1125,26 @@ async def handle_chat_turn(
         if wants_him_told(message):
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
-                f"{PRIVATE_HARD_RULE}\n"
-                f"She asked you to DO it. One short line to {title} here — no how-to.\n"
-                "Then [[[GROUP]]] one mystery tease for him. Do not whisper to him here.\n"
-                "Do not reveal the plan, toys, or what happens later.\n"
+                f"Answer {title} like a friend in the room. He is not here.\n"
+                "One short line to her, then [[[GROUP]]] one mystery tease. No spoilers.\n"
             )
         else:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
-                f"{PRIVATE_HARD_RULE}\n"
-                f"Talk to {title} only. Answer what she just said — she is the keyholder.\n"
-                "If she asked about his lock time, quote [CHASTER LIVE STATUS] plainly.\n"
-                "Plans and hint lists stay here. [[[GROUP]]] only if she said "
-                "tell him / drop him a hint — and that line must not reveal the plan.\n"
-                "You cannot touch him. Advise her, or change the lock. "
+                f"Talk to {title} only — she is the keyholder. Answer what she just said.\n"
+                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
                 "Do not tease him in this room.\n"
             )
     else:
         who = (
-            f"She ({title}) just spoke — rephrase her beat as a short tease. Do not spoil the plan."
+            f"{title} just spoke — add one short beat. Do not spoil her plan."
             if role == "domme"
-            else f"He ({speaker}) just spoke — answer him. {title} is the keyholder."
+            else f"He just spoke — answer him in character. {title} is the keyholder."
         )
         anti_loop = (
             "\nTHIS TURN — GROUP:\n"
             f"{who}\n"
-            f"You are {bot_name}. Short. No labels. No lock-number lectures.\n"
-            "Physical play is hers. You tease, talk to her in private, or change the lock.\n"
-            "Hygiene is buttons. Cage: no stroke/touch-yourself orders.\n"
+            "Sound like a person in the room. No labels, no rule recap, no lock-number dump.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])

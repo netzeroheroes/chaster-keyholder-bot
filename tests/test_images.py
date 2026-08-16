@@ -101,6 +101,15 @@ class TermAndDumpTests(unittest.TestCase):
         self.assertNotIn("Talk like a real person", cleaned)
         self.assertIn("good boy", cleaned)
 
+    def test_strips_new_voice_prompt_leak(self) -> None:
+        raw = (
+            "Stay locked. You are a Dominant woman in this chat (18+ only) — "
+            "her co-keyholder, not a bot reading a script. Feel that ache."
+        )
+        cleaned = strip_leaked_instructions(raw)
+        self.assertNotIn("bot reading a script", cleaned)
+        self.assertIn("Stay locked", cleaned)
+
     def test_strips_smirks(self) -> None:
         cleaned = strip_stage_directions("*smirks* Well, hello there.")
         self.assertNotIn("*", cleaned)

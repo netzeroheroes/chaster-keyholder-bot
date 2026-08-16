@@ -184,6 +184,13 @@
     });
     els.app.classList.toggle("room-private", state.room === "private");
     els.app.classList.toggle("room-group", state.room !== "private");
+    const kh = state.role === "domme" || state.chasterRole === "keyholder";
+    if (els.enableBar) {
+      els.enableBar.classList.toggle(
+        "hidden",
+        !(kh && state.room === "private")
+      );
+    }
     if (state.room === "private") {
       els.heading.textContent = "Private";
       els.roomHint.textContent = "Private — lockee cannot see this";
@@ -299,7 +306,6 @@
 
     if (s.app_role === "domme" || s.role === "keyholder") {
       els.privateTab.classList.remove("hidden");
-      if (els.enableBar) els.enableBar.classList.remove("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");

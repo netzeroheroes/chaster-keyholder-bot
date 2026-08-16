@@ -360,8 +360,14 @@ _LEAKED_BRACKET = re.compile(
     re.I,
 )
 _LEAKED_PROMPT = re.compile(
+    r"(?:"
     r"You help the keyholder run this lock[^.!?\n]*[.!?]?\s*"
-    r"(?:Talk like a real person[.!?]?\s*)?",
+    r"(?:Talk like a real person[.!?]?\s*)?"
+    r"|"
+    r"You are a Dominant woman in this chat[^.!?\n]*[.!?]?\s*"
+    r"|"
+    r"You are her co-Domme and a real friend[^.!?\n]*[.!?]?\s*"
+    r")",
     re.I,
 )
 _STAGE_DIR = re.compile(r"\*[^*]{1,48}\*")
