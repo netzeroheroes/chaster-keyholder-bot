@@ -64,8 +64,10 @@ from app.speaker_guard import (
 from app.clock import (
     asks_clock_time,
     asks_lock_remaining,
+    countdown_director,
     format_clock_block,
     format_clock_reply,
+    watching_unlock_countdown,
 )
 from app.denial import (
     apply_denial_updates,
@@ -429,6 +431,8 @@ async def handle_chat_turn(
         extra_notes.append(intake_director(room=room))
     if wants_persona(message):
         extra_notes.append(persona_director(room=room))
+    if room == "group" and role != "domme" and watching_unlock_countdown(message):
+        extra_notes.append(countdown_director())
     if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):
@@ -1201,7 +1205,7 @@ async def handle_chat_turn(
         anti_loop = (
             "\nTHIS TURN — GROUP:\n"
             f"{who}\n"
-            "Sound like a person in the room. No labels, no rule recap, no lock-number dump.\n"
+            "(One beat.) Short spoken line. No labels, no rule recap, no lock-number dump.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
@@ -1216,7 +1220,7 @@ async def handle_chat_turn(
         + memory.prompt_block(room=room)
         + anti_loop
         + "\n"
-        + format_voice_block()
+        + format_voice_block(room=room)
         + "\n"
         + PRACTICE_BLOCK
     )
@@ -1473,7 +1477,8 @@ async def handle_chat_turn(
         domme_name=memory.domme_name or "",
         sub_name=memory.sub_name or "",
     )
-    visible_reply = strip_stage_directions(visible_reply)
+    if room == "private":
+        visible_reply = strip_stage_directions(visible_reply)
     visible_reply = strip_leaked_instructions(visible_reply)
     if room == "private":
         rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")

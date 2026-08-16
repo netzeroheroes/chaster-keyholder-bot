@@ -6,6 +6,7 @@ from app.clock import (
     format_clock_reply,
     format_local_now,
     local_now,
+    watching_unlock_countdown,
 )
 
 
@@ -40,3 +41,11 @@ class ClockTests(unittest.TestCase):
         self.assertIn("Europe/London", kh)
         self.assertIn("wall clock", kh.lower())
         self.assertNotIn("hidden", sub.lower())
+
+    def test_watching_unlock_countdown(self) -> None:
+        self.assertTrue(
+            watching_unlock_countdown("12 days, 6 hours, and 53 till unlock")
+        )
+        self.assertTrue(watching_unlock_countdown("till my chastity timer runs out"))
+        self.assertFalse(watching_unlock_countdown("hello"))
+        self.assertFalse(watching_unlock_countdown("how long left on the lock"))

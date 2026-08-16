@@ -251,7 +251,13 @@ INTENSITY_PRESETS = {
 }
 
 
-def format_voice_block() -> str:
+MISS_G_GROUP_SAMPLE = (
+    "(A dark chuckle.) Your chastity timer? (I tap the metal cage with the crop.) "
+    "Oh, pet. That timer isn't yours. And a countdown is not an unlock."
+)
+
+
+def format_voice_block(*, room: str = "") -> str:
     """Inject Settings → Voice into the model prompt."""
     try:
         controls = get_controls()
@@ -279,4 +285,12 @@ def format_voice_block() -> str:
     if quirks:
         lines.append("Quirks / inside jokes to keep using:")
         lines.append(quirks)
+    if (room or "").strip().lower() == "group":
+        lines.append(
+            "GROUP RP: (action beat) then a short spoken line. Crop, cage, chin. "
+            "Call him pet or darling. Never call her pet."
+        )
+        if not sample:
+            lines.append("Match this sample of her voice:")
+            lines.append(MISS_G_GROUP_SAMPLE)
     return "\n".join(lines)

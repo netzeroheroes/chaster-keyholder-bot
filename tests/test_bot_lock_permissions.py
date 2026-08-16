@@ -65,6 +65,13 @@ class BotLockPermissionTests(unittest.TestCase):
         self.assertIn("Intensity: strict", text)
         self.assertIn("calls him pet", text)
 
+    def test_group_voice_uses_miss_g_sample(self) -> None:
+        self.ctrl.bot_voice_sample = ""
+        text = rc.format_voice_block(room="group")
+        self.assertIn("GROUP RP", text)
+        self.assertIn("That timer isn't yours", text)
+        self.assertNotIn("GROUP RP", rc.format_voice_block(room="private"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -93,6 +93,31 @@ def asks_lock_remaining(message: str) -> bool:
     return bool(_LOCK_TIME_ASK.search(message or ""))
 
 
+_COUNTDOWN_WATCH = re.compile(
+    r"("
+    r"\b(?:till|until|to)\s+(?:unlock|release|i(?:'m| am)\s+free)\b|"
+    r"\btill (?:my )?(?:chastity )?timer\b|"
+    r"\btimer runs out\b|"
+    r"\bcountdown\b|"
+    r"\b\d+\s*days?\b[^.!?\n]{0,40}\b(?:unlock|release)\b"
+    r")",
+    re.I,
+)
+
+
+def watching_unlock_countdown(message: str) -> bool:
+    """True when he is treating remaining time as a scheduled unlock."""
+    return bool(_COUNTDOWN_WATCH.search(message or ""))
+
+
+def countdown_director() -> str:
+    return (
+        "[DIRECTOR: He is watching the unlock clock. Do not confirm his numbers. "
+        "(I tap the cage.) Short spoken line. The timer is not his. "
+        "A countdown is not an unlock. Do not offer a cum.]"
+    )
+
+
 def format_clock_block(*, tz_name: str | None = None) -> str:
     stamp = format_local_now(tz_name=tz_name)
     return (

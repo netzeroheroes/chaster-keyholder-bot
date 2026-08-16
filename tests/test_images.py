@@ -115,6 +115,10 @@ class TermAndDumpTests(unittest.TestCase):
         self.assertNotIn("*", cleaned)
         self.assertIn("Well, hello there.", cleaned)
 
+    def test_keeps_parenthetical_beats(self) -> None:
+        raw = "(I tap the metal cage with the crop.) Oh, pet. That timer isn't yours."
+        self.assertEqual(strip_stage_directions(raw), raw)
+
     def test_detects_image_dump(self) -> None:
         raw = (
             "Imagine this: me, dressed in a skintight latex outfit and high heels, "
