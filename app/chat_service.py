@@ -67,6 +67,13 @@ from app.clock import (
     format_clock_block,
     format_clock_reply,
 )
+from app.denial import (
+    apply_denial_updates,
+    format_denial_block,
+    intake_director,
+    parse_denial_updates,
+    wants_intake,
+)
 from app.cage_practice import PRACTICE_BLOCK, rewrite_caged_touch
 from app.chaster_tour import ChasterTour, wants_tour_next, wants_tour_start
 from app.extension_games import extension_punish_intents
@@ -397,6 +404,17 @@ async def handle_chat_turn(
         f"({'keyholder' if (room == 'private' or role == 'domme') else 'lockee'}).",
         format_clock_block(),
     ]
+    denial_bits = parse_denial_updates(message)
+    if denial_bits:
+        apply_denial_updates(memory, denial_bits)
+        extra_notes.append(
+            "[DIRECTOR: Stored denial facts this turn: "
+            + ", ".join(f"{k}={v}" for k, v in denial_bits.items())
+            + ". Use them. Do not re-ask.]"
+        )
+    extra_notes.append(format_denial_block(memory))
+    if role == "domme" and wants_intake(message):
+        extra_notes.append(intake_director(room=room))
     if room == "private":
         extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
     if role == "domme" and _AFTERCARE_ASK.search(message or ""):

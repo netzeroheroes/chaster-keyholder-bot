@@ -362,6 +362,7 @@ class LongTermMemory:
             "- lock_log = ONLY copy real API-confirmed lock actions already present; "
             "never invent lock durations or new lock_log lines from fiction.\n"
             "- Do not put invented remaining times into chastity.\n"
+            "- Keep chastity.last_orgasm / cage / lock_goal_days if already set.\n"
             "Lists of strings. timeline/private_bond/facts should preferably start with the date.\n"
             "If nothing new, return the current memory unchanged.\n"
             f"Today's date: {today}"
@@ -428,7 +429,14 @@ class LongTermMemory:
             }
             # Keep our authoritative lock fields
             with self._lock:
-                for keep in ("last_remaining", "last_lock_event", "updated_at"):
+                for keep in (
+                    "last_remaining",
+                    "last_lock_event",
+                    "updated_at",
+                    "last_orgasm",
+                    "cage",
+                    "lock_goal_days",
+                ):
                     if keep in self.chastity:
                         ch[keep] = self.chastity[keep]
             updates["chastity"] = ch
