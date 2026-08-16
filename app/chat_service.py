@@ -418,7 +418,7 @@ async def handle_chat_turn(
             + ", ".join(f"{k}={v}" for k, v in denial_bits.items())
             + ". Use them. Do not re-ask.]"
         )
-    extra_notes.append(format_denial_block(memory))
+    extra_notes.append(format_denial_block(memory, brief=(room == "group")))
     kink_bits = parse_kink_limit_updates(message)
     if kink_bits:
         apply_kink_limit_updates(memory, kink_bits)
@@ -1205,7 +1205,7 @@ async def handle_chat_turn(
         anti_loop = (
             "\nTHIS TURN — GROUP:\n"
             f"{who}\n"
-            "Tease the predicament. No (brackets). No labels, no rule recap, no lock-number dump.\n"
+            "Short. A mind game about the lock. No (brackets). No lock-number dump.\n"
         )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
@@ -1221,9 +1221,9 @@ async def handle_chat_turn(
         + anti_loop
         + "\n"
         + format_voice_block(room=room)
-        + "\n"
-        + PRACTICE_BLOCK
     )
+    if room == "private":
+        system_prompt += "\n" + PRACTICE_BLOCK
 
     user_line = _focus_user_payload(
         message,

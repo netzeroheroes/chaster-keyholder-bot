@@ -218,6 +218,8 @@ class LongTermMemory:
         sub = snap["sub_name"] or "the Sub"
         title = (snap.get("domme_title") or "").strip()
         title_bit = f" (optional title: {title})" if title else ""
+        if room == "group":
+            return self._group_memory_block(snap)
 
         def _demo(prefix: str) -> str:
             bits = [
@@ -279,6 +281,26 @@ class LongTermMemory:
             "When Domme says 'remember that…', store it. When she asks what you remember, "
             "quote facts/timeline/lock_log accurately — do not invent."
         )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _group_memory_block(snap: dict) -> str:
+        """Short facts only — a long memory essay makes Group sound like a briefing."""
+        bot = snap.get("bot_name") or "Keyholder"
+        domme = snap.get("domme_name") or "the keyholder"
+        sub = snap.get("sub_name") or "the lockee"
+        lines = [
+            f"You are {bot}. She ({domme}) is the keyholder. He ({sub}) is the lockee.",
+            f"Limits: {', '.join(snap['hard_limits']) or 'ask / learn'}.",
+            f"Kinks: {', '.join(snap['kinks']) or 'discovering'}.",
+        ]
+        if snap.get("chastity"):
+            lines.append(
+                "Cage notes: "
+                + json.dumps(snap["chastity"], ensure_ascii=False)
+            )
+        if snap.get("facts"):
+            lines.append("Facts: " + "; ".join(snap["facts"][-4:]))
         return "\n".join(lines)
 
     def format_recall_reply(self, *, for_domme: bool = True) -> str:

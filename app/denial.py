@@ -216,12 +216,23 @@ def format_seasonal_block(*, today: date | None = None) -> str:
     return ""
 
 
-def format_denial_block(memory: Any, *, today: date | None = None) -> str:
+def format_denial_block(
+    memory: Any, *, today: date | None = None, brief: bool = False
+) -> str:
     ch = dict(getattr(memory, "chastity", None) or {})
     day = today or local_now().date()
     denied = days_since_orgasm(ch, today=day)
     cage = (ch.get("cage") or "").strip() or "unknown"
     goal = (ch.get("lock_goal_days") or "").strip()
+    if brief:
+        bits = [f"Cage: {cage}."]
+        if denied is not None:
+            bits.append(f"{denied} days denied.")
+        if goal:
+            bits.append(f"Goal {goal} days.")
+        bits.append("Unlock is hers. Tease the wait — do not invent missing bits.")
+        seasonal = format_seasonal_block(today=day)
+        return "[DENIAL] " + " ".join(bits) + (f" {seasonal}" if seasonal else "")
     lines = [
         "[DENIAL DOSSIER — tease with this; do not invent missing bits]",
         f"Cage: {cage}.",

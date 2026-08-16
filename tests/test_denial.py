@@ -57,6 +57,9 @@ class DenialTests(unittest.TestCase):
         self.assertIn("15 days denied", text)
         self.assertIn("nub", text)
         self.assertNotIn("allow the user to unlock", text.lower())
+        brief = format_denial_block(mem, today=date(2026, 8, 16), brief=True)
+        self.assertIn("15 days denied", brief)
+        self.assertLess(len(brief), 220)
 
 
 if __name__ == "__main__":

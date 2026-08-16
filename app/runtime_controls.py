@@ -252,8 +252,7 @@ INTENSITY_PRESETS = {
 
 
 MISS_G_GROUP_SAMPLE = (
-    "Hello, pet. That cage is still on. The timer isn't yours — "
-    "and a countdown is not an unlock."
+    "I hope that pathetic thing is locked. How long do you think you'll last?"
 )
 
 
@@ -287,8 +286,8 @@ def format_voice_block(*, room: str = "") -> str:
         lines.append(quirks)
     if (room or "").strip().lower() == "group":
         lines.append(
-            "GROUP: Tease the predicament — cage, lock, ache, wait. "
-            "No (brackets), no *stage directions*. Call him pet or darling. Never call her pet."
+            "GROUP: Mind games with the lock time. Short questions. "
+            "No (brackets). Never call her pet."
         )
         if not sample:
             lines.append("Match this sample of her voice:")
