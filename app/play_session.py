@@ -28,7 +28,24 @@ _IDLE = {
     "last_out_seconds": 0,
     "last_added_seconds": 0,
     "last_error": "",
+    "game": "",
+    "awaiting_pick": False,
 }
+
+_NUM_WORD = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+}
+_LOCKEE_PICK = re.compile(
+    r"\b(?:i\s+(?:pick|choose|rolled?|got)|pick|choose|rolled?|got)?"
+    r"\s*(?:a\s+|the\s+)?"
+    r"(?P<n>\d|one|two|three|four|five|six)\b",
+    re.I,
+)
 
 _RATE_EXPLICIT = re.compile(
     r"\b(\d+(?:\.\d+)?)\s*"
@@ -103,6 +120,8 @@ def _load_raw() -> dict[str, Any]:
             out[key] = int(out.get(key) or 0)
         except (TypeError, ValueError):
             out[key] = 0
+    out["awaiting_pick"] = bool(out.get("awaiting_pick"))
+    out["game"] = str(out.get("game") or "")
     return out
 
 
@@ -139,6 +158,8 @@ def _public(state: dict[str, Any]) -> dict[str, Any]:
         "last_out_seconds": int(state.get("last_out_seconds") or 0),
         "last_added_seconds": int(state.get("last_added_seconds") or 0),
         "last_error": state.get("last_error") or "",
+        "game": str(state.get("game") or ""),
+        "awaiting_pick": bool(state.get("awaiting_pick")),
     }
 
 
@@ -255,4 +276,121 @@ def format_play_session_block(view: dict[str, Any] | None = None) -> str:
         lines.append(
             f"Last session: {last_out // 60}m out → {last_add // 60}m added."
         )
+    if st.get("awaiting_pick"):
+        lines.append(
+            f"Fate game armed ({st.get('game') or 'pick'}). "
+            "He is picking the multiplier in Group."
+        )
     return "\n".join(lines)
+
+
+def choose_fate_game(message: str) -> str:
+    if re.search(r"\b(dice|roll)\b", message or "", re.I):
+        return "dice"
+    return "pick"
+
+
+def fate_game_waiting() -> bool:
+    return bool(snapshot().get("awaiting_pick"))
+
+
+def arm_fate_game(kind: str = "pick") -> dict[str, Any]:
+    game = "dice" if str(kind or "").strip().lower() == "dice" else "pick"
+    with _lock:
+        state = _load_raw()
+        state["game"] = game
+        state["awaiting_pick"] = True
+        if float(state.get("rate") or 0) < 2:
+            state["rate"] = 0.0
+        _save_raw(state)
+        return _public(state)
+
+
+def parse_lockee_pick(message: str) -> int | None:
+    text = (message or "").strip()
+    if not text:
+        return None
+    hit = _LOCKEE_PICK.search(text)
+    if not hit:
+        return None
+    raw = (hit.group("n") or "").lower()
+    if raw.isdigit():
+        n = int(raw)
+    else:
+        n = _NUM_WORD.get(raw)
+    if n is None or n < 1 or n > 6:
+        return None
+    return n
+
+
+def apply_lockee_pick(n: int) -> dict[str, Any]:
+    pick = int(n)
+    with _lock:
+        state = _load_raw()
+        game = str(state.get("game") or "pick")
+        floor = int(float(state.get("rate") or 0))
+        if floor < 2:
+            floor = 2
+        if game == "dice":
+            rate = float(floor if pick % 2 == 0 else min(MAX_RATE, floor + 1))
+        else:
+            rate = float(min(4, max(floor, pick, 2)))
+        state["rate"] = _clamp_rate(rate)
+        state["awaiting_pick"] = False
+        state["last_error"] = ""
+        _save_raw(state)
+        view = _public(state)
+        view["picked"] = pick
+        return view
+
+
+def _window_phrase(window: str) -> str:
+    raw = (window or "").strip()
+    if raw.startswith("1 "):
+        return "an " + raw[2:]
+    return raw or "time"
+
+
+def format_fate_game_line(
+    view: dict[str, Any] | None = None,
+    *,
+    window: str = "",
+) -> str:
+    st = view if isinstance(view, dict) else snapshot()
+    rate = float(st.get("rate") or 0)
+    game = str(st.get("game") or "pick")
+    hour = _window_phrase(window)
+    floor = int(rate) if rate >= 2 else 2
+    if game == "dice":
+        return (
+            f"Listen. You might get {hour} out of the cage tonight. "
+            f"Every minute out adds minutes back on the lock. "
+            f"Roll 1–6 here. Even: {floor}×. Odd: {floor + 1}×. Type the number."
+        )
+    if rate >= 2:
+        return (
+            f"Listen. You might get {hour} out of the cage tonight. "
+            f"The price starts at {floor} minutes locked per minute out. "
+            f"Pick 2, 3, or 4 — you cannot go below {floor}. Type the number."
+        )
+    return (
+        f"Listen. You might get {hour} out of the cage tonight. "
+        f"Every minute out costs minutes back on the lock. "
+        f"Pick 2, 3, or 4. That's your rate. Type the number."
+    )
+
+
+def format_fate_result(view: dict[str, Any]) -> str:
+    rate = float(view.get("rate") or 0)
+    picked = int(view.get("picked") or 0)
+    return (
+        f"{picked} — locked in. {rate:g} minutes back on the lock "
+        f"for every minute you're out. When she locks you, that hits the timer."
+    )
+
+
+def format_fate_nudge(view: dict[str, Any] | None = None) -> str:
+    st = view if isinstance(view, dict) else snapshot()
+    if str(st.get("game") or "pick") == "dice":
+        return "Type a number 1–6. Even or odd sets your rate."
+    return "Type 2, 3, or 4. That's minutes locked per minute out."

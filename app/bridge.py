@@ -263,6 +263,7 @@ class GroupBridge:
     ) -> tuple[str, list[str]]:
         from app.speaker_guard import (
             brief_private_delivery,
+            brief_rules_delivery,
             claims_group_delivery,
             fill_placeholders,
             planning_stays_private,
@@ -270,10 +271,25 @@ class GroupBridge:
             soften_group_tease,
             strip_invented_night_out,
             wants_him_told,
+            wants_rules_told,
+        )
+        from app.play_session import (
+            arm_fate_game,
+            choose_fate_game,
+            format_fate_game_line,
         )
 
         visible, posts = self.split_private_reply(private_reply)
         her = (domme_name or "").strip() or "the keyholder"
+        if wants_rules_told(domme_message):
+            thread = dict(getattr(scene, "play_thread", None) or {})
+            view = arm_fate_game(choose_fate_game(domme_message))
+            line = format_fate_game_line(
+                view, window=str(thread.get("window") or "")
+            )
+            await self.publish_group_messages(store, [line], speaker=speaker)
+            note = "\n\n— Sent to group —\n" + line
+            return (brief_rules_delivery() + note).strip(), [line]
         if posts and planning_stays_private(domme_message) and not wants_him_told(
             domme_message
         ):

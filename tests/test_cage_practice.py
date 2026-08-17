@@ -15,6 +15,7 @@ from app.speaker_guard import (
     soften_group_tease,
     strip_leaked_instructions,
     wants_him_told,
+    wants_rules_told,
     wants_to_be_free,
 )
 from app.chaster import BLOCKED_EXTENSION_SLUGS
@@ -156,6 +157,15 @@ class CagePracticeTests(unittest.TestCase):
         self.assertTrue(wants_him_told("nothing was posted"))
         self.assertTrue(bridge.wants_group_post("prepare him mentally for it"))
         self.assertTrue(bridge.wants_group_post("reveal a little more"))
+        self.assertTrue(wants_rules_told("talk to him and tell him the rules"))
+        self.assertTrue(
+            wants_him_told("i will leave that discussion for the 2 of you")
+        )
+        self.assertTrue(
+            wants_rules_told("i will leave that discussion for the 2 of you")
+        )
+        self.assertTrue(bridge.wants_group_post("talk to him and tell him the rules"))
+        self.assertFalse(wants_rules_told("drop him some hints"))
         self.assertTrue(private_should_be_brief(
             "Tonight you won't just be teased, I whisper to him"
         ))

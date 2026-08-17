@@ -94,6 +94,29 @@ class PlaySessionTests(unittest.TestCase):
         self.assertIn("Wait for her yes", text)
         self.assertIn("1 minute added per minute out", text)
 
+    def test_fate_game_pick_sets_rate(self) -> None:
+        view = ps.arm_fate_game("pick")
+        line = ps.format_fate_game_line(view, window="1 hour")
+        self.assertIn("an hour", line)
+        self.assertIn("Pick 2, 3, or 4", line)
+        self.assertTrue(ps.fate_game_waiting())
+        self.assertEqual(ps.parse_lockee_pick("3"), 3)
+        self.assertEqual(ps.parse_lockee_pick("I pick 4"), 4)
+        self.assertIsNone(ps.parse_lockee_pick("yes it has"))
+        locked = ps.apply_lockee_pick(3)
+        self.assertEqual(locked["rate"], 3.0)
+        self.assertFalse(locked["awaiting_pick"])
+        self.assertIn("3 minutes back", ps.format_fate_result(locked))
+
+    def test_dice_odd_raises_floor(self) -> None:
+        ps.set_rate(2.0)
+        ps.arm_fate_game("dice")
+        line = ps.format_fate_game_line()
+        self.assertIn("Even: 2×", line)
+        self.assertIn("Odd: 3×", line)
+        odd = ps.apply_lockee_pick(5)
+        self.assertEqual(odd["rate"], 3.0)
+
 
 if __name__ == "__main__":
     unittest.main()

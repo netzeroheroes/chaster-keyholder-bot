@@ -703,7 +703,22 @@ _HIM_DELIVERY = re.compile(
     r"nothing was posted|"
     r"(post|send|drop) (it )?again|"
     r"repost|"
-    r"he (didn'?t|did not) (see|get)"
+    r"he (didn'?t|did not) (see|get)|"
+    r"talk to him|"
+    r"tell him the rules|"
+    r"leave (?:that |the )?(?:discussion|talk|price|payment) "
+    r"(?:for |to )(?:the )?(?:2|two) of you"
+    r")\b",
+    re.I,
+)
+_RULES_TO_HIM = re.compile(
+    r"\b("
+    r"tell him the rules|"
+    r"tell him (?:his |the )?fate|"
+    r"talk to him|"
+    r"leave (?:that |the )?(?:discussion|talk|price|payment) "
+    r"(?:for |to )(?:the )?(?:2|two) of you|"
+    r"between (?:the )?(?:2|two) of you"
     r")\b",
     re.I,
 )
@@ -791,7 +806,12 @@ def should_take_to_private(message: str) -> bool:
 
 def wants_him_told(message: str) -> bool:
     """True when she explicitly asked to tease / tell him / post to Group."""
-    return bool(_HIM_DELIVERY.search(message or ""))
+    return bool(_HIM_DELIVERY.search(message or "") or _RULES_TO_HIM.search(message or ""))
+
+
+def wants_rules_told(message: str) -> bool:
+    """True when she wants him told the price / fate, not a mystery tease."""
+    return bool(_RULES_TO_HIM.search(message or ""))
 
 
 def private_should_be_brief(text: str) -> bool:
@@ -809,6 +829,10 @@ def claims_group_delivery(text: str) -> bool:
 
 def brief_private_delivery() -> str:
     return "On it — I dropped him a tease in Group. The plan stays here."
+
+
+def brief_rules_delivery() -> str:
+    return "Told him the price game. He's picking a number in Group."
 
 
 def looks_like_plan_spoiler(text: str) -> bool:

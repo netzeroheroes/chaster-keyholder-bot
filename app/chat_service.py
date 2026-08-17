@@ -53,6 +53,7 @@ from app.speaker_guard import (
     should_take_to_private,
     soften_group_tease,
     wants_him_told,
+    wants_rules_told,
     sounds_like_bot_submissive,
     strip_chat_chrome,
     strip_impersonation,
@@ -78,7 +79,15 @@ from app.play_thread import (
     parse_play_updates,
 )
 from app.play_session import (
+    apply_lockee_pick,
+    arm_fate_game,
+    choose_fate_game,
+    fate_game_waiting,
+    format_fate_game_line,
+    format_fate_nudge,
+    format_fate_result,
     format_play_session_block,
+    parse_lockee_pick,
     parse_play_rate,
     set_rate as set_play_rate,
 )
@@ -617,6 +626,30 @@ async def handle_chat_turn(
             "group_posts": [],
             "image_urls": [],
         }
+
+    if role == "sub" and room == "group" and fate_game_waiting():
+        picked = parse_lockee_pick(message)
+        if picked is not None:
+            view = apply_lockee_pick(picked)
+            reply_m = format_fate_result(view)
+            try:
+                bridge.inject_private_note(
+                    store,
+                    f"He picked {picked}. Rate is {view.get('rate'):g}× "
+                    "minutes locked per minute out.",
+                    speaker=bot_name,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Could not ping private with fate pick")
+            try:
+                save_scene(scene)
+            except Exception:  # noqa: BLE001
+                log.exception("Could not save scene after fate pick")
+            return _memory_command_result(reply_m)
+        extra_notes.append(
+            "[DIRECTOR: He must pick the multiplier now. "
+            f"{format_fate_nudge()} Do not drop the game.]"
+        )
 
     # double / triple / halve — API only, never the model
     scale_word = parse_scale_command(message)
@@ -1298,11 +1331,19 @@ async def handle_chat_turn(
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
     if room == "private":
         if wants_him_told(message):
-            anti_loop = (
-                "\nTHIS TURN — PRIVATE:\n"
-                f"Answer {title} like a friend in the room. He is not here.\n"
-                "One short line to her, then [[[GROUP]]] one mystery tease. No spoilers.\n"
-            )
+            if wants_rules_told(message):
+                anti_loop = (
+                    "\nTHIS TURN — PRIVATE:\n"
+                    f"Answer {title} like a friend. He is not here.\n"
+                    "One short line to her. Group gets the price game "
+                    "(pick 2–4 or dice) — not a vague tease.\n"
+                )
+            else:
+                anti_loop = (
+                    "\nTHIS TURN — PRIVATE:\n"
+                    f"Answer {title} like a friend in the room. He is not here.\n"
+                    "One short line to her, then [[[GROUP]]] one mystery tease. No spoilers.\n"
+                )
         else:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
@@ -1653,10 +1694,18 @@ async def handle_chat_turn(
         visible_reply = cleaned
     if room == "group":
         raw_group = visible_reply
-        softened = soften_group_tease(visible_reply)
-        if softened != visible_reply:
-            log.warning("Softened group tease (no spoilers / homework)")
-            visible_reply = softened
+        if role == "domme" and wants_rules_told(message):
+            thread = dict(getattr(scene, "play_thread", None) or {})
+            view = arm_fate_game(choose_fate_game(message))
+            visible_reply = format_fate_game_line(
+                view, window=str(thread.get("window") or "")
+            )
+            log.info("Posted fate game in Group")
+        else:
+            softened = soften_group_tease(visible_reply)
+            if softened != visible_reply:
+                log.warning("Softened group tease (no spoilers / homework)")
+                visible_reply = softened
         if role == "domme" and should_take_to_private(message) and raw_group:
             try:
                 store.append_display(
