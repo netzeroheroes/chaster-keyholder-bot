@@ -207,7 +207,8 @@ def scene_lead_director(*, room: str = "", bull_voice: bool = False) -> str:
     where = "Private" if (room or "").strip().lower() == "private" else "this room"
     return (
         f"[DIRECTOR: {where}. She gave you a cue. {who} "
-        "START a specific situation now (2–4 sentences). Name the beat and begin it. "
+        "START a specific situation now. Name the beat and begin it. "
+        "Two short [[[MSG]]] texts if you need a pause — not a menu. "
         "Do not quote his remaining time. Do not ask 'any ideas?' or 'what do you want to do?'. "
         "A yes/no on the beat YOU already started is ok. Develop the scene — don't hand her a menu.]"
     )

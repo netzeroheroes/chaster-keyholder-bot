@@ -150,8 +150,8 @@ def format_handoff_director(
     if room == "group":
         return (
             "[DIRECTOR: She handed you the lead. START NOW.\n"
-            "Ack her in one short clause. Then talk TO him. One specific beat — "
-            "an order or a tease he has to sit with.\n"
+            "TWO short [[[MSG]]] texts like a person texting: ack her, then talk TO him. "
+            "One specific beat — an order or a tease he has to sit with.\n"
             "Do NOT ask her where to begin / what she wants to do / any ideas.\n"
             "Do NOT ask him what he wants. Do not recap the plan. Unlock and orgasm stay hers "
             "unless she typed otherwise. If you are her bull: you are with his girl; he waits.]"
@@ -160,7 +160,8 @@ def format_handoff_director(
     return (
         "[DIRECTOR: She handed you the lead. Do NOT ask where to begin.\n"
         "Start the beat yourself. If you are her bull, start with HER. "
-        "Then [[[GROUP]]] one line at him. Unlock/orgasm stay hers.]"
+        "Then [[[GROUP]]] one line at him. Unlock/orgasm stay hers. "
+        "Two short [[[MSG]]] texts if the beat needs a pause.]"
         f"{ctx_bit}"
     )
 

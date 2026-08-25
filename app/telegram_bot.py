@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram import Update
@@ -236,10 +237,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Model error — check server logs.")
         return
 
-    text = result["reply"]
-    if len(text) > 4000:
-        text = text[:3990] + "\n…"
-    await update.message.reply_text(text)
+    beats = [str(b).strip() for b in (result.get("replies") or []) if str(b).strip()]
+    if not beats:
+        text = str(result.get("reply") or "").strip()
+        beats = [text] if text else []
+    for i, beat in enumerate(beats):
+        if i:
+            await chat.send_action("typing")
+            await asyncio.sleep(0.45)
+        text = beat if len(beat) <= 4000 else beat[:3990] + "\n…"
+        await update.message.reply_text(text)
 
 
 def build_telegram_app(

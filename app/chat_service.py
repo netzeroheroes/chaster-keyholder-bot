@@ -26,11 +26,13 @@ from app.chaster_actions import (
     run_tour_step,
     seconds_for_scale,
 )
+from app.beats import join_beats, multi_reply_director, split_bot_beats
 from app.lock_guard import (
     looks_like_concierge_ask,
     scrub_lock_hallucinations,
     strip_unsolicited_lock_dump,
 )
+from app.safeword import safeword_director, safeword_level
 from app.speaker_guard import (
     demands_beg_unlock,
     domme_teasing_lockee,
@@ -641,15 +643,19 @@ async def handle_chat_turn(
         or wants_handoff(message)
         or str(handoff.get("phase") or "") == "running"
     )
+    sw = safeword_level(message)
+    if sw:
+        lead_now = False
     if room == "private":
         extra_notes.append(f"[{private_hard_rule()}]")
     elif room == "group":
         if lead_now:
             extra_notes.append(
                 "[HARD RULE — GROUP, SHE HANDED YOU THE LEAD: "
-                "Ack her in one short clause. Then talk TO the lockee. "
-                "First concrete beat NOW. Do not ask her where to begin. "
-                "Do not ask him what he wants. Unlock stays hers.]"
+                "Two texts this turn. [[[MSG]]] ack her [[[/MSG]]] then "
+                "[[[MSG]]] first order TO the lockee [[[/MSG]]]. "
+                "Do not ask her where to begin. Do not ask him what he wants. "
+                "Unlock stays hers.]"
             )
         else:
             extra_notes.append(
@@ -661,7 +667,9 @@ async def handle_chat_turn(
                 "The real answer will be moved to Private. Do not discuss what to do "
                 "with him where he can read it.]"
             )
-    if role == "domme" and _AFTERCARE_ASK.search(message or ""):
+    if sw:
+        extra_notes.append(safeword_director(sw, room=room, role=role))
+    elif role == "domme" and _AFTERCARE_ASK.search(message or ""):
         if room == "private":
             extra_notes.append(
                 "[DIRECTOR: Aftercare. Help her land the scene — calm, specific. "
@@ -682,14 +690,15 @@ async def handle_chat_turn(
         )
     handoff = dict(scene.snapshot().get("handoff") or {})
     if role == "domme":
-        if wants_handoff_cancel(message) and handoff.get("active"):
+        if (wants_handoff_cancel(message) or sw == "red") and handoff.get("active"):
             handoff = empty_handoff()
             scene.update(handoff=handoff)
-            extra_notes.append(
-                "[DIRECTOR: She took him back. Ack her. You are co-keyholder again — "
-                "not the one in charge unless she hands him over.]"
-            )
-        elif wants_handoff(message) or handoff.get("active"):
+            if sw != "red":
+                extra_notes.append(
+                    "[DIRECTOR: She took him back. Ack her. You are co-keyholder again — "
+                    "not the one in charge unless she hands him over.]"
+                )
+        elif sw != "red" and (wants_handoff(message) or handoff.get("active")):
             if wants_handoff(message) and not handoff.get("active"):
                 handoff = start_handoff()
             handoff = apply_handoff(handoff, message)
@@ -700,6 +709,9 @@ async def handle_chat_turn(
                 )
             )
             lead_now = True
+    extra_notes.append(
+        multi_reply_director(room=room, lead_now=bool(lead_now and not sw))
+    )
     hands_off = (
         role == "domme"
         and _domme_hands_off(message)
@@ -754,6 +766,7 @@ async def handle_chat_turn(
         save_sessions(store)
         return {
             "reply": reply,
+            "replies": [reply] if reply else [],
             "room": room,
             "role": role,
             "group_posts": [],
@@ -1626,7 +1639,8 @@ async def handle_chat_turn(
         if role == "domme" and lead_now:
             anti_loop = (
                 "\nTHIS TURN — GROUP:\n"
-                f"{title} handed you the lead. Ack her in half a sentence, then talk TO him.\n"
+                f"{title} handed you the lead. TWO short [[[MSG]]] texts: "
+                "ack her, then talk TO him.\n"
                 "First concrete beat NOW. Do not ask her where to begin. "
                 "Do not ask him what he wants.\n"
                 "Short. No (brackets). No lock-number dump.\n"
@@ -1641,7 +1655,9 @@ async def handle_chat_turn(
             anti_loop = (
                 "\nTHIS TURN — GROUP:\n"
                 f"{who}\n"
-                "Short. No (brackets). No lock-number dump.\n"
+                "Short. No (brackets). No lock-number dump. "
+                "One message is normal; 2–3 [[[MSG]]] bubbles if you need a pause "
+                "or to speak to both of them.\n"
             )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
@@ -2269,6 +2285,15 @@ async def handle_chat_turn(
                 )
                 # She asked for a pic — don't keep "I sent it" fiction if nothing attached
                 visible_reply = fail if wants_pic else (f"{leftover}\n\n{fail}".strip() if leftover else fail)
+    beats = split_bot_beats(
+        visible_reply,
+        room=room,
+        force=bool(role == "domme" and room == "group" and lead_now and not sw),
+    )
+    if not beats and (visible_reply or "").strip():
+        beats = [visible_reply.strip()]
+    visible_reply = join_beats(beats)
+
     # Persist a clean conversation (spoken line + visible reply), not the prompt blob
     store.set(
         sid,
@@ -2280,14 +2305,23 @@ async def handle_chat_turn(
             ]
         ),
     )
-    if visible_reply:
+    for beat in beats:
         store.append_display(
             DisplayMessage(
-                speaker=bot_name, content=visible_reply, room=room, from_bot=True
+                speaker=bot_name, content=beat, room=room, from_bot=True
             )
         )
 
-    if (
+    if role == "sub" and sw == "red":
+        note = (
+            f"Lockee used RED / safeword: “{(message or '').strip()[:160]}”\n"
+            "I stopped the scene. Check in when you can — aftercare, not a next beat."
+        )
+        try:
+            bridge.inject_private_note(store, note, speaker=bot_name)
+        except Exception:  # noqa: BLE001
+            log.exception("Could not ping private chat about safeword")
+    elif (
         role == "sub"
         and room == "group"
         and wants_to_be_free(message)
@@ -2319,6 +2353,7 @@ async def handle_chat_turn(
 
     return {
         "reply": visible_reply,
+        "replies": beats,
         "room": room,
         "role": role,
         "group_posts": group_posts,

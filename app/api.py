@@ -66,6 +66,7 @@ class ChatResponse(BaseModel):
     role: Role
     group_posts: list[str] = []
     image_urls: list[str] = []
+    replies: list[str] = []
 
 
 class ImageRequest(BaseModel):
