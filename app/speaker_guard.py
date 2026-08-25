@@ -719,13 +719,7 @@ _PLANNING_ASK = re.compile(
     r"keep him (horny|needy|submissive|denied|desperate)|"
     r"wh?ich (?:of )?(?:his )?(?:toys?|kinks?|fetishes)|"
     r"(?:choose|pick) (?:one|a toy|a kink)|"
-    r"use against him|"
-    r"take control|"
-    r"take charge|"
-    r"take over|"
-    r"you('?re| are) in charge|"
-    r"handle him|"
-    r"run him"
+    r"use against him"
     r")\b",
     re.I,
 )
@@ -848,6 +842,13 @@ def should_take_to_private(message: str) -> bool:
     """Group planning / 'talk in private' — do not leave the scheme where he can read it."""
     if wants_him_told(message):
         return False
+    try:
+        from app.handoff import wants_handoff, wants_lead_now
+
+        if wants_lead_now(message) or wants_handoff(message):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     return wants_private_chat(message) or planning_stays_private(message)
 
 

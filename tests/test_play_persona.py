@@ -271,31 +271,52 @@ class HandoffTests(unittest.TestCase):
         from app.handoff import (
             apply_handoff,
             format_handoff_director,
+            format_lead_now_group_line,
             start_handoff,
             wants_handoff,
             wants_handoff_go,
+            wants_lead_now,
         )
+        from app.lock_guard import looks_like_concierge_ask, strip_unsolicited_lock_dump
         from app.speaker_guard import should_take_to_private
 
         self.assertTrue(wants_handoff("take control of him"))
         self.assertTrue(wants_handoff("you're in charge"))
         self.assertTrue(wants_handoff_go("go ahead, tell him"))
-        self.assertTrue(should_take_to_private("take control of him"))
+        self.assertTrue(wants_lead_now("you are running things today"))
+        self.assertTrue(wants_lead_now("you are runnng things today"))
+        self.assertTrue(
+            wants_lead_now(
+                "he dosnt get a say in who is the lead he's both of our toys now"
+            )
+        )
+        self.assertFalse(should_take_to_private("take control of him"))
+        self.assertFalse(should_take_to_private("you are running things today"))
         self.assertFalse(should_take_to_private("take control of him and tell him"))
 
         state = start_handoff()
-        self.assertEqual(state["phase"], "pitch")
-        pitch = format_handoff_director(state, room="private")
-        self.assertIn("TAKE CONTROL", pitch)
-        self.assertIn("ONE real question", pitch)
-        self.assertIn("questionnaire", pitch.lower())
+        self.assertEqual(state["phase"], "running")
+        private = format_handoff_director(state, room="private")
+        self.assertIn("Do NOT ask where to begin", private)
+        self.assertNotIn("questionnaire", private.lower())
 
-        shaping = apply_handoff(state, "You can tease him. I keep the keys.")
-        self.assertEqual(shaping["phase"], "shaping")
-        running = apply_handoff(shaping, "go, tell him")
+        running = apply_handoff(state, "go, tell him")
         self.assertEqual(running["phase"], "running")
         group = format_handoff_director(running, room="group")
-        self.assertIn("running him", group.lower())
+        self.assertIn("START NOW", group)
+        self.assertIn("Do NOT ask her where to begin", group)
+
+        concierge = (
+            "So, where do you want to begin, knowing he's locked and I'm right here?"
+        )
+        self.assertTrue(looks_like_concierge_ask(concierge))
+        dumped = strip_unsolicited_lock_dump(concierge)
+        self.assertNotIn("where do you want to begin", dumped.lower())
+        line = format_lead_now_group_line(
+            bull_voice=True, title="Keyholder", sub_name="Lockee"
+        )
+        self.assertIn("I've got him", line)
+        self.assertNotIn("where do you want", line.lower())
 
 
 if __name__ == "__main__":

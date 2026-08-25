@@ -26,7 +26,11 @@ from app.chaster_actions import (
     run_tour_step,
     seconds_for_scale,
 )
-from app.lock_guard import scrub_lock_hallucinations, strip_unsolicited_lock_dump
+from app.lock_guard import (
+    looks_like_concierge_ask,
+    scrub_lock_hallucinations,
+    strip_unsolicited_lock_dump,
+)
 from app.speaker_guard import (
     demands_beg_unlock,
     domme_teasing_lockee,
@@ -140,9 +144,11 @@ from app.handoff import (
     apply_handoff,
     empty_handoff,
     format_handoff_director,
+    format_lead_now_group_line,
     start_handoff,
     wants_handoff,
     wants_handoff_cancel,
+    wants_lead_now,
 )
 from app.kink_probe import (
     apply_probe_answer,
@@ -629,13 +635,27 @@ async def handle_chat_turn(
                 extra_notes.append(
                     "[DIRECTOR: She is picking a toy or kink. Do not name the list here.]"
                 )
+    handoff = dict(scene.snapshot().get("handoff") or {})
+    lead_now = role == "domme" and (
+        wants_lead_now(message)
+        or wants_handoff(message)
+        or str(handoff.get("phase") or "") == "running"
+    )
     if room == "private":
         extra_notes.append(f"[{private_hard_rule()}]")
     elif room == "group":
-        extra_notes.append(
-            f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
-        )
-        if role == "domme" and should_take_to_private(message):
+        if lead_now:
+            extra_notes.append(
+                "[HARD RULE — GROUP, SHE HANDED YOU THE LEAD: "
+                "Ack her in one short clause. Then talk TO the lockee. "
+                "First concrete beat NOW. Do not ask her where to begin. "
+                "Do not ask him what he wants. Unlock stays hers.]"
+            )
+        else:
+            extra_notes.append(
+                f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
+            )
+        if role == "domme" and not lead_now and should_take_to_private(message):
             extra_notes.append(
                 "[DIRECTOR: She wants this off Group. One short Group line — no plan. "
                 "The real answer will be moved to Private. Do not discuss what to do "
@@ -679,6 +699,7 @@ async def handle_chat_turn(
                     handoff, room=room, memory=memory, scene=scene
                 )
             )
+            lead_now = True
     hands_off = (
         role == "domme"
         and _domme_hands_off(message)
@@ -1602,17 +1623,26 @@ async def handle_chat_turn(
                 "If she did not ask, do not mention remaining time.\n"
             )
     else:
-        who = (
-            f"{title} (KEYHOLDER) just spoke. Reply TO her as you. "
-            "Never 'she lets him out'. Do not talk to him as 'you'. Do not spoil her plan."
-            if role == "domme"
-            else f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder."
-        )
-        anti_loop = (
-            "\nTHIS TURN — GROUP:\n"
-            f"{who}\n"
-            "Short. No (brackets). No lock-number dump.\n"
-        )
+        if role == "domme" and lead_now:
+            anti_loop = (
+                "\nTHIS TURN — GROUP:\n"
+                f"{title} handed you the lead. Ack her in half a sentence, then talk TO him.\n"
+                "First concrete beat NOW. Do not ask her where to begin. "
+                "Do not ask him what he wants.\n"
+                "Short. No (brackets). No lock-number dump.\n"
+            )
+        else:
+            who = (
+                f"{title} (KEYHOLDER) just spoke. Reply TO her as you. "
+                "Never 'she lets him out'. Do not talk to him as 'you'. Do not spoil her plan."
+                if role == "domme"
+                else f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder."
+            )
+            anti_loop = (
+                "\nTHIS TURN — GROUP:\n"
+                f"{who}\n"
+                "Short. No (brackets). No lock-number dump.\n"
+            )
     if recent:
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
         anti_loop += f"Don't repeat:\n{listed}\n"
@@ -1777,25 +1807,37 @@ async def handle_chat_turn(
             ]
 
         if role == "domme" and not asks_lock_remaining(message):
-            dumped = strip_unsolicited_lock_dump(reply)
-            if dumped != (reply or "").strip():
-                log.warning("Stripped unsolicited lock dump in %s", room)
-                if len(dumped) >= 24:
-                    reply = dumped
-                elif wants_scene_lead(message):
-                    reply = (
-                        "Naughty it is. He's locked — that's the point. "
-                        "Come here. I want you while he waits in the other room."
-                        if bull
-                        else (
-                            "Naughty it is. He's locked and he's not invited. "
-                            "We take our time; he stays denied."
-                        )
-                    )
+            if room == "group" and lead_now and looks_like_concierge_ask(reply):
+                log.warning("Replaced concierge ask with a lead-now beat")
+                reply = format_lead_now_group_line(
+                    bull_voice=bull,
+                    title=title,
+                    sub_name=memory.sub_name or "Lockee",
+                )
                 messages = list(history) + [
                     {"role": "user", "content": user_line},
                     {"role": "assistant", "content": reply},
                 ]
+            else:
+                dumped = strip_unsolicited_lock_dump(reply)
+                if dumped != (reply or "").strip():
+                    log.warning("Stripped unsolicited lock dump in %s", room)
+                    if len(dumped) >= 24:
+                        reply = dumped
+                    elif wants_scene_lead(message):
+                        reply = (
+                            "Naughty it is. He's locked — that's the point. "
+                            "Come here. I want you while he waits in the other room."
+                            if bull
+                            else (
+                                "Naughty it is. He's locked and he's not invited. "
+                                "We take our time; he stays denied."
+                            )
+                        )
+                    messages = list(history) + [
+                        {"role": "user", "content": user_line},
+                        {"role": "assistant", "content": reply},
+                    ]
 
         # Strict: Domme must never be addressed as the locked Sub
         if role == "domme" and mistreats_domme_as_sub(
@@ -2004,7 +2046,12 @@ async def handle_chat_turn(
             if softened != visible_reply:
                 log.warning("Softened group tease (no spoilers / homework)")
                 visible_reply = softened
-        if role == "domme" and should_take_to_private(message) and raw_group:
+        if (
+            role == "domme"
+            and not lead_now
+            and should_take_to_private(message)
+            and raw_group
+        ):
             try:
                 store.append_display(
                     DisplayMessage(

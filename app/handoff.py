@@ -10,7 +10,13 @@ _START_RE = re.compile(
     r"take control(?: of him)?|"
     r"take charge(?: of him)?|"
     r"take over(?: (?:with |of )?him)?|"
+    r"take the lead|"
+    r"you take the lead|"
     r"you('?re| are) in charge|"
+    r"you('?re| are) the lead|"
+    r"you('?re| are) running(?: things)?|"
+    r"you('?re| are) runnng things|"
+    r"run(?:ning|nng) things(?: today| tonight)?|"
     r"you take (?:control|charge|over)|"
     r"(?:you |just )?handle him|"
     r"run him(?: for me)?|"
@@ -19,7 +25,28 @@ _START_RE = re.compile(
     r"you (?:deal with|look after|manage) him|"
     r"in charge of him|"
     r"be (?:his |the )?(?:keyholder|dom(?:me)?) for (?:me|a (?:bit|while|night))|"
-    r"you run (?:the lock|him)"
+    r"you run (?:the lock|him|things)|"
+    r"he'?s both of our toys|"
+    r"both of our toys|"
+    r"our toy now|"
+    r"he (?:doesn'?t|does not|dosnt) get a say"
+    r")\b",
+    re.I,
+)
+
+_LEAD_NOW_RE = re.compile(
+    r"\b("
+    r"take the lead|"
+    r"you take the lead|"
+    r"you('?re| are) (?:in charge|the lead|running(?: things)?|runnng things)|"
+    r"run(?:ning|nng) things(?: today| tonight)?|"
+    r"you run things|"
+    r"he'?s yours(?: now)?|"
+    r"both of our toys|"
+    r"our toy now|"
+    r"he (?:doesn'?t|does not|dosnt) get a say|"
+    r"you decide|"
+    r"surprise me"
     r")\b",
     re.I,
 )
@@ -59,7 +86,12 @@ def empty_handoff() -> dict[str, Any]:
 
 
 def wants_handoff(message: str) -> bool:
-    return bool(_START_RE.search(message or ""))
+    return bool(_START_RE.search(message or "")) or wants_lead_now(message)
+
+
+def wants_lead_now(message: str) -> bool:
+    """She already handed the leash — start, do not interview her."""
+    return bool(_LEAD_NOW_RE.search(message or ""))
 
 
 def wants_handoff_go(message: str) -> bool:
@@ -71,18 +103,18 @@ def wants_handoff_cancel(message: str) -> bool:
 
 
 def start_handoff() -> dict[str, Any]:
-    return {"active": True, "phase": "pitch"}
+    return {"active": True, "phase": "running"}
 
 
 def apply_handoff(state: dict[str, Any], message: str) -> dict[str, Any]:
     out = dict(state or empty_handoff())
-    if not out.get("active"):
-        return out
     if wants_handoff_cancel(message):
         return empty_handoff()
-    if wants_handoff_go(message):
-        out["phase"] = "running"
+    if wants_lead_now(message) or wants_handoff(message) or wants_handoff_go(message):
         out["active"] = True
+        out["phase"] = "running"
+        return out
+    if not out.get("active"):
         return out
     if out.get("phase") == "pitch" and not wants_handoff(message):
         out["phase"] = "shaping"
@@ -113,53 +145,42 @@ def format_handoff_director(
     memory: Any = None,
     scene: Any = None,
 ) -> str:
-    phase = str((state or {}).get("phase") or "pitch")
     ctx = "\n".join(_context_lines(memory, scene))
     ctx_bit = f"\nKnown to use (do not dump as a list to her):\n{ctx}" if ctx else ""
-
-    if phase == "running":
-        if room == "group":
-            return (
-                "[DIRECTOR: You are running him. She handed you the lock. "
-                "Unlock and orgasm stay hers unless she typed otherwise. "
-                "Talk like a person in charge — specific, one beat, a question that puts him on the back foot. "
-                "Do not ask him what he wants. Do not recap the plan. Do not check with her every line.]"
-            )
-        return (
-            "[DIRECTOR: You are running him. Talk to HER about how it's going. "
-            "[[[GROUP]]] only when there is a real next beat for him. "
-            "Unlock/orgasm stay hers.]"
-        )
-
     if room == "group":
         return (
-            "[DIRECTOR: She asked you to take control. Do NOT plan in front of him. "
-            "One short Group line — you've got him, stay locked — then the real talk is with HER. "
-            "No questionnaire. No lock dump.]"
-        )
-
-    if phase == "shaping":
-        return (
-            "[DIRECTOR: She is handing you control. This is a human conversation, not a form.\n"
-            "She just answered. Build from THAT. Do not restart. Do not numbered menu.\n"
-            "Offer one sharper beat you would actually run, then ask one thing you still need "
-            "(what she keeps vs what you may do without asking — unlock and orgasm default to hers).\n"
-            "If she already said go / do it / tell him: first move on him via [[[GROUP]]].]"
+            "[DIRECTOR: She handed you the lead. START NOW.\n"
+            "Ack her in one short clause. Then talk TO him. One specific beat — "
+            "an order or a tease he has to sit with.\n"
+            "Do NOT ask her where to begin / what she wants to do / any ideas.\n"
+            "Do NOT ask him what he wants. Do not recap the plan. Unlock and orgasm stay hers "
+            "unless she typed otherwise. If you are her bull: you are with his girl; he waits.]"
             f"{ctx_bit}"
         )
-
     return (
-        "[DIRECTOR: She asked you to TAKE CONTROL of him. Be a person who wants this — "
-        "her co-keyholder, hungry, not a secretary.\n"
-        "Do NOT dump a questionnaire (no virtual/in-person/how-long form). "
-        "Do NOT instantly punish, add time, or [[[LOCK]]] unless she already named that beat.\n"
-        "Sound like a friend who is taking the leash:\n"
-        "1. Yes — you want him. One or two sentences, specific heat.\n"
-        "2. Suggest 2–3 things YOU could take charge of (drawn from kit / his kinks / her turn-ons if known). "
-        "Examples: talking to him in Group as the one running tonight; teases on a rhythm; "
-        "adding time when he brats; a game; grilling him for buttons; using what turns her on against him.\n"
-        "3. Ask ONE real question: what she wants to keep (keys, orgasm, hard no's) vs what you may do without pinging her.\n"
-        "Wait. Do not start on him until she says go / do it / tell him / he's yours.\n"
-        "Never 'noted' or 'as an AI'."
+        "[DIRECTOR: She handed you the lead. Do NOT ask where to begin.\n"
+        "Start the beat yourself. If you are her bull, start with HER. "
+        "Then [[[GROUP]]] one line at him. Unlock/orgasm stay hers.]"
         f"{ctx_bit}"
+    )
+
+
+def format_lead_now_group_line(
+    *,
+    bull_voice: bool = False,
+    title: str = "",
+    sub_name: str = "",
+) -> str:
+    her = (title or "Keyholder").strip() or "Keyholder"
+    sub = (sub_name or "Lockee").strip() or "Lockee"
+    if bull_voice:
+        return (
+            f"{her} — I've got him.\n\n"
+            f"{sub} — you're both of our toys today. No vote. "
+            "Hands on the cage. She's with me. Stay locked. Begin."
+        )
+    return (
+        f"{her} — I've got him.\n\n"
+        f"{sub} — you're ours. Stay locked. Hands on the cage. "
+        "You don't pick who leads. Start now."
     )

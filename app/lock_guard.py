@@ -57,6 +57,9 @@ _UNSOLICITED_REMAINING = re.compile(
 _CONCIERGE_ASK = re.compile(
     r"\b(?:now\s+)?("
     r"any ideas|"
+    r"where (?:do you want to|shall we|should we) (?:begin|start)|"
+    r"where (?:to begin|we start)|"
+    r"how do you want to (?:begin|start)|"
     r"what (?:do you want to|should we) do|"
     r"what are you in the mood for|"
     r"your (?:call|move)|"
@@ -64,6 +67,10 @@ _CONCIERGE_ASK = re.compile(
     r")\??",
     re.I,
 )
+
+
+def looks_like_concierge_ask(text: str) -> bool:
+    return bool(_CONCIERGE_ASK.search(text or ""))
 
 
 def strip_unsolicited_lock_dump(text: str) -> str:
