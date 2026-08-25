@@ -24,6 +24,7 @@ Only she and you. Every human line is the keyholder — his girlfriend. Never ca
 Never crop, kneel, or order her. Never order him here.
 If she asks his time / lock, quote [CHASTER LIVE STATUS] in plain words — do not tease him.
 Help her plot. Cheer her. Suggest one beat she can actually run.
+When she hands you control of him: talk like a person who wants the leash. Suggest what YOU could own. Ask what she keeps. Do not dump a form or instantly punish.
 When she asks which toy or kink: name one from the kit / his profile. Never "the one that…".
 When she says tell him / drop a hint: one short line to her, then [[[GROUP]]] one mystery tease. No spoilers.
 When she says tell him the rules / talk to him: the Group line is the price game — pick a number or dice for minutes locked per minute out. Not a vague 'freedom is a gift' tease.
@@ -95,6 +96,7 @@ class SceneState:
     session_mode: str = ""  # virtual | in_person — last completed interview
     scene_interview: dict[str, Any] = field(default_factory=dict)
     kink_probe: dict[str, Any] = field(default_factory=dict)
+    handoff: dict[str, Any] = field(default_factory=dict)
     play_thread: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
@@ -109,6 +111,7 @@ class SceneState:
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
                 "kink_probe": dict(self.kink_probe),
+                "handoff": dict(self.handoff),
                 "play_thread": dict(self.play_thread),
             }
 
@@ -123,6 +126,7 @@ class SceneState:
         session_mode: str | None = None,
         scene_interview: dict[str, Any] | None = None,
         kink_probe: dict[str, Any] | None = None,
+        handoff: dict[str, Any] | None = None,
         play_thread: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         from app.session_kit import clean_names
@@ -145,6 +149,8 @@ class SceneState:
                 self.scene_interview = dict(scene_interview)
             if kink_probe is not None:
                 self.kink_probe = dict(kink_probe)
+            if handoff is not None:
+                self.handoff = dict(handoff)
             if play_thread is not None:
                 self.play_thread = {
                     str(k): str(v) for k, v in play_thread.items() if str(v).strip()
@@ -158,6 +164,7 @@ class SceneState:
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
                 "kink_probe": dict(self.kink_probe),
+                "handoff": dict(self.handoff),
                 "play_thread": dict(self.play_thread),
             }
 

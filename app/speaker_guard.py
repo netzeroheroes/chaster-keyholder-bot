@@ -680,7 +680,13 @@ _PLANNING_ASK = re.compile(
     r"keep him (horny|needy|submissive|denied|desperate)|"
     r"wh?ich (?:of )?(?:his )?(?:toys?|kinks?|fetishes)|"
     r"(?:choose|pick) (?:one|a toy|a kink)|"
-    r"use against him"
+    r"use against him|"
+    r"take control|"
+    r"take charge|"
+    r"take over|"
+    r"you('?re| are) in charge|"
+    r"handle him|"
+    r"run him"
     r")\b",
     re.I,
 )

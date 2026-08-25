@@ -185,5 +185,37 @@ class TeasePlayTests(unittest.TestCase):
         self.assertIn("pornhub.com/video/search", fallback)
 
 
+class HandoffTests(unittest.TestCase):
+    def test_take_control_is_a_handoff(self) -> None:
+        from app.handoff import (
+            apply_handoff,
+            format_handoff_director,
+            start_handoff,
+            wants_handoff,
+            wants_handoff_go,
+        )
+        from app.speaker_guard import should_take_to_private
+
+        self.assertTrue(wants_handoff("take control of him"))
+        self.assertTrue(wants_handoff("you're in charge"))
+        self.assertTrue(wants_handoff_go("go ahead, tell him"))
+        self.assertTrue(should_take_to_private("take control of him"))
+        self.assertFalse(should_take_to_private("take control of him and tell him"))
+
+        state = start_handoff()
+        self.assertEqual(state["phase"], "pitch")
+        pitch = format_handoff_director(state, room="private")
+        self.assertIn("TAKE CONTROL", pitch)
+        self.assertIn("ONE real question", pitch)
+        self.assertIn("questionnaire", pitch.lower())
+
+        shaping = apply_handoff(state, "You can tease him. I keep the keys.")
+        self.assertEqual(shaping["phase"], "shaping")
+        running = apply_handoff(shaping, "go, tell him")
+        self.assertEqual(running["phase"], "running")
+        group = format_handoff_director(running, room="group")
+        self.assertIn("running him", group.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

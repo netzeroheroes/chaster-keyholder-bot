@@ -59,6 +59,8 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
         updates["scene_interview"] = raw["scene_interview"]
     if isinstance(raw.get("kink_probe"), dict):
         updates["kink_probe"] = raw["kink_probe"]
+    if isinstance(raw.get("handoff"), dict):
+        updates["handoff"] = raw["handoff"]
     if isinstance(raw.get("play_thread"), dict):
         updates["play_thread"] = {
             str(k): str(v) for k, v in raw["play_thread"].items() if str(v).strip()

@@ -127,6 +127,14 @@ from app.her_taste import (
     record_orgasm,
     wants_her_taste,
 )
+from app.handoff import (
+    apply_handoff,
+    empty_handoff,
+    format_handoff_director,
+    start_handoff,
+    wants_handoff,
+    wants_handoff_cancel,
+)
 from app.kink_probe import (
     apply_probe_answer,
     format_probe_director,
@@ -411,8 +419,6 @@ def _domme_hands_off(message: str) -> bool:
             r"have fun with (him|the\s+sub|boy)|"
             r"keep him (busy|occupied|entertained)|"
             r"play with (him|the\s+sub|boy)|"
-            r"take (over|care of him)|"
-            r"you('?re| are) (in charge|on duty)|"
             r"leave (him|you) (with you|to you)|"
             r"brb|be right back|"
             r"stepping away|"
@@ -621,8 +627,31 @@ async def handle_chat_turn(
             "NEVER write [You (@Keyholder): …]. NEVER address yourself as Keyholder. "
             "No fake UI labels.]"
         )
-    hands_off = role == "domme" and _domme_hands_off(message)
-    if role == "domme" and _domme_wants_decision(message) and not hands_off:
+    handoff = dict(scene.snapshot().get("handoff") or {})
+    if role == "domme":
+        if wants_handoff_cancel(message) and handoff.get("active"):
+            handoff = empty_handoff()
+            scene.update(handoff=handoff)
+            extra_notes.append(
+                "[DIRECTOR: She took him back. Ack her. You are co-keyholder again — "
+                "not the one in charge unless she hands him over.]"
+            )
+        elif wants_handoff(message) or handoff.get("active"):
+            if wants_handoff(message) and not handoff.get("active"):
+                handoff = start_handoff()
+            handoff = apply_handoff(handoff, message)
+            scene.update(handoff=handoff)
+            extra_notes.append(
+                format_handoff_director(
+                    handoff, room=room, memory=memory, scene=scene
+                )
+            )
+    hands_off = (
+        role == "domme"
+        and _domme_hands_off(message)
+        and not (handoff or {}).get("active")
+    )
+    if role == "domme" and _domme_wants_decision(message) and not hands_off and not (handoff or {}).get("active"):
         if room == "group":
             extra_notes.append(
                 "[DIRECTOR: Domme delegated in GROUP. You MUST choose a concrete "
