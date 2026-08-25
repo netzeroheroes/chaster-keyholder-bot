@@ -109,5 +109,44 @@ class KitChoiceTests(unittest.TestCase):
         )
 
 
+class TogetherKitTests(unittest.TestCase):
+    def test_together_unless_virtual(self) -> None:
+        from app.session_kit import format_together_director, physical_together
+
+        self.assertTrue(physical_together(""))
+        self.assertTrue(physical_together("in_person"))
+        self.assertFalse(physical_together("virtual"))
+        director = format_together_director(
+            room="group",
+            session_mode="",
+            toy="Humbler",
+            kink="Cuckolding",
+        )
+        self.assertIn("Humbler", director)
+        self.assertIn("Cuckolding", director)
+        self.assertIn("when she is free", director.lower())
+        remote = format_together_director(
+            room="group", session_mode="virtual", toy="Humbler"
+        )
+        self.assertIn("VIRTUAL", remote)
+
+    def test_pick_varies_with_salt(self) -> None:
+        from app.session_kit import pick_kit_props
+
+        a = pick_kit_props(
+            session_kinks=["Edging", "Humiliation"],
+            session_toys=["Plug", "Crop", "Gag"],
+            salt="alpha",
+        )
+        b = pick_kit_props(
+            session_kinks=["Edging", "Humiliation"],
+            session_toys=["Plug", "Crop", "Gag"],
+            salt="omega",
+        )
+        self.assertTrue(a[0] or a[1])
+        self.assertIn(a[0], {"Plug", "Crop", "Gag"})
+        self.assertNotEqual(a, b)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -184,11 +184,14 @@ from app.scene_interview import (
 from app.session_kit import (
     asked_kit_focus,
     format_kit_choice_block,
+    format_together_director,
     format_week_plan_private_note,
     format_week_planner_block,
     kit_lists_for_choice,
     load_wearer_catalog,
     parse_named_kit_pick,
+    physical_together,
+    pick_kit_props,
     wants_kit_choice,
     wants_week_plan,
 )
@@ -747,6 +750,34 @@ async def handle_chat_turn(
     extra_notes.append(
         multi_reply_director(room=room, lead_now=bool(lead_now and not sw))
     )
+    kit_toy, kit_kink = "", ""
+    if (
+        role == "domme"
+        and not sw
+        and turn.kind not in {"status", "aftercare", "plan"}
+        and not asks_lock_remaining(message)
+        and (room == "group" or lead_now)
+        and physical_together(str(scene.snapshot().get("session_mode") or ""))
+    ):
+        last_bot = ""
+        for msg in reversed(history):
+            if msg.get("role") == "assistant":
+                last_bot = str(msg.get("content") or "")[:80]
+                break
+        kit_toy, kit_kink = pick_kit_props(
+            session_kinks=list(scene.session_kinks or []),
+            session_toys=list(scene.session_toys or []),
+            memory_kinks=list(getattr(memory, "kinks", None) or []),
+            salt=f"{message}|{last_bot}",
+        )
+        extra_notes.append(
+            format_together_director(
+                room=room,
+                session_mode=str(scene.snapshot().get("session_mode") or ""),
+                toy=kit_toy,
+                kink=kit_kink,
+            )
+        )
     hands_off = (
         role == "domme"
         and _domme_hands_off(message)
@@ -1872,6 +1903,8 @@ async def handle_chat_turn(
                     bull_voice=bull,
                     title=title,
                     sub_name=memory.sub_name or "Lockee",
+                    toy=kit_toy,
+                    kink=kit_kink,
                 )
                 messages = list(history) + [
                     {"role": "user", "content": user_line},

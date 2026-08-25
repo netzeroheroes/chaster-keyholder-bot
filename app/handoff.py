@@ -171,17 +171,37 @@ def format_lead_now_group_line(
     bull_voice: bool = False,
     title: str = "",
     sub_name: str = "",
+    toy: str = "",
+    kink: str = "",
 ) -> str:
     her = (title or "Keyholder").strip() or "Keyholder"
     sub = (sub_name or "Lockee").strip() or "Lockee"
+    prop = (toy or "").strip()
+    hook = (kink or "").strip()
+    if prop:
+        wait = f"When she's free, the {prop} goes on you. Hold still."
+    elif hook:
+        wait = f"When she's free, she uses {hook} on you. Sit with that."
+    else:
+        wait = "Hands on the cage. Stay locked. Begin."
     if bull_voice:
-        return (
-            f"{her} — I've got him.\n\n"
-            f"{sub} — you're both of our toys today. No vote. "
-            "Hands on the cage. She's with me. Stay locked. Begin."
+        her_line = (
+            f"{her} — I've got him. Put the {prop} on him when you're free."
+            if prop
+            else f"{her} — I've got him. Use the kit on him when you're free."
         )
+        return (
+            f"{her_line}\n\n"
+            f"{sub} — you're both of our toys today. No vote. "
+            f"{wait} She's with me."
+        )
+    her_line = (
+        f"{her} — I've got him. Put the {prop} on him when you're free."
+        if prop
+        else f"{her} — I've got him. Apply it when you're free."
+    )
     return (
-        f"{her} — I've got him.\n\n"
-        f"{sub} — you're ours. Stay locked. Hands on the cage. "
-        "You don't pick who leads. Start now."
+        f"{her_line}\n\n"
+        f"{sub} — you're ours. Stay locked. {wait} "
+        "You don't pick who leads."
     )

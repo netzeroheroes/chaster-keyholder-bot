@@ -396,13 +396,79 @@ def format_session_kit_block(
             "If she wants a week plan, give a concrete Mon–Sun schedule and "
             "tactics to keep him horny, denied, and submissive. Planning only "
             "until she says execute / go to group.\n"
+            "She is WITH him unless SESSION MODE is VIRTUAL. Name a toy/kink. "
+            "She physically applies it when she is free. Do not invent it is already on.\n"
         )
     return (
         "\n\n[SESSION KIT — incorporate quietly; do not list as a menu to him]\n"
         f"Kinks / fetishes: {kink_txt}\n"
         f"Toys: {toy_txt}\n"
-        "Weave selected items into orders and tease. Do not dump the week plan "
-        "as a document in group unless the Domme asked you to announce it.\n"
+        "Weave ONE named toy and ONE kink into the beat. She is with him; "
+        "her hands apply it when she is free. He waits. Do not dump the list. "
+        "Do not invent that she already put it on.\n"
+    )
+
+
+def physical_together(session_mode: str | None) -> bool:
+    """True unless she set this session to virtual / remote."""
+    mode = (session_mode or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return mode != "virtual"
+
+
+def pick_kit_props(
+    *,
+    session_kinks: list[Any] | None = None,
+    session_toys: list[Any] | None = None,
+    memory_kinks: list[Any] | None = None,
+    salt: str = "",
+) -> tuple[str, str]:
+    """Pick one toy and one kink from the live kit so the beat is specific."""
+    kinks = clean_names(session_kinks) or clean_names(memory_kinks)
+    toys = clean_names(session_toys)
+    n = sum(ord(c) for c in (salt or "kit")) or 1
+    toy = toys[n % len(toys)] if toys else ""
+    kink = kinks[(n // 5) % len(kinks)] if kinks else ""
+    return toy, kink
+
+
+def format_together_director(
+    *,
+    room: str,
+    session_mode: str | None,
+    toy: str = "",
+    kink: str = "",
+) -> str:
+    if not physical_together(session_mode):
+        return (
+            "[DIRECTOR: VIRTUAL this session — voice, photos, lock only. "
+            "Do not have her physically apply a toy.]"
+        )
+    toy = (toy or "").strip()
+    kink = (kink or "").strip()
+    if toy and kink:
+        kit_bit = f'This beat: toy "{toy}", kink "{kink}". Use those — not a generic cage-only tease.'
+    elif toy:
+        kit_bit = f'This beat: toy "{toy}". She applies it when she is free.'
+    elif kink:
+        kit_bit = f'This beat: kink "{kink}". Run that on him with what she has in reach.'
+    else:
+        kit_bit = (
+            "No kit ticked — use the cage, posture, and his known kinks. "
+            "Ask once what toy is in reach if you need hands-on."
+        )
+    if (room or "") == "private":
+        return (
+            "[TOGETHER: She is WITH him. You are the voice. "
+            f"{kit_bit} Tell her what to put on him when she is free. "
+            "[[[GROUP]]] a wait-line at him if she wants him told. "
+            "Do not invent that it is already on.]"
+        )
+    return (
+        "[TOGETHER: She is WITH him. You are the voice; her hands apply the kit "
+        f"when she is free. {kit_bit}\n"
+        "Ack her. Tell HIM to hold still and wait. One short line to her: "
+        "what to put on him when she has a free moment. "
+        "Do not invent that it is already on. Do not dump the whole kit list.]"
     )
 
 
