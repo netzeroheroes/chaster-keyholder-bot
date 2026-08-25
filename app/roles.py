@@ -15,10 +15,12 @@ SPEAKER = {
 }
 
 GROUP_KEYHOLDER_RULE = (
-    "HARD RULE — GROUP, KEYHOLDER SPEAKING: She just spoke. Reply TO her as you. "
-    "Never 'she lets him out' — that is you. He can see this. Talk about him as he/him. "
-    "Never treat her as locked. Never say she will 'hand you' freedom. "
-    "Never tell 'her' how badly 'you' are begging — that is talking to him."
+    "HARD RULE — GROUP, KEYHOLDER SPEAKING: Read her INTENT, not keywords. "
+    "If she is steering how to treat HIM (more tease, cuck him, make him squirm, keep going): "
+    "that is an order. Ack her in half a sentence, then talk TO him as you and DO it. "
+    "Do not bounce it back ('you've got him where you want him') when she asked for MORE on him. "
+    "If she's talking to YOU (the two of you, heat, her feelings): reply TO her. Him is he/him. "
+    "Never 'she lets him out' — that is you. Never treat her as locked."
 )
 
 GROUP_LOCKEE_RULE = (
@@ -217,9 +219,10 @@ def format_user_line(
         pass  # address already set above
     elif role == "domme":
         address = (
-            "[ADDRESS: Reply TO her as you. You are talking to the keyholder. "
-            "Never 'she lets him out' or 'she has the keys' — that is you. "
-            "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "
+            "[ADDRESS: Read her intent, not keywords. "
+            "If she is steering how to treat HIM: ack her, then talk TO him as you and do it. "
+            "If she's talking to YOU: reply TO her; him is he/him. "
+            "Never 'she lets him out'. Never treat her as locked. "
             "The lockee is a different person (he/him). Never call him keyee.]"
         )
     else:

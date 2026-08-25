@@ -29,10 +29,12 @@ from app.chaster_actions import (
 from app.beats import join_beats, multi_reply_director, split_bot_beats
 from app.lock_guard import (
     looks_like_concierge_ask,
+    looks_like_passed_the_ball,
     scrub_lock_hallucinations,
     strip_unsolicited_lock_dump,
 )
 from app.safeword import safeword_director, safeword_level
+from app.turn_intent import TurnIntent, classify_turn_intent, intent_director
 from app.speaker_guard import (
     demands_beg_unlock,
     domme_teasing_lockee,
@@ -376,6 +378,7 @@ def _focus_user_payload(
     bull_voice: bool = False,
     her_attention: bool = False,
     scene_lead: bool = False,
+    run_him: bool = False,
 ) -> str:
     said = (message or "").strip()
     if role == "domme" and scene_lead:
@@ -388,6 +391,12 @@ def _focus_user_payload(
                 f"{speaker} is the KEYHOLDER. She wants a scene with YOU (the bull). "
                 "Start it. He stays locked. Do not quote the timer. Do not ask 'any ideas?'."
             )
+    elif role == "domme" and run_him and (room or "") == "group":
+        who = (
+            f"{speaker} is the KEYHOLDER. She is steering how HIM is treated — "
+            "that is an order, not small talk. Ack her, then talk TO him as you and do it. "
+            "Do not bounce it back to her."
+        )
     elif role == "domme" and bull_voice and her_attention:
         who = (
             f"{speaker} is the KEYHOLDER (his girlfriend). She wants YOU — the bull — "
@@ -396,7 +405,8 @@ def _focus_user_payload(
     elif role == "domme":
         who = (
             f"{speaker} is the KEYHOLDER (his girlfriend). She has the keys. "
-            "Reply TO her. Talk about him as he/him."
+            "Read her intent. If she's steering how to treat him, do it to him. "
+            "If she's talking to you, reply TO her. Him is he/him."
         )
     elif role == "sub":
         who = (
@@ -408,6 +418,7 @@ def _focus_user_payload(
         "THEY SAID (answer this — do not ignore it):",
         f'"""{said}"""',
         who,
+        "Read the meaning of THEY SAID. Do not wait for keyword phrases.",
         "History lines are tagged Keyholder: / Lockee: / Bot: — believe the tags.",
     ]
     extra = (extras or "").strip()
@@ -638,10 +649,27 @@ async def handle_chat_turn(
                     "[DIRECTOR: She is picking a toy or kink. Do not name the list here.]"
                 )
     handoff = dict(scene.snapshot().get("handoff") or {})
-    lead_now = role == "domme" and (
-        wants_lead_now(message)
-        or wants_handoff(message)
-        or str(handoff.get("phase") or "") == "running"
+    turn = TurnIntent()
+    if role == "domme":
+        try:
+            turn = await classify_turn_intent(
+                agent,
+                message=message,
+                room=room,
+                history=history,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Intent classify failed")
+    lead_now = role == "domme" and room == "group" and (
+        turn.run_him
+        or (
+            (
+                wants_lead_now(message)
+                or wants_handoff(message)
+                or str(handoff.get("phase") or "") == "running"
+            )
+            and turn.kind not in {"talk_to_her", "plan", "aftercare", "status"}
+        )
     )
     sw = safeword_level(message)
     if sw:
@@ -661,7 +689,9 @@ async def handle_chat_turn(
             extra_notes.append(
                 f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
             )
-        if role == "domme" and not lead_now and should_take_to_private(message):
+        if role == "domme" and not lead_now and (
+            should_take_to_private(message) or turn.kind == "plan"
+        ):
             extra_notes.append(
                 "[DIRECTOR: She wants this off Group. One short Group line — no plan. "
                 "The real answer will be moved to Private. Do not discuss what to do "
@@ -669,7 +699,9 @@ async def handle_chat_turn(
             )
     if sw:
         extra_notes.append(safeword_director(sw, room=room, role=role))
-    elif role == "domme" and _AFTERCARE_ASK.search(message or ""):
+    elif turn.kind == "aftercare" or (
+        role == "domme" and _AFTERCARE_ASK.search(message or "")
+    ):
         if room == "private":
             extra_notes.append(
                 "[DIRECTOR: Aftercare. Help her land the scene — calm, specific. "
@@ -680,6 +712,8 @@ async def handle_chat_turn(
                 "[DIRECTOR: Aftercare. Check in. Soften the voice, not the cage. "
                 "No pile-on tease. The lock can stay.]"
             )
+    if role == "domme":
+        extra_notes.append(intent_director(turn, room=room))
     user_line = ""  # filled after directors / chaster notes
     if role == "domme" and room == "group" and domme_teasing_lockee(message):
         extra_notes.append(
@@ -708,7 +742,8 @@ async def handle_chat_turn(
                     handoff, room=room, memory=memory, scene=scene
                 )
             )
-            lead_now = True
+            if turn.kind not in {"talk_to_her", "plan", "aftercare", "status"}:
+                lead_now = True
     extra_notes.append(
         multi_reply_director(room=room, lead_now=bool(lead_now and not sw))
     )
@@ -1647,8 +1682,11 @@ async def handle_chat_turn(
             )
         else:
             who = (
-                f"{title} (KEYHOLDER) just spoke. Reply TO her as you. "
-                "Never 'she lets him out'. Do not talk to him as 'you'. Do not spoil her plan."
+                f"{title} (KEYHOLDER) just spoke. Read her INTENT, not keywords. "
+                "Steering how to treat him / more tease / cuck him → ack her, then talk TO him as you and do it. "
+                "Talking to you about her or the two of you → reply TO her; him is he/him. "
+                "Never bounce 'you've got him' when she asked for more on him. "
+                "Never 'she lets him out'."
                 if role == "domme"
                 else f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder."
             )
@@ -1666,8 +1704,9 @@ async def handle_chat_turn(
     override = format_scene_persona_override(room=room)
     system_prompt = (
         ((override + "\n\n") if override else "")
-        + "READ THE HUMAN. The latest spoken words are in THEY SAID. "
+        +         "READ THE HUMAN. The latest spoken words are in THEY SAID. "
         "Your reply must be about those words and the chat history. "
+        "Read intent. Do not wait for keyword phrases. "
         "Do not ignore them for a generic tease or a numbered list.\n\n"
         + scene.system_prompt_for(room)
         + "\n\n"
@@ -1690,6 +1729,7 @@ async def handle_chat_turn(
         bull_voice=bull,
         her_attention=her_attention,
         scene_lead=wants_scene_lead(message),
+        run_him=bool(lead_now),
     )
 
     store.append_display(
@@ -1823,7 +1863,10 @@ async def handle_chat_turn(
             ]
 
         if role == "domme" and not asks_lock_remaining(message):
-            if room == "group" and lead_now and looks_like_concierge_ask(reply):
+            if room == "group" and (
+                (lead_now and looks_like_concierge_ask(reply))
+                or looks_like_passed_the_ball(reply)
+            ):
                 log.warning("Replaced concierge ask with a lead-now beat")
                 reply = format_lead_now_group_line(
                     bull_voice=bull,
@@ -2034,8 +2077,12 @@ async def handle_chat_turn(
         visible_reply = re.sub(
             r"\[\[\[/?GROUP\]\]\]", "", visible_reply, flags=re.I
         ).strip()
-    elif role == "domme" and mistreats_domme_as_sub(
-        visible_reply, user_message=message, bull_voice=bull
+    elif (
+        role == "domme"
+        and not (room == "group" and lead_now)
+        and mistreats_domme_as_sub(
+            visible_reply, user_message=message, bull_voice=bull
+        )
     ):
         cleaned = strip_lockee_addressing(visible_reply)
         if not cleaned or mistreats_domme_as_sub(

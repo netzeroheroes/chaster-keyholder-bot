@@ -46,5 +46,34 @@ class SafewordTests(unittest.TestCase):
         self.assertIsNone(safeword_level("you are running things today"))
 
 
+class IntentTests(unittest.TestCase):
+    def test_parses_act_on_him(self) -> None:
+        from app.turn_intent import parse_intent_json
+
+        wrapped = (
+            'Sure.\n```json\n{"kind":"act_on_him","to":"him","escalate":true}\n```'
+        )
+        turn = parse_intent_json(wrapped)
+        self.assertEqual(turn.kind, "act_on_him")
+        self.assertEqual(turn.to, "him")
+        self.assertTrue(turn.run_him)
+
+    def test_pass_the_ball_is_caught(self) -> None:
+        from app.lock_guard import looks_like_passed_the_ball
+        from app.roles import GROUP_KEYHOLDER_RULE
+
+        self.assertTrue(
+            looks_like_passed_the_ball(
+                "Sounds like you've got him right where you want him."
+            )
+        )
+        self.assertFalse(
+            looks_like_passed_the_ball(
+                "How does it feel, knowing I can have her whenever I want."
+            )
+        )
+        self.assertIn("INTENT", GROUP_KEYHOLDER_RULE)
+
+
 if __name__ == "__main__":
     unittest.main()

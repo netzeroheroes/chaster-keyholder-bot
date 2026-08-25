@@ -152,6 +152,34 @@ class ChatAgent:
             messages,
         )
 
+    async def complete_short(
+        self,
+        user_message: str,
+        *,
+        system_prompt: str,
+        max_tokens: int = 80,
+        temperature: float = 0.0,
+    ) -> str:
+        """Tiny no-tools completion for classifiers — not a chat turn."""
+        kwargs: dict[str, Any] = {
+            "model": (self.settings.llm_model or "").strip(),
+            "messages": [
+                {"role": "system", "content": (system_prompt or "").strip()},
+                {"role": "user", "content": user_message},
+            ],
+            "max_tokens": max(48, int(max_tokens or 80)),
+            "temperature": float(temperature),
+        }
+        completion = await self._create_with_retries(kwargs)
+        choices = getattr(completion, "choices", None) or []
+        if not choices:
+            return ""
+        first = choices[0]
+        choice = getattr(first, "message", None)
+        if choice is None:
+            return ""
+        return _message_text(choice).strip()
+
     async def _create_with_retries(self, kwargs: dict[str, Any]) -> Any:
         max_tokens = int(kwargs.get("max_tokens") or 1024)
         last_exc: Exception | None = None

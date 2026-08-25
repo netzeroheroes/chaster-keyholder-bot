@@ -63,7 +63,10 @@ _CONCIERGE_ASK = re.compile(
     r"what (?:do you want to|should we) do|"
     r"what are you in the mood for|"
     r"your (?:call|move)|"
-    r"what would you like to do"
+    r"what would you like to do|"
+    r"you'?ve got him|"
+    r"right where you want|"
+    r"sounds like you(?:'ve| have)"
     r")\??",
     re.I,
 )
@@ -71,6 +74,22 @@ _CONCIERGE_ASK = re.compile(
 
 def looks_like_concierge_ask(text: str) -> bool:
     return bool(_CONCIERGE_ASK.search(text or ""))
+
+
+def looks_like_passed_the_ball(text: str) -> bool:
+    """True when the bot handed the scene back to her instead of acting."""
+    return bool(
+        re.search(
+            r"\b("
+            r"you'?ve got him|"
+            r"right where you want(?: him)?|"
+            r"sounds like you(?:'ve| have)|"
+            r"up to you\b"
+            r")",
+            text or "",
+            re.I,
+        )
+    )
 
 
 def strip_unsolicited_lock_dump(text: str) -> str:
