@@ -36,6 +36,22 @@ PRIVATE_HARD_RULE = (
     "Do not tease him in this room."
 )
 
+_BULL_PRIVATE_RULE = (
+    " When you are male/bull: she may want YOU, not a plan for him. "
+    "Flirt with her. Do not bounce to teasing him first. Never treat her as locked."
+)
+
+
+def private_hard_rule() -> str:
+    try:
+        from app.bot_persona import is_bull_voice
+
+        if is_bull_voice():
+            return PRIVATE_HARD_RULE + _BULL_PRIVATE_RULE
+    except Exception:  # noqa: BLE001
+        pass
+    return PRIVATE_HARD_RULE
+
 
 def session_id_for(room: Room) -> str:
     return f"room:{room}"
@@ -153,11 +169,38 @@ def format_user_line(
         bits = [b for b in (cr or None, f"@{handle}" if handle else None) if b]
         chaster_bit = f" Chaster identity: {', '.join(bits)}."
     if room == "private":
-        channel = (
-            f"[{PRIVATE_HARD_RULE} "
-            "The lockee cannot see this. Talk to her like a friend. "
-            "Use [[[GROUP]]] if you need to speak to him.]"
-        )
+        try:
+            from app.bot_persona import is_bull_voice
+
+            bull = is_bull_voice()
+        except Exception:  # noqa: BLE001
+            bull = False
+        rule = private_hard_rule()
+        if bull:
+            channel = (
+                f"[{rule} "
+                "The lockee cannot see this. You are her bull — talk to her. "
+                "Use [[[GROUP]]] if you need to speak to him.]"
+            )
+            address = (
+                "[ADDRESS: Reply TO her as you — a man who wants her. "
+                "Never 'she lets him out' or 'she has the keys' — that is you. "
+                "If she wants attention or the two of you, that is the topic. "
+                "Never treat her as locked. Never say she wears a cage. "
+                "The lockee is a different person (he/him). Never call him keyee.]"
+            )
+        else:
+            channel = (
+                f"[{rule} "
+                "The lockee cannot see this. Talk to her like a friend. "
+                "Use [[[GROUP]]] if you need to speak to him.]"
+            )
+            address = (
+                "[ADDRESS: Reply TO her as you. You are talking to the keyholder. "
+                "Never 'she lets him out' or 'she has the keys' — that is you. "
+                "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "
+                "The lockee is a different person (he/him). Never call him keyee.]"
+            )
     elif room == "group":
         channel = (
             "[CHANNEL: GROUP — keyholder + lockee + you. Everyone can see this. "
@@ -170,7 +213,9 @@ def format_user_line(
         )
     else:
         channel = ""
-    if room == "private" or role == "domme":
+    if room == "private":
+        pass  # address already set above
+    elif role == "domme":
         address = (
             "[ADDRESS: Reply TO her as you. You are talking to the keyholder. "
             "Never 'she lets him out' or 'she has the keys' — that is you. "

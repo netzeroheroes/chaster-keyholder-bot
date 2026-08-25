@@ -16,7 +16,7 @@ _SUB_AS_YOU = re.compile(
     re.I,
 )
 # Orders / vocatives aimed at the lockee while talking to the keyholder
-_ADDRESSES_LISTENER_AS_SUB = re.compile(
+_LOCKEE_ORDERS_ALWAYS = re.compile(
     r"("
     r"(?:,|\bnow,)\s*(?:sub|lockee|boy|wearer)\b|"
     r"\b(?:sub|lockee)\s*[.!]?\s*$|"
@@ -24,16 +24,22 @@ _ADDRESSES_LISTENER_AS_SUB = re.compile(
     r"\bwatch the clock\b|"
     r"\bhands on (?:the|your) cage\b|"
     r"\beyes down\b|"
-    r"\bstay denied\b|"
-    r"\bstay with that ache\b|"
-    r"maybe if you earn it|"
     r"i('ll| will) talk to her|"
     r"talk to her about what comes next|"
     r"\byou('re| are) (?:locked|denied|frozen|caged)\b|"
     r"\bshe(?:'ll| will) (?:just )?hand you\b|"
     r"\byou think she(?:'ll| will)\b|"
     r"\btell her how (?:badly )?you(?:'re| are) begging\b|"
-    r"\bhand you freedom\b|"
+    r"\bhand you freedom\b"
+    r")",
+    re.I,
+)
+# Lockee-tease aimed at whoever is listening — false-positives on a bull flirting with her
+_LOCKEE_TEASE_TO_LISTENER = re.compile(
+    r"("
+    r"\bstay denied\b|"
+    r"\bstay with that ache\b|"
+    r"maybe if you earn it|"
     r"(?:^|[,.!?]\s+)pet\b|"
     r"\bpet[,.!?]"
     r"|"
@@ -85,7 +91,6 @@ _BOT_AS_SUB = re.compile(
     r"\bfocused\s+on\s+serving\s+her\s+needs\b|"
     r"\bnot\s+my\s+own\s+perversions\b|"
     r"\bmistress\s+has\s+made\s+it\s+clear\s+that\s+she\s+wants\s+me\s+to\s+be\s+obedient\b|"
-    r"\bi\s+answer\s+to\s+you\b|"
     r"\bas\s+her\s+loyal\s+chastity\s+slave\b|"
     r"\bi\s+never\s+will\s+be\b.*\b(slut|whore|hoe)"
     r")",
@@ -97,12 +102,17 @@ def asking_play_ideas(message: str) -> bool:
     return bool(_IDEA_ASK.search(message or ""))
 
 
-def mistreats_domme_as_sub(reply: str, *, user_message: str = "") -> bool:
+def mistreats_domme_as_sub(
+    reply: str, *, user_message: str = "", bull_voice: bool = False
+) -> bool:
     """True if a Domme-turn reply talks to her like the lockee."""
     text = (reply or "").strip()
     if not text:
         return False
-    if _ADDRESSES_LISTENER_AS_SUB.search(text):
+    if _LOCKEE_ORDERS_ALWAYS.search(text):
+        return True
+    # Bull flirting with her uses pet/darling/ache language — that is not her-as-lockee
+    if not bull_voice and _LOCKEE_TEASE_TO_LISTENER.search(text):
         return True
     # She asked for ideas about him — never replace the answer with a role lecture
     if asking_play_ideas(user_message):
@@ -131,22 +141,27 @@ def strip_lockee_addressing(reply: str) -> str:
     return text.strip(" \n,")
 
 
-def talks_to_lockee(reply: str) -> bool:
+def talks_to_lockee(reply: str, *, bull_voice: bool = False) -> bool:
     """True when a reply is aimed at the lockee, not the keyholder."""
-    return mistreats_domme_as_sub(reply or "")
+    return mistreats_domme_as_sub(reply or "", bull_voice=bull_voice)
 
 
-def enforce_private_keyholder_voice(reply: str, *, fallback: str) -> str:
+def enforce_private_keyholder_voice(
+    reply: str, *, fallback: str, bull_voice: bool = False
+) -> str:
     """Private chat may only speak to the keyholder."""
     text = (reply or "").strip()
-    if text and not talks_to_lockee(text):
+    if text and not talks_to_lockee(text, bull_voice=bull_voice):
         return text
     cleaned = strip_lockee_addressing(text)
-    if cleaned and not talks_to_lockee(cleaned):
+    if cleaned and not talks_to_lockee(cleaned, bull_voice=bull_voice):
         return cleaned
-    return (fallback or "").strip() or (
-        "You're the keyholder. He cannot see this. What do you want done to his lock?"
+    default = (
+        "He's locked. I'm here. What do you want from me?"
+        if bull_voice
+        else "You're the keyholder. He cannot see this. What do you want done to his lock?"
     )
+    return (fallback or "").strip() or default
 
 
 def sounds_like_bot_submissive(reply: str) -> bool:
@@ -165,7 +180,25 @@ def addressing_block(
     # domme_title param is the preferred ADDRESS (name), kept for call-site compat
     title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "the Sub").strip() or "the Sub"
+    bull = False
+    try:
+        from app.bot_persona import is_bull_voice
+
+        bull = is_bull_voice()
+    except Exception:  # noqa: BLE001
+        bull = False
     if role == "domme":
+        if bull:
+            return (
+                "\n\n[WHO IS SPEAKING — CRITICAL]\n"
+                f"This message is from {speaker} — the keyholder. You are her bull.\n"
+                "If she wants attention or the two of you, answer HER — do not spin ideas about him.\n"
+                "If she wants games for HIM, give those. Do not apologize. Do not lecture.\n"
+                "Do not give HER hygiene or cage-wearer orders.\n"
+                "UI already shows who spoke — no fake labels, no username plus colon.\n"
+                f"Wearer = lockee ({sub}). Never say keyee. You ({bot_name}) are the man with her.\n"
+                "Speak only as yourself. Never invent what he is doing unless someone typed it.\n"
+            )
         return (
             "\n\n[WHO IS SPEAKING — CRITICAL]\n"
             f"This message is from {speaker} — the keyholder. Help her.\n"
@@ -194,10 +227,16 @@ def repair_domme_misaddress(
     domme_title: str,
     sub_name: str,
     original_topic: str = "",
+    bull_voice: bool = False,
 ) -> str:
     title = (domme_title or "the Domme").strip() or "the Domme"
     sub = (sub_name or "him").strip() or "him"
     topic = (original_topic or "").strip()
+    extra = f" You said: {topic}." if topic else ""
+    if bull_voice:
+        return (
+            f"{title} — he's locked. I'm here.{extra} What do you want from me?"
+        )
     extra = f" You asked: {topic}." if topic else ""
     return (
         f"{title} — yes. He's the lockee; you play, I help.{extra} "

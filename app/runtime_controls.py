@@ -333,7 +333,13 @@ def format_voice_block(*, room: str = "") -> str:
     quirks = str(getattr(controls, "bot_quirks", "") or "").strip()[:800]
     bio = str(getattr(controls, "bot_bio", "") or "").strip()[:1200]
     greeting = str(getattr(controls, "bot_greeting", "") or "").strip()[:400]
-    from app.bot_persona import BULL_GROUP_SAMPLE, MALE_DOM_GROUP_SAMPLE, resolve_persona
+    from app.bot_persona import (
+        BULL_GROUP_SAMPLE,
+        BULL_PRIVATE_SAMPLE,
+        MALE_DOM_GROUP_SAMPLE,
+        resolve_persona,
+        is_bull_voice,
+    )
 
     spec = resolve_persona(controls=controls)
     lines = [
@@ -356,8 +362,18 @@ def format_voice_block(*, room: str = "") -> str:
     if quirks:
         lines.append("Quirks / inside jokes to keep using:")
         lines.append(quirks)
-    if (room or "").strip().lower() == "group":
-        male = spec["sex"] == "male" or spec["persona"] in {"bull", "male_dom"}
+    room_key = (room or "").strip().lower()
+    male = is_bull_voice(spec)
+    if room_key == "private" and male:
+        lines.append(
+            "PRIVATE: Male voice. You are her bull. When she wants attention or "
+            "the two of you, answer HER — hungry, specific. He stays locked. "
+            "Do not spin a tease-him plan first. Never call her the lockee."
+        )
+        if not sample:
+            lines.append("SPEAK LIKE THIS SAMPLE:")
+            lines.append(BULL_PRIVATE_SAMPLE)
+    if room_key == "group":
         if spec["persona"] == "bull" or (male and spec["persona"] != "male_dom"):
             lines.append(
                 "GROUP: Male voice. She is his girlfriend — you can play with her "

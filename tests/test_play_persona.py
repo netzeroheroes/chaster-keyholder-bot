@@ -3,8 +3,11 @@ import unittest
 from app.bot_persona import (
     default_sex_for,
     format_persona_block,
+    format_scene_persona_override,
+    is_bull_voice,
     normalize_persona,
     resolve_persona,
+    wants_her_attention,
 )
 from app.kink_probe import (
     apply_probe_answer,
@@ -67,7 +70,7 @@ class BotPersonaTests(unittest.TestCase):
         ctrl.bot_sex = "male"
         text = format_persona_block(room="group")
         self.assertIn("HARD IDENTITY: you are male", text)
-        self.assertIn("CUCK / BULL", text)
+        self.assertIn("YOU ARE THE BULL", text)
         self.assertIn("You are a MAN", text)
         self.assertNotIn("wicked woman", text)
         you, frame = identity_lines(bot_name="Rex")
@@ -77,6 +80,57 @@ class BotPersonaTests(unittest.TestCase):
         self.assertIn("Male voice", voice)
         self.assertIn("She's with me tonight", voice)
         self.assertNotIn("talked her into locking that pathetic thing", voice)
+        private_voice = rc.format_voice_block(room="private")
+        self.assertIn("You are her bull", private_voice)
+        self.assertIn("Come here. He's locked", private_voice)
+        self.assertTrue(is_bull_voice())
+        override = format_scene_persona_override(room="private")
+        self.assertIn("HARD OVERRIDE", override)
+        self.assertIn("secretary spinning ideas", override)
+
+    def test_she_asked_for_attention_is_the_two_of_you(self) -> None:
+        self.assertTrue(wants_her_attention("what about the 2 of us?"))
+        self.assertTrue(wants_her_attention("i think i need some attention"))
+        self.assertTrue(wants_her_attention("I want you tonight"))
+        self.assertFalse(wants_her_attention("i think he needs to know his place"))
+        self.assertFalse(wants_her_attention("i want you to tease him"))
+
+    def test_bull_flirt_is_not_her_as_lockee(self) -> None:
+        from app.speaker_guard import (
+            mistreats_domme_as_sub,
+            repair_domme_misaddress,
+        )
+
+        ask = "i think i need some attention"
+        reply = (
+            "Come here. He's locked — that's the point. "
+            "Tell me what you want from me while he waits."
+        )
+        self.assertFalse(
+            mistreats_domme_as_sub(reply, user_message=ask, bull_voice=True)
+        )
+        self.assertFalse(
+            mistreats_domme_as_sub(
+                "Patience, pet. He's not getting you tonight.",
+                user_message=ask,
+                bull_voice=True,
+            )
+        )
+        self.assertTrue(
+            mistreats_domme_as_sub(
+                "I gave you a hygiene unlock. Use that time wisely.",
+                bull_voice=True,
+            )
+        )
+        repaired = repair_domme_misaddress(
+            domme_title="TheBosses",
+            sub_name="him",
+            original_topic=ask,
+            bull_voice=True,
+        )
+        self.assertNotIn("spin ideas", repaired.lower())
+        self.assertNotIn("you play, i help", repaired.lower())
+        self.assertIn("what do you want from me", repaired.lower())
 
     def test_group_voice_uses_bull_sample(self) -> None:
         from app import runtime_controls as rc

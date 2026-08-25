@@ -191,13 +191,25 @@ class SceneState:
                     "Still do not invent events nobody typed.\n"
                 )
             if room == "private":
-                banner = (
-                    "ACTIVE CHANNEL RIGHT NOW: PRIVATE (keyholder ↔ you only).\n"
-                    "The lockee cannot read this. Talk to HER like a friend. "
-                    "She has the keys. Help and encourage her. "
-                    "Do not address him unless you emit a [[[GROUP]]] block.\n"
-                )
-                return (
+                from app.bot_persona import format_scene_persona_override, is_bull_voice
+
+                override = format_scene_persona_override(room="private")
+                if is_bull_voice():
+                    banner = (
+                        "ACTIVE CHANNEL RIGHT NOW: PRIVATE (keyholder ↔ you only).\n"
+                        "The lockee cannot read this. You are a MAN — her bull / the other man. "
+                        "Talk to HER. If she wants attention or the two of you, that is the topic — "
+                        "not a briefing about his lock. She has the keys. "
+                        "Do not address him unless you emit a [[[GROUP]]] block.\n"
+                    )
+                else:
+                    banner = (
+                        "ACTIVE CHANNEL RIGHT NOW: PRIVATE (keyholder ↔ you only).\n"
+                        "The lockee cannot read this. Talk to HER like a friend. "
+                        "She has the keys. Help and encourage her. "
+                        "Do not address him unless you emit a [[[GROUP]]] block.\n"
+                    )
+                body = (
                     f"{banner}\n"
                     f"{self.private_prompt.strip()}\n\n"
                     f"ACTIVE PLAN (refine with Domme; group executes this):\n{plan}"
@@ -208,15 +220,28 @@ class SceneState:
                         else ""
                     )
                 )
-            banner = (
-                "ACTIVE CHANNEL RIGHT NOW: GROUP (keyholder + lockee + you).\n"
-                "Everyone here can see your reply. Help the keyholder run him.\n"
-                "She has the keys. He is locked. You are not her.\n"
-                "When she speaks, ack her by NAME and carry the beat.\n"
-            )
-            return (
+                return f"{override}\n\n{body}" if override else body
+            from app.bot_persona import format_scene_persona_override, is_bull_voice
+
+            override = format_scene_persona_override(room="group")
+            if is_bull_voice():
+                banner = (
+                    "ACTIVE CHANNEL RIGHT NOW: GROUP (keyholder + lockee + you).\n"
+                    "Everyone here can see your reply. You are a MAN. Help her run him.\n"
+                    "She has the keys. He is locked. When she leans cuck, you are with his girl.\n"
+                    "When she speaks, ack her by NAME and carry the beat.\n"
+                )
+            else:
+                banner = (
+                    "ACTIVE CHANNEL RIGHT NOW: GROUP (keyholder + lockee + you).\n"
+                    "Everyone here can see your reply. Help the keyholder run him.\n"
+                    "She has the keys. He is locked. You are not her.\n"
+                    "When she speaks, ack her by NAME and carry the beat.\n"
+                )
+            body = (
                 f"{banner}\n"
                 f"{self.group_prompt.strip()}\n\n"
                 f"ACTIVE PLAN:\n{plan}"
                 f"{kit}{mode_line}"
             )
+            return f"{override}\n\n{body}" if override else body

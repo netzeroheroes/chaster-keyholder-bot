@@ -166,6 +166,33 @@ class PrivateKeyholderTests(unittest.TestCase):
         self.assertNotIn("earn it", fixed.lower())
         self.assertNotIn("sub", fixed.lower())
 
+    def test_bull_private_keeps_heat_toward_her(self) -> None:
+        from app.speaker_guard import repair_domme_misaddress
+
+        flirt = (
+            "Come here. He's locked. I want you tonight while he waits."
+        )
+        self.assertFalse(
+            mistreats_domme_as_sub(
+                flirt,
+                user_message="i think i need some attention",
+                bull_voice=True,
+            )
+        )
+        kept = enforce_private_keyholder_voice(
+            flirt, fallback="spin ideas", bull_voice=True
+        )
+        self.assertEqual(kept, flirt)
+        self.assertNotIn(
+            "spin ideas",
+            repair_domme_misaddress(
+                domme_title="TheBosses",
+                sub_name="him",
+                original_topic="i think i need some attention",
+                bull_voice=True,
+            ).lower(),
+        )
+
     def test_double_it_adds_remaining(self) -> None:
         intent = parse_chaster_intent("double it", remaining_seconds=3600)
         self.assertIsNotNone(intent)

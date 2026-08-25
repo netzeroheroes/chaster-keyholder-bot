@@ -117,7 +117,14 @@ from app.punish import (
     looks_like_obedience,
 )
 from app.runtime_controls import format_voice_block, get_controls
-from app.bot_persona import format_persona_block, persona_from_controls
+from app.bot_persona import (
+    attention_director,
+    format_persona_block,
+    format_scene_persona_override,
+    is_bull_voice,
+    persona_from_controls,
+    wants_her_attention,
+)
 from app.her_taste import (
     apply_her_taste,
     format_learn_her_director,
@@ -209,13 +216,13 @@ from app.persist import save_scene, save_sessions
 from app.roles import (
     GROUP_KEYHOLDER_RULE,
     GROUP_LOCKEE_RULE,
-    PRIVATE_HARD_RULE,
     Room,
     Role,
     bot_label,
     domme_address,
     format_user_line,
     history_speaker_tag,
+    private_hard_rule,
     session_id_for,
     speaker_label,
 )
@@ -356,9 +363,16 @@ def _focus_user_payload(
     extras: str = "",
     role: Role | None = None,
     room: Room | None = None,
+    bull_voice: bool = False,
+    her_attention: bool = False,
 ) -> str:
     said = (message or "").strip()
-    if role == "domme":
+    if role == "domme" and bull_voice and her_attention:
+        who = (
+            f"{speaker} is the KEYHOLDER (his girlfriend). She wants YOU — the bull — "
+            "not a plan for him. Reply TO her. Heat toward her. He stays locked."
+        )
+    elif role == "domme":
         who = (
             f"{speaker} is the KEYHOLDER (his girlfriend). She has the keys. "
             "Reply TO her. Talk about him as he/him."
@@ -536,6 +550,8 @@ async def handle_chat_turn(
             )
         if wants_her_taste(message):
             extra_notes.append(format_learn_her_director(room=room))
+        if wants_her_attention(message) and is_bull_voice():
+            extra_notes.append(attention_director(room=room))
     if role == "domme" and wants_intake(message) and not wants_kink_probe(message):
         extra_notes.append(intake_director(room=room))
     if wants_persona(message):
@@ -597,7 +613,7 @@ async def handle_chat_turn(
                     "[DIRECTOR: She is picking a toy or kink. Do not name the list here.]"
                 )
     if room == "private":
-        extra_notes.append(f"[{PRIVATE_HARD_RULE}]")
+        extra_notes.append(f"[{private_hard_rule()}]")
     elif room == "group":
         extra_notes.append(
             f"[{GROUP_KEYHOLDER_RULE if role == 'domme' else GROUP_LOCKEE_RULE}]"
@@ -1494,6 +1510,8 @@ async def handle_chat_turn(
     recent = _recent_assistant_texts(history)
     title = domme_address(memory)
     sub_nm = (memory.sub_name or "").strip() or "the Sub"
+    bull = is_bull_voice()
+    her_attention = wants_her_attention(message)
     if room == "private":
         if wants_him_told(message):
             if wants_rules_told(message):
@@ -1509,6 +1527,25 @@ async def handle_chat_turn(
                     f"Answer {title} like a friend in the room. He is not here.\n"
                     "One short line to her, then [[[GROUP]]] one mystery tease. No spoilers.\n"
                 )
+        elif bull and her_attention:
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"{title} is the KEYHOLDER. She asked for YOU / the two of you.\n"
+                "Be her bull. Flirt with HER. Do not pivot to punishing him. "
+                "Do not spin ideas.\n"
+                "He is locked; she is not. Unlock stays hers. "
+                "Darling/baby toward her is fine. Never call her the lockee.\n"
+            )
+        elif bull:
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"{title} is the KEYHOLDER. You are a MAN (bull / co-keyholder).\n"
+                "Reply TO her as a man. If she wants attention or the two of you, "
+                "that is the topic — not another lock tease.\n"
+                "Heat toward her is allowed. Never treat her as locked. "
+                "Talk about him as he/him.\n"
+                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
+            )
         else:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
@@ -1534,8 +1571,10 @@ async def handle_chat_turn(
         listed = "\n".join(f"- {t[:80]}" for t in recent[-2:])
         anti_loop += f"Don't repeat:\n{listed}\n"
 
+    override = format_scene_persona_override(room=room)
     system_prompt = (
-        "READ THE HUMAN. The latest spoken words are in THEY SAID. "
+        ((override + "\n\n") if override else "")
+        + "READ THE HUMAN. The latest spoken words are in THEY SAID. "
         "Your reply must be about those words and the chat history. "
         "Do not ignore them for a generic tease or a numbered list.\n\n"
         + scene.system_prompt_for(room)
@@ -1556,6 +1595,8 @@ async def handle_chat_turn(
         extras="\n\n".join(n for n in extra_notes if n and str(n).strip()),
         role=role,
         room=room,
+        bull_voice=bull,
+        her_attention=her_attention,
     )
 
     store.append_display(
@@ -1690,14 +1731,26 @@ async def handle_chat_turn(
 
         # Strict: Domme must never be addressed as the locked Sub
         if role == "domme" and mistreats_domme_as_sub(
-            reply, user_message=message
+            reply, user_message=message, bull_voice=bull
         ):
-            log.warning("Repaired Domme-as-Sub misaddress in %s", room)
-            reply = repair_domme_misaddress(
-                domme_title=domme_address(memory),
-                sub_name=memory.sub_name or "him",
-                original_topic=message[:120],
-            )
+            cleaned = strip_lockee_addressing(reply)
+            if (
+                bull
+                and cleaned
+                and not mistreats_domme_as_sub(
+                    cleaned, user_message=message, bull_voice=True
+                )
+            ):
+                log.warning("Stripped lockee-addressing from bull %s reply", room)
+                reply = cleaned
+            else:
+                log.warning("Repaired Domme-as-Sub misaddress in %s", room)
+                reply = repair_domme_misaddress(
+                    domme_title=domme_address(memory),
+                    sub_name=memory.sub_name or "him",
+                    original_topic=message[:120],
+                    bull_voice=bull,
+                )
             messages = list(history) + [
                 {"role": "user", "content": user_line},
                 {"role": "assistant", "content": reply},
@@ -1826,6 +1879,10 @@ async def handle_chat_turn(
             fallback = f"His lock remaining is {rem}." + (
                 " It is frozen." if frozen else ""
             )
+        elif bull:
+            fallback = (
+                f"{title} — he's locked. I'm here. What do you want from me?"
+            )
         elif format_play_block(scene):
             fallback = (
                 f"{title} — you're the keyholder. He cannot see this. "
@@ -1837,7 +1894,9 @@ async def handle_chat_turn(
                 f"{title} — you're the keyholder. He cannot see this. "
                 "What do you want done to his lock?"
             )
-        fixed = enforce_private_keyholder_voice(visible_reply, fallback=fallback)
+        fixed = enforce_private_keyholder_voice(
+            visible_reply, fallback=fallback, bull_voice=bull
+        )
         if fixed != (visible_reply or "").strip():
             log.warning("Enforced private keyholder-only voice")
         visible_reply = re.sub(
@@ -1850,12 +1909,16 @@ async def handle_chat_turn(
             r"\[\[\[/?GROUP\]\]\]", "", visible_reply, flags=re.I
         ).strip()
     elif role == "domme" and mistreats_domme_as_sub(
-        visible_reply, user_message=message
+        visible_reply, user_message=message, bull_voice=bull
     ):
         cleaned = strip_lockee_addressing(visible_reply)
-        if not cleaned or mistreats_domme_as_sub(cleaned, user_message=message):
+        if not cleaned or mistreats_domme_as_sub(
+            cleaned, user_message=message, bull_voice=bull
+        ):
             cleaned = (
-                f"{title} — that was for him, not you. You're the keyholder."
+                f"{title} — he's locked. I'm here. What do you want from me?"
+                if bull
+                else f"{title} — that was for him, not you. You're the keyholder."
             ).strip()
         log.warning("Stripped lockee-addressing from %s reply", room)
         visible_reply = cleaned
