@@ -999,14 +999,26 @@ def _status_lines(label: str, summary: dict[str, Any]) -> str:
 
 
 def format_live_status_block(
-    current: dict[str, Any], *, requested_by: str = "system"
+    current: dict[str, Any],
+    *,
+    requested_by: str = "system",
+    mention_remaining: bool = False,
 ) -> str:
+    if mention_remaining:
+        extra = (
+            "Quote remaining time EXACTLY as above. "
+            "Never invent days/hours, totals, keypad codes, or 'new length'."
+        )
+    else:
+        extra = (
+            "Do NOT mention remaining time, days, or hours in your reply this turn. "
+            "Nobody asked about the lock timer. Use this block only so you do not invent numbers."
+        )
     return (
         "CHASTER LIVE STATUS (real API this turn — ONLY source of lock numbers):\n"
         f"- Requested context by: {requested_by}\n"
         f"{_status_lines('CURRENT', current)}\n"
-        "Quote remaining time EXACTLY as above. "
-        "Never invent days/hours, totals, keypad codes, or 'new length'. "
+        f"{extra} "
         "If you change the lock, emit [[[LOCK]]] tags so the API runs — "
         "do not narrate fake changes."
     )

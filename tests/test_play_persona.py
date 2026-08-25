@@ -7,7 +7,9 @@ from app.bot_persona import (
     is_bull_voice,
     normalize_persona,
     resolve_persona,
+    scene_lead_director,
     wants_her_attention,
+    wants_scene_lead,
 )
 from app.kink_probe import (
     apply_probe_answer,
@@ -104,6 +106,21 @@ class BotPersonaTests(unittest.TestCase):
         self.assertTrue(wants_her_attention("I want you tonight"))
         self.assertFalse(wants_her_attention("i think he needs to know his place"))
         self.assertFalse(wants_her_attention("i want you to tease him"))
+
+    def test_naughty_cue_starts_a_scene_not_a_timer(self) -> None:
+        from app.lock_guard import strip_unsolicited_lock_dump
+
+        cue = "im feeling naughty what should we do today"
+        self.assertTrue(wants_scene_lead(cue))
+        self.assertFalse(wants_scene_lead("hows his lock"))
+        director = scene_lead_director(room="private", bull_voice=True)
+        self.assertIn("START a specific situation", director)
+        self.assertIn("any ideas", director.lower())
+        dumped = strip_unsolicited_lock_dump(
+            "3 days, 12 hours, 14 minutes. Now any ideas?"
+        )
+        self.assertNotIn("3 days", dumped)
+        self.assertNotIn("any ideas", dumped.lower())
 
     def test_bull_flirt_is_not_her_as_lockee(self) -> None:
         from app.speaker_guard import (

@@ -26,7 +26,7 @@ from app.chaster_actions import (
     run_tour_step,
     seconds_for_scale,
 )
-from app.lock_guard import scrub_lock_hallucinations
+from app.lock_guard import scrub_lock_hallucinations, strip_unsolicited_lock_dump
 from app.speaker_guard import (
     demands_beg_unlock,
     domme_teasing_lockee,
@@ -123,7 +123,9 @@ from app.bot_persona import (
     format_scene_persona_override,
     is_bull_voice,
     persona_from_controls,
+    scene_lead_director,
     wants_her_attention,
+    wants_scene_lead,
 )
 from app.her_taste import (
     apply_her_taste,
@@ -365,9 +367,20 @@ def _focus_user_payload(
     room: Room | None = None,
     bull_voice: bool = False,
     her_attention: bool = False,
+    scene_lead: bool = False,
 ) -> str:
     said = (message or "").strip()
-    if role == "domme" and bull_voice and her_attention:
+    if role == "domme" and scene_lead:
+        who = (
+            f"{speaker} is the KEYHOLDER. She gave a cue. "
+            "START a situation. Do not dump his remaining time. Do not ask her for ideas."
+        )
+        if bull_voice:
+            who = (
+                f"{speaker} is the KEYHOLDER. She wants a scene with YOU (the bull). "
+                "Start it. He stays locked. Do not quote the timer. Do not ask 'any ideas?'."
+            )
+    elif role == "domme" and bull_voice and her_attention:
         who = (
             f"{speaker} is the KEYHOLDER (his girlfriend). She wants YOU — the bull — "
             "not a plan for him. Reply TO her. Heat toward her. He stays locked."
@@ -552,6 +565,10 @@ async def handle_chat_turn(
             extra_notes.append(format_learn_her_director(room=room))
         if wants_her_attention(message) and is_bull_voice():
             extra_notes.append(attention_director(room=room))
+        if wants_scene_lead(message) and not asks_lock_remaining(message):
+            extra_notes.append(
+                scene_lead_director(room=room, bull_voice=is_bull_voice())
+            )
     if role == "domme" and wants_intake(message) and not wants_kink_probe(message):
         extra_notes.append(intake_director(room=room))
     if wants_persona(message):
@@ -1035,7 +1052,11 @@ async def handle_chat_turn(
                 live_secs = int(rem_raw)
             if live_summary.get("remaining"):
                 live_remaining = str(live_summary.get("remaining"))
-            live = format_live_status_block(live_summary, requested_by=speaker)
+            live = format_live_status_block(
+                live_summary,
+                requested_by=speaker,
+                mention_remaining=asks_lock_remaining(message),
+            )
             chaster_note = f"\n\n[{live}]"
         except Exception:  # noqa: BLE001
             log.exception("Live Chaster status fetch failed")
@@ -1543,6 +1564,22 @@ async def handle_chat_turn(
                 "Reply TO her. Heat. Do not spin a tease-him plan. "
                 "He is being told she came, not the score. Do not emit [[[GROUP]]].\n"
             )
+        elif wants_scene_lead(message) and not asks_lock_remaining(message):
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"{title} gave a cue. YOU start a specific situation now — "
+                "2–4 sentences, in character, developing the scene.\n"
+                "Do NOT quote his remaining time. Do NOT ask 'any ideas?' "
+                "or 'what do you want to do?'.\n"
+            )
+            if bull:
+                anti_loop = (
+                    "\nTHIS TURN — PRIVATE:\n"
+                    f"{title} is feeling it. You are her bull. Start the scene with HER. "
+                    "He stays locked in the other room.\n"
+                    "Do NOT dump lock remaining. Do NOT ask her for ideas. "
+                    "Name the beat and begin it.\n"
+                )
         elif bull:
             anti_loop = (
                 "\nTHIS TURN — PRIVATE:\n"
@@ -1551,7 +1588,8 @@ async def handle_chat_turn(
                 "that is the topic — not another lock tease.\n"
                 "Heat toward her is allowed. Never treat her as locked. "
                 "Talk about him as he/him.\n"
-                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
+                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly. "
+                "If she did not ask, do not mention remaining time.\n"
             )
         else:
             anti_loop = (
@@ -1560,7 +1598,8 @@ async def handle_chat_turn(
                 "Reply TO her as you. Never 'she lets him out'. "
                 "Plan with her. Never call her pet or darling.\n"
                 "Never tell her she will earn release. Talk about him as he/him.\n"
-                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly.\n"
+                "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly. "
+                "If she did not ask, do not mention remaining time.\n"
             )
     else:
         who = (
@@ -1604,6 +1643,7 @@ async def handle_chat_turn(
         room=room,
         bull_voice=bull,
         her_attention=her_attention,
+        scene_lead=wants_scene_lead(message),
     )
 
     store.append_display(
@@ -1735,6 +1775,27 @@ async def handle_chat_turn(
                 {"role": "user", "content": user_line},
                 {"role": "assistant", "content": reply},
             ]
+
+        if role == "domme" and not asks_lock_remaining(message):
+            dumped = strip_unsolicited_lock_dump(reply)
+            if dumped != (reply or "").strip():
+                log.warning("Stripped unsolicited lock dump in %s", room)
+                if len(dumped) >= 24:
+                    reply = dumped
+                elif wants_scene_lead(message):
+                    reply = (
+                        "Naughty it is. He's locked — that's the point. "
+                        "Come here. I want you while he waits in the other room."
+                        if bull
+                        else (
+                            "Naughty it is. He's locked and he's not invited. "
+                            "We take our time; he stays denied."
+                        )
+                    )
+                messages = list(history) + [
+                    {"role": "user", "content": user_line},
+                    {"role": "assistant", "content": reply},
+                ]
 
         # Strict: Domme must never be addressed as the locked Sub
         if role == "domme" and mistreats_domme_as_sub(

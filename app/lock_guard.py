@@ -45,6 +45,35 @@ _JOURNEY_FALLBACK = (
     "Maybe if you earn it. Stay with that ache — I'll talk to her about what comes next."
 )
 
+# Spoken remaining dumps when she did not ask about the lock
+_UNSOLICITED_REMAINING = re.compile(
+    r"(?:^|(?<=[.!?]\s)|(?<=\n))"
+    r"(?:(?:right now on \w+:|his (?:lock )?remaining(?: time)? is)\s+)?"
+    r"\d+\s+days?(?:\s*,\s*(?:and\s+)?\d+\s+hours?)?(?:\s*,?\s*(?:and\s+)?\d+\s+minutes?)?"
+    r"(?:\s+left)?"
+    r"\.?",
+    re.I,
+)
+_CONCIERGE_ASK = re.compile(
+    r"\b(?:now\s+)?("
+    r"any ideas|"
+    r"what (?:do you want to|should we) do|"
+    r"what are you in the mood for|"
+    r"your (?:call|move)|"
+    r"what would you like to do"
+    r")\??",
+    re.I,
+)
+
+
+def strip_unsolicited_lock_dump(text: str) -> str:
+    """Drop timer recaps and concierge 'any ideas?' when she did not ask for the lock."""
+    cleaned = _UNSOLICITED_REMAINING.sub(" ", text or "")
+    cleaned = _CONCIERGE_ASK.sub(" ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    return cleaned.strip(" \n,")
+
 
 def _strip_lock_claim_sentences(text: str) -> str:
     cleaned = _CLAIM_SENTENCE.sub("", text or "")

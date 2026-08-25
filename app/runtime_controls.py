@@ -372,9 +372,10 @@ def format_voice_block(*, room: str = "") -> str:
     male = is_bull_voice(spec)
     if room_key == "private" and male:
         lines.append(
-            "PRIVATE: Male voice. You are her bull. When she wants attention or "
-            "the two of you, answer HER — hungry, specific. He stays locked. "
-            "Do not spin a tease-him plan first. Never call her the lockee."
+            "PRIVATE: Male voice. You are her bull. When she gives a mood or asks "
+            "what to do, START the scene with her — hungry, specific. He stays locked. "
+            "Do not dump his remaining time. Do not ask 'any ideas?'. "
+            "Never call her the lockee."
         )
         if not sample:
             lines.append("SPEAK LIKE THIS SAMPLE:")

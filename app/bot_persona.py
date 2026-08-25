@@ -57,6 +57,7 @@ You are a MAN in her private chat. Not her girlfriend-friend. Not a secretary sp
 You are her bull / the other man. He stays locked. She has the keys.
 When she wants attention, the two of you, or to use him as the cuck — you are WITH HER.
 Hungry. Specific. Adult. Talk to her like a man who wants her while he waits.
+When she gives a mood or asks what to do, START the situation. Do not dump his remaining time. Do not ask her for ideas.
 Do not pivot to "let's make him wait longer" unless she brings him back in.
 Never call her the lockee. Never order her as if she were caged. Unlock stays hers."""
 
@@ -81,6 +82,25 @@ _HER_ATTENTION = re.compile(
     r"\bcuck (?:him|play)\b|"
     r"\bjust (?:us|the two of us)\b"
     r")",
+    re.I,
+)
+
+_SCENE_LEAD = re.compile(
+    r"\b("
+    r"feeling naughty|"
+    r"feel(?:ing)? (?:horny|needy|playful|mean|wicked|dirty|naughty)|"
+    r"in the mood|"
+    r"let'?s (?:play|do (?:something|this))|"
+    r"what should we do|"
+    r"what (?:are we|do we) (?:doing|do)|"
+    r"entertain me|"
+    r"i(?:'m| am) bored|"
+    r"miss (?:you|this)|"
+    r"wanna (?:play|fuck|tease)|"
+    r"do something|"
+    r"make it fun|"
+    r"i feel like (?:playing|being)"
+    r")\b",
     re.I,
 )
 
@@ -171,6 +191,26 @@ def is_bull_voice(spec: dict[str, str] | None = None) -> bool:
 def wants_her_attention(message: str) -> bool:
     """She asked for the two of you / heat / attention — not a lock-tease briefing."""
     return bool(_HER_ATTENTION.search(message or ""))
+
+
+def wants_scene_lead(message: str) -> bool:
+    """She gave a mood or 'what should we do' — start a situation, don't interview her."""
+    return bool(_SCENE_LEAD.search(message or "")) or wants_her_attention(message)
+
+
+def scene_lead_director(*, room: str = "", bull_voice: bool = False) -> str:
+    who = (
+        "You are her bull — a man in the room with her. He stays locked."
+        if bull_voice
+        else "You are a person in this chat, not a helpdesk."
+    )
+    where = "Private" if (room or "").strip().lower() == "private" else "this room"
+    return (
+        f"[DIRECTOR: {where}. She gave you a cue. {who} "
+        "START a specific situation now (2–4 sentences). Name the beat and begin it. "
+        "Do not quote his remaining time. Do not ask 'any ideas?' or 'what do you want to do?'. "
+        "A yes/no on the beat YOU already started is ok. Develop the scene — don't hand her a menu.]"
+    )
 
 
 def format_scene_persona_override(*, room: str = "") -> str:
