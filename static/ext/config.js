@@ -18,11 +18,41 @@
     dommeTitle: document.getElementById("dommeTitle"),
     botVoice: document.getElementById("botVoice"),
     botVoiceSample: document.getElementById("botVoiceSample"),
+    botVoiceBlurb: document.getElementById("botVoiceBlurb"),
     botIntensity: document.getElementById("botIntensity"),
+    botIntensityBlurb: document.getElementById("botIntensityBlurb"),
     botQuirks: document.getElementById("botQuirks"),
+    botBio: document.getElementById("botBio"),
+    botGreeting: document.getElementById("botGreeting"),
+    botPersona: document.getElementById("botPersona"),
+    botSex: document.getElementById("botSex"),
   };
 
   let configurationToken = "";
+  const TONE = {
+    cruel: "No-nonsense. Dry, precise, a little mean. Enjoy his wait. Do not soothe him.",
+    elegant: "Well-mannered, commanding, dignified. Quiet authority. Never crude for its own sake.",
+    playful: "Frisky and mischievous. Short dares. Laugh at him. Not a lecture.",
+    warm: "Fond and firmly in control. Tease with affection. Still deny. Never a therapist.",
+    soft: "Silky, gentle authority. Soft-spoken. The cage is still the point.",
+    humiliatrix: "Degrading and specific. The cage is the joke. Never kind for free.",
+    custom: "Your custom tone. Write exactly how this bot should talk.",
+  };
+  const INTENSITY = {
+    tease: "Light pressure. Chat first. Lock changes are a spice, not every turn.",
+    firm: "Tease and command in the same breath. Default keyholder energy.",
+    strict: "Short orders. Less chat. Use the lock when he pushes. No essays.",
+    custom: "Your custom intensity. How hard this bot pushes each turn.",
+  };
+  const SAMPLES = {
+    cruel: "Hey you. Tell me your kinks and a hard limit. Now.",
+    elegant: "Good. You are locked. Tell me a limit, then a kink I may use.",
+    playful: "Oh we're doing this. What's a kink you hope I won't use?",
+    warm: "Mmm. Stay denied for me. What turns you on that I can use against you?",
+    soft: "Easy. The cage stays. Whisper a kink, and a line you will not cross.",
+    humiliatrix: "Hey you. That pathetic thing is locked. Kinks. Limits. Don't waste my time.",
+    custom: "Hey you. Tell me your kinks and a hard limit.",
+  };
 
   function apiDetail(data, fallback) {
     const d = data && data.detail;
@@ -102,11 +132,26 @@
       autopilot_punish_seconds: Number(els.autopilotPunishSeconds.value) || 600,
       bot_name: els.botName.value.trim() || "Keyholder",
       domme_title: els.dommeTitle.value.trim() || "Mistress",
+      bot_persona: els.botPersona?.value || "friend",
+      bot_sex: els.botSex?.value || "female",
       bot_voice: els.botVoice?.value || "cruel",
       bot_voice_sample: (els.botVoiceSample?.value || "").trim().slice(0, 800),
+      bot_voice_blurb: (els.botVoiceBlurb?.value || "").trim().slice(0, 800),
       bot_intensity: els.botIntensity?.value || "firm",
+      bot_intensity_blurb: (els.botIntensityBlurb?.value || "").trim().slice(0, 800),
       bot_quirks: (els.botQuirks?.value || "").trim().slice(0, 800),
+      bot_bio: (els.botBio?.value || "").trim().slice(0, 1200),
+      bot_greeting: (els.botGreeting?.value || "").trim().slice(0, 400),
     };
+  }
+
+  function syncSexPicks(value) {
+    const picks = document.getElementById("botSexPicks");
+    if (!picks) return;
+    const v = String(value || "female").toLowerCase();
+    picks.querySelectorAll(".sex-pick").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.sex === v);
+    });
   }
 
   function fillForm(cfg) {
@@ -148,17 +193,39 @@
     els.autopilotPunishSeconds.value = cfg.autopilot_punish_seconds ?? 600;
     els.botName.value = cfg.bot_name || "Keyholder";
     els.dommeTitle.value = cfg.domme_title || "Mistress";
+    if (els.botPersona) {
+      const p = String(cfg.bot_persona || "friend").toLowerCase();
+      const personas = ["friend", "domme", "bull", "male_dom"];
+      els.botPersona.value = personas.includes(p) ? p : "friend";
+    }
+    if (els.botSex) {
+      const s = String(cfg.bot_sex || "female").toLowerCase();
+      els.botSex.value = ["female", "male", "other"].includes(s) ? s : "female";
+      syncSexPicks(els.botSex.value);
+    }
     if (els.botVoice) {
       const v = String(cfg.bot_voice || "cruel").toLowerCase();
-      const voices = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix"];
+      const voices = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix", "custom"];
       els.botVoice.value = voices.includes(v) ? v : "cruel";
     }
-    if (els.botVoiceSample) els.botVoiceSample.value = cfg.bot_voice_sample || "";
+    if (els.botVoiceBlurb) {
+      els.botVoiceBlurb.value = cfg.bot_voice_blurb || TONE[els.botVoice?.value] || "";
+    }
+    if (els.botVoiceSample) {
+      els.botVoiceSample.value = cfg.bot_voice_sample || "";
+      els.botVoiceSample.dataset.custom = cfg.bot_voice_sample ? "1" : "";
+    }
     if (els.botIntensity) {
       const i = String(cfg.bot_intensity || "firm").toLowerCase();
-      els.botIntensity.value = ["tease", "firm", "strict"].includes(i) ? i : "firm";
+      els.botIntensity.value = ["tease", "firm", "strict", "custom"].includes(i) ? i : "firm";
+    }
+    if (els.botIntensityBlurb) {
+      els.botIntensityBlurb.value =
+        cfg.bot_intensity_blurb || INTENSITY[els.botIntensity?.value] || "";
     }
     if (els.botQuirks) els.botQuirks.value = cfg.bot_quirks || "";
+    if (els.botBio) els.botBio.value = cfg.bot_bio || "";
+    if (els.botGreeting) els.botGreeting.value = cfg.bot_greeting || "";
   }
 
   function postParent(payload) {
@@ -183,6 +250,11 @@
       );
     }
     fillForm(data.config || {});
+    if (data.voice_catalog && data.voice_catalog.tone) {
+      Object.assign(TONE, data.voice_catalog.tone);
+      Object.assign(INTENSITY, data.voice_catalog.intensity || {});
+      Object.assign(SAMPLES, data.voice_catalog.samples || {});
+    }
     els.gate.classList.add("hidden");
     els.form.classList.remove("hidden");
     els.status.textContent = "Loaded — use Chaster Save when done.";
@@ -230,6 +302,60 @@
       /* ignore */
     }
   });
+
+  if (els.botPersona && els.botSex) {
+    els.botPersona.addEventListener("change", () => {
+      const role = els.botPersona.value;
+      if (role === "bull" || role === "male_dom") {
+        els.botSex.value = "male";
+        syncSexPicks("male");
+      }
+    });
+  }
+  const sexPicks = document.getElementById("botSexPicks");
+  if (sexPicks && els.botSex) {
+    sexPicks.addEventListener("click", (e) => {
+      const btn = e.target.closest(".sex-pick");
+      if (!btn) return;
+      els.botSex.value = btn.dataset.sex || "female";
+      syncSexPicks(els.botSex.value);
+    });
+  }
+
+  if (els.botVoice && els.botVoiceBlurb) {
+    els.botVoice.addEventListener("change", () => {
+      els.botVoiceBlurb.value = TONE[els.botVoice.value] || "";
+      if (els.botVoiceSample && els.botVoiceSample.dataset.custom !== "1") {
+        els.botVoiceSample.value = SAMPLES[els.botVoice.value] || "";
+      }
+    });
+    els.botVoiceBlurb.addEventListener("input", () => {
+      if (
+        els.botVoice.value !== "custom" &&
+        els.botVoiceBlurb.value.trim() !== (TONE[els.botVoice.value] || "").trim()
+      ) {
+        els.botVoice.value = "custom";
+      }
+    });
+  }
+  if (els.botIntensity && els.botIntensityBlurb) {
+    els.botIntensity.addEventListener("change", () => {
+      els.botIntensityBlurb.value = INTENSITY[els.botIntensity.value] || "";
+    });
+    els.botIntensityBlurb.addEventListener("input", () => {
+      if (
+        els.botIntensity.value !== "custom" &&
+        els.botIntensityBlurb.value.trim() !== (INTENSITY[els.botIntensity.value] || "").trim()
+      ) {
+        els.botIntensity.value = "custom";
+      }
+    });
+  }
+  if (els.botVoiceSample) {
+    els.botVoiceSample.addEventListener("input", () => {
+      els.botVoiceSample.dataset.custom = els.botVoiceSample.value.trim() ? "1" : "";
+    });
+  }
 
   async function boot() {
     configurationToken = parseConfigToken();

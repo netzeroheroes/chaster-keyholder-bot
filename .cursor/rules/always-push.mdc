@@ -1,0 +1,14 @@
+---
+description: Commit and push completed work to origin without waiting to be asked
+alwaysApply: true
+---
+
+# Always push
+
+When you finish a change the user asked for, commit it and `git push` to the tracked remote.
+
+- Do this even if they did not say "commit" or "push".
+- Never force-push, never skip hooks, never amend a commit that is already on the remote.
+- Never commit `.env`, credentials, or secrets.
+- Use a short commit message that says why, matching this repo's style.
+- After pushing, mention that it is on the remote (Render deploys from GitHub).

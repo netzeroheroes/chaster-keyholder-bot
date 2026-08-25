@@ -439,11 +439,16 @@ textarea, input[type="text"], input[type="number"], select {
   padding: 1rem 1rem 1.25rem;
 }
 .settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
   margin-bottom: 0.35rem;
+  padding-bottom: 0.4rem;
+  background: var(--panel);
 }
 .settings-head h2 {
   margin: 0.15rem 0 0;
@@ -470,6 +475,97 @@ textarea, input[type="text"], input[type="number"], select {
 .btn.ghost {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
+}
+.sex-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.45rem;
+  position: relative;
+}
+.sex-pick {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.8rem 0.4rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sex-pick.active {
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  border-color: transparent;
+}
+.kh-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.kh-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.kh-bar-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 5.2rem;
+}
+.kh-bar .sex-picks {
+  flex: 1;
+  min-width: 180px;
+}
+.kh-bar .sex-pick {
+  padding: 0.5rem 0.3rem;
+  font-size: 0.85rem;
+}
+.orgasm-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+  flex: 1;
+}
+.orgasm-pick {
+  min-width: 1.7rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.35rem 0.2rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.orgasm-pick.active {
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  border-color: transparent;
+}
+.kh-bar-note {
+  align-items: stretch;
+}
+.kh-bar-note input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+}
+.kh-bar-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 .kinks-actions {
   display: flex;
@@ -515,9 +611,9 @@ textarea, input[type="text"], input[type="number"], select {
 .kit-rating.love { color: var(--accent); }
 .kit-rating.like { color: #f0c4a8; }
 .kinks-foot {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   margin-top: 0.75rem;
 }
 @media (max-width: 560px) {

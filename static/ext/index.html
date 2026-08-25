@@ -81,6 +81,38 @@
     <div id="playBar" class="hygiene-bar hidden">
       <p id="playCopy" class="hygiene-copy">Play: idle</p>
     </div>
+    <div id="khBar" class="kh-bar hidden">
+      <div class="kh-bar-row">
+        <span class="kh-bar-label">Bot sex</span>
+        <div class="sex-picks" id="barBotSexPicks" role="group" aria-label="Bot sex">
+          <button type="button" class="sex-pick active" data-sex="female">Female</button>
+          <button type="button" class="sex-pick" data-sex="male">Male</button>
+          <button type="button" class="sex-pick" data-sex="other">Other</button>
+        </div>
+      </div>
+      <div class="kh-bar-row">
+        <span class="kh-bar-label">Your orgasm</span>
+        <div class="orgasm-picks" id="orgasmPicks" role="group" aria-label="Orgasm rating 1 to 10">
+          <button type="button" class="orgasm-pick" data-rating="1">1</button>
+          <button type="button" class="orgasm-pick" data-rating="2">2</button>
+          <button type="button" class="orgasm-pick" data-rating="3">3</button>
+          <button type="button" class="orgasm-pick" data-rating="4">4</button>
+          <button type="button" class="orgasm-pick" data-rating="5">5</button>
+          <button type="button" class="orgasm-pick" data-rating="6">6</button>
+          <button type="button" class="orgasm-pick" data-rating="7">7</button>
+          <button type="button" class="orgasm-pick" data-rating="8">8</button>
+          <button type="button" class="orgasm-pick" data-rating="9">9</button>
+          <button type="button" class="orgasm-pick" data-rating="10">10</button>
+        </div>
+      </div>
+      <div class="kh-bar-row kh-bar-note">
+        <input id="orgasmNote" type="text" maxlength="200" placeholder="What worked / what didn’t (optional)" />
+        <button type="button" class="room-tab kh-action" id="orgasmTellHim">Tell him</button>
+        <button type="button" class="room-tab kh-action" id="orgasmPrivate">Keep private</button>
+        <button type="button" class="room-tab kh-action" id="learnHerBtn">Learn me</button>
+      </div>
+      <p id="khBarStatus" class="kh-bar-status">Female / Male / Other is always here. Rate an orgasm to use it on him.</p>
+    </div>
 
     <div class="chat-body">
       <div class="messages-wrap">
@@ -111,32 +143,80 @@
         <button type="button" id="settingsClose" class="link-btn">Close</button>
       </header>
       <p class="meta settings-lede">
-        Voice, lock permissions, timings, auto-punish, and autopilot. Saved on this session.
+        Bot sex is on the bar above chat as well. Male can play bull / cuckold with you while he stays locked.
       </p>
       <form id="settingsForm" class="cfg" novalidate>
-        <p class="title">Voice</p>
-        <p class="meta">Archetype, pressure, and quirks. Sample lines beat a long lecture.</p>
+        <p class="title">Bot sex</p>
+        <div class="sex-picks" id="setBotSexPicks" role="group" aria-label="Bot sex">
+          <button type="button" class="sex-pick active" data-sex="female">Female</button>
+          <button type="button" class="sex-pick" data-sex="male">Male</button>
+          <button type="button" class="sex-pick" data-sex="other">Other</button>
+        </div>
+        <input type="hidden" id="setBotSex" value="female" />
+        <p class="title">Your pleasure</p>
+        <p class="meta">The lock is for you. The bot remembers what turns you on and uses it on him.</p>
+        <label class="field">
+          <span>What turns you on</span>
+          <textarea id="setHerTurnOns" rows="3" placeholder="One per line — e.g. him begging while we fuck, cuck talk, his locked cock leaking"></textarea>
+        </label>
+        <label class="field">
+          <span>Fantasies you want used on him</span>
+          <textarea id="setHerFantasies" rows="3" placeholder="One per line — e.g. bull nights, public tease, ruined for me"></textarea>
+        </label>
+        <p id="herOrgasmLog" class="meta">Last orgasm: not logged yet.</p>
+        <p class="title">Create the bot</p>
+        <p class="meta">
+          Character card: who they are, a first line, then tone and intensity.
+          The text under Tone / Intensity is what the bot follows — edit it and save as Custom.
+        </p>
+        <label class="field">
+          <span>Role</span>
+          <select id="setBotPersona">
+            <option value="friend" selected>Friend — co-keyholder</option>
+            <option value="domme">Domme — authority</option>
+            <option value="bull">Bull — plays with you, he stays caged</option>
+            <option value="male_dom">Male Dom — your male co-keyholder</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Who they are</span>
+          <textarea id="setBotBio" rows="3" placeholder="I am a 23 year old dominatrix. Creative. Bondage, humiliation, mind games."></textarea>
+        </label>
+        <label class="field">
+          <span>First line / greeting</span>
+          <textarea id="setBotGreeting" rows="2" placeholder="Hey you, tell me your kinks and limits?"></textarea>
+        </label>
         <label class="field">
           <span>Tone</span>
           <select id="setBotVoice">
-            <option value="cruel" selected>Cruel — no-nonsense, enjoys the wait</option>
-            <option value="elegant">Elegant — well-mannered, commanding</option>
-            <option value="playful">Playful — frisky, mischievous</option>
-            <option value="warm">Warm — fond and in control</option>
-            <option value="soft">Soft — silky, gentle authority</option>
-            <option value="humiliatrix">Humiliatrix — degrading and specific</option>
+            <option value="cruel" selected>Cruel</option>
+            <option value="elegant">Elegant</option>
+            <option value="playful">Playful</option>
+            <option value="warm">Warm</option>
+            <option value="soft">Soft</option>
+            <option value="humiliatrix">Humiliatrix</option>
+            <option value="custom">Custom</option>
           </select>
+        </label>
+        <label class="field">
+          <span>What this tone means (edit to make Custom)</span>
+          <textarea id="setBotVoiceBlurb" rows="3" placeholder="How this bot talks"></textarea>
         </label>
         <label class="field">
           <span>Intensity</span>
           <select id="setBotIntensity">
-            <option value="tease">Tease — chat first</option>
-            <option value="firm" selected>Firm — tease and command</option>
-            <option value="strict">Strict — short orders, use the lock</option>
+            <option value="tease">Tease</option>
+            <option value="firm" selected>Firm</option>
+            <option value="strict">Strict</option>
+            <option value="custom">Custom</option>
           </select>
         </label>
         <label class="field">
-          <span>How she sounds (optional)</span>
+          <span>What this intensity means (edit to make Custom)</span>
+          <textarea id="setBotIntensityBlurb" rows="2" placeholder="How hard they push"></textarea>
+        </label>
+        <label class="field">
+          <span>Voice sample — how they sound</span>
           <textarea id="setBotVoiceSample" rows="3" placeholder="Hey you — kinks and a hard limit. Short, direct, a little mean."></textarea>
         </label>
         <label class="field">
@@ -280,6 +360,10 @@
         </section>
       </div>
       <div class="settings-actions kinks-foot">
+        <button type="button" class="btn ghost" id="kinksGrill">Interview him</button>
+        <button type="button" class="btn ghost" id="kinksLearn">Learn me</button>
+        <button type="button" class="btn ghost" id="kinksVideo">Suggest a video</button>
+        <button type="button" class="btn ghost" id="kinksGame">Make a game</button>
         <button type="button" class="btn ghost" id="kinksPlanWeek">Plan the week</button>
         <button type="button" class="btn" id="kinksSave">Save kit</button>
       </div>

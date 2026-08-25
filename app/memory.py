@@ -32,6 +32,27 @@ _RECALL_CMD = re.compile(
     r")\b",
     re.I,
 )
+_SUB_NAME_RE = re.compile(
+    r"\b(?:his name is|the lockee(?:'s name)? is|call the lockee)\s+"
+    r"([A-Za-z][\w'-]{1,24})\b",
+    re.I,
+)
+_TITLE_RE = re.compile(
+    r"\bcall him\s+([A-Za-z][\w'-]{1,24})\b",
+    re.I,
+)
+_HARD_LIMIT_RE = re.compile(
+    r"\bhard limits?\s*[:\-]\s*([^.;\n]{3,80})",
+    re.I,
+)
+_KINK_LINE_RE = re.compile(
+    r"\b(?:his (?:kinks?|likes?)|he (?:likes|loves|gets off on))\s*[:\-]\s*([^.;\n]{3,80})",
+    re.I,
+)
+_REMEMBER_INLINE = re.compile(
+    r"\b(?:remember|note that|save that)\s+(?:that\s+)?(.{8,240})",
+    re.I,
+)
 
 
 def _today() -> str:
@@ -40,6 +61,18 @@ def _today() -> str:
 
 def _now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _merge_str_list(old: list[str] | None, new: list[str] | None, cap: int) -> list[str]:
+    cur = [str(x).strip() for x in (old or []) if str(x).strip()]
+    seen = {x.lower() for x in cur}
+    for item in new or []:
+        text = str(item).strip()
+        if not text or text.lower() in seen:
+            continue
+        cur.append(text)
+        seen.add(text.lower())
+    return cur[-cap:]
 
 
 @dataclass
@@ -69,6 +102,10 @@ class LongTermMemory:
     facts: list[str] = field(default_factory=list)
     # Real Chaster action log only (never invent)
     lock_log: list[str] = field(default_factory=list)
+    # Keyholder pleasure — used to run the lock for HER
+    her_turn_ons: list[str] = field(default_factory=list)
+    her_fantasies: list[str] = field(default_factory=list)
+    her_orgasms: list[dict] = field(default_factory=list)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
     @classmethod
@@ -114,6 +151,9 @@ class LongTermMemory:
                 "private_bond": list(self.private_bond)[-80:],
                 "facts": list(self.facts)[-100:],
                 "lock_log": list(self.lock_log)[-80:],
+                "her_turn_ons": list(self.her_turn_ons)[-40:],
+                "her_fantasies": list(self.her_fantasies)[-40:],
+                "her_orgasms": list(self.her_orgasms)[-40:],
             }
             path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -140,6 +180,9 @@ class LongTermMemory:
                 "private_bond": list(self.private_bond),
                 "facts": list(self.facts),
                 "lock_log": list(self.lock_log),
+                "her_turn_ons": list(self.her_turn_ons),
+                "her_fantasies": list(self.her_fantasies),
+                "her_orgasms": list(self.her_orgasms),
             }
 
     def update_fields(self, **kwargs: object) -> dict:
@@ -185,6 +228,42 @@ class LongTermMemory:
         if removed:
             self.save()
         return removed
+
+    def ingest_spoken_notes(self, message: str, *, speaker: str = "Domme") -> dict:
+        """Cheap deterministic memory from keyholder chat — no LLM."""
+        text = message or ""
+        updates: dict[str, object] = {}
+        name_m = _SUB_NAME_RE.search(text)
+        if name_m and not (self.sub_name or "").strip():
+            updates["sub_name"] = name_m.group(1).strip()
+        title_m = _TITLE_RE.search(text)
+        if title_m:
+            updates["sub_titles"] = _merge_str_list(
+                self.sub_titles, [title_m.group(1).strip()], 40
+            )
+        lim_m = _HARD_LIMIT_RE.search(text)
+        if lim_m:
+            bits = [p.strip() for p in re.split(r"\s*(?:,|;|/|\band\b)\s*", lim_m.group(1)) if p.strip()]
+            if bits:
+                updates["hard_limits"] = _merge_str_list(self.hard_limits, bits[:8], 40)
+        kink_m = _KINK_LINE_RE.search(text)
+        if kink_m:
+            bits = [p.strip() for p in re.split(r"\s*(?:,|;|/|\band\b)\s*", kink_m.group(1)) if p.strip()]
+            if bits:
+                updates["kinks"] = _merge_str_list(self.kinks, bits[:8], 60)
+        if not self.parse_remember_command(text):
+            rem = _REMEMBER_INLINE.search(text)
+            if rem:
+                fact = rem.group(1).strip().strip("\"'")
+                if len(fact) >= 8 and not re.search(
+                    r"\b(add|remove|freeze|unfreeze|hide|show)\b.*\b(time|timer|lock)\b",
+                    fact,
+                    re.I,
+                ):
+                    self.remember_fact(fact, source=speaker)
+        if updates:
+            self.update_fields(**updates)
+        return updates
 
     def log_lock_event(
         self,
@@ -233,12 +312,15 @@ class LongTermMemory:
             ]
             return ", ".join(str(b) for b in bits) if bits else "(not on profile yet)"
 
+        from app.bot_persona import identity_lines
+
+        you_line, frame_line = identity_lines(
+            bot_name=str(snap.get("bot_name") or "Keyholder")
+        )
         lines = [
             "LONG-TERM MEMORY (persistent — recall these when asked; treat as true):",
             "PEOPLE (never mix these up):",
-            f"- You = AI Domme / keyholder named '{snap.get('bot_name') or 'Keyholder'}'. "
-            "You are Dominant. You are here to have fun. You are NEVER obedient, never a slave, "
-            "never submissive to the Sub or confused for him.",
+            you_line,
             f"- Human Domme / keyholder = {domme}{title_bit}. "
             "In GROUP chat address her as 'keyholder' (UI shows who spoke — no usernames, "
             "no [Keyholder: Domme] labels). In PRIVATE you may use her name.",
@@ -247,16 +329,20 @@ class LongTermMemory:
             f"- Human Sub profile: {_demo('sub')}.",
             "- In GROUP, address the wearer as 'lockee' (not his username).",
             "- Begging is to ease/stop punishments — never demand he beg to unlock.",
-            "- FRAME: femdom / matriarchal. Female Dominants hold power; the locked male Sub serves. "
-            "You and the human Domme are his Dommes. He kneels; you do not.",
+            frame_line,
             "- CHASTER TRUTH (STRICT): Never invent lock remaining time, totals, or keypad codes.",
             "  Live numbers come ONLY from [CHASTER LIVE STATUS] / ACTION DONE this turn.",
             "  Memory chastity/lock_log are for context/recall — not a substitute for live status.",
             f"- Hard limits: {', '.join(snap['hard_limits']) or '(ask / learn)'}.",
             f"- Soft limits: {', '.join(snap['soft_limits']) or '(none noted)'}.",
-            f"- Kinks: {', '.join(snap['kinks']) or '(discovering)'}.",
+            f"- Kinks (his): {', '.join(snap['kinks']) or '(discovering)'}.",
             f"- Chastity notes: {json.dumps(snap['chastity'], ensure_ascii=False) if snap['chastity'] else '(unknown)'}.",
         ]
+        from app.her_taste import format_her_taste_block
+
+        her = format_her_taste_block(self, room=room)
+        if her:
+            lines.append(her)
         if snap["facts"]:
             lines.append("- Durable facts to RECALL when relevant or when asked:")
             lines.extend(f"  • {n}" for n in snap["facts"][-20:])
@@ -289,19 +375,45 @@ class LongTermMemory:
         bot = snap.get("bot_name") or "Keyholder"
         domme = snap.get("domme_name") or "the keyholder"
         sub = snap.get("sub_name") or "the lockee"
+        from app.bot_persona import persona_from_controls
+
+        spec = persona_from_controls()
+        if spec["sex"] == "male" or spec["persona"] in {"bull", "male_dom"}:
+            who = (
+                f"You are {bot}, a man. She ({domme}) is his girlfriend and the keyholder. "
+                f"He ({sub}) is the lockee. You may play with her while he stays locked."
+            )
+        else:
+            who = (
+                f"You are {bot}. She ({domme}) is his girlfriend and the keyholder. "
+                f"He ({sub}) is the lockee. You talked her into locking him."
+            )
         lines = [
-            f"You are {bot}. She ({domme}) is his girlfriend and the keyholder. "
-            f"He ({sub}) is the lockee. You talked her into locking him.",
+            who,
             f"Limits: {', '.join(snap['hard_limits']) or 'ask / learn'}.",
             f"Kinks: {', '.join(snap['kinks']) or 'discovering'}.",
         ]
+        ons = [str(x) for x in (snap.get("her_turn_ons") or []) if str(x).strip()]
+        if ons:
+            lines.append("Her turn-ons (use on him, do not list): " + ", ".join(ons[-6:]))
+        fan = [str(x) for x in (snap.get("her_fantasies") or []) if str(x).strip()]
+        if fan:
+            lines.append(
+                "Her fantasies (use on him, do not list): " + ", ".join(fan[-4:])
+            )
+        last = (snap.get("her_orgasms") or [])[-1:] if snap.get("her_orgasms") else []
+        if last and isinstance(last[0], dict) and last[0].get("rating"):
+            lines.append(
+                f"She last logged an orgasm at {last[0].get('rating')}/10 — "
+                "he did not. Tease that."
+            )
         if snap.get("chastity"):
             lines.append(
                 "Cage notes: "
                 + json.dumps(snap["chastity"], ensure_ascii=False)
             )
         if snap.get("facts"):
-            lines.append("Facts: " + "; ".join(snap["facts"][-4:]))
+            lines.append("Facts: " + "; ".join(snap["facts"][-10:]))
         return "\n".join(lines)
 
     def format_recall_reply(self, *, for_domme: bool = True) -> str:
@@ -378,7 +490,8 @@ class LongTermMemory:
             "domme_gender, domme_sexuality, domme_pronouns, "
             "sub_gender, sub_sexuality, sub_pronouns, sub_titles, "
             "hard_limits, soft_limits, kinks, chastity (object of string values), "
-            "relationship_notes, timeline, private_bond, facts, lock_log.\n"
+            "relationship_notes, timeline, private_bond, facts, lock_log, "
+            "her_turn_ons, her_fantasies.\n"
             "Prefer keeping domme_name as her Chaster username; do NOT force title 'Mistress'.\n"
             "IMPORTANT:\n"
             "- facts = durable preferences/rules Domme wants remembered (short bullets).\n"
@@ -421,13 +534,13 @@ class LongTermMemory:
             return [str(x).strip() for x in value if str(x).strip()]
 
         updates: dict[str, object] = {}
-        if isinstance(data.get("domme_name"), str):
+        if isinstance(data.get("domme_name"), str) and data["domme_name"].strip():
             updates["domme_name"] = data["domme_name"].strip()
         if isinstance(data.get("domme_title"), str) and data["domme_title"].strip():
             updates["domme_title"] = data["domme_title"].strip()
         if isinstance(data.get("bot_name"), str) and data["bot_name"].strip():
             updates["bot_name"] = data["bot_name"].strip()
-        if isinstance(data.get("sub_name"), str):
+        if isinstance(data.get("sub_name"), str) and data["sub_name"].strip():
             updates["sub_name"] = data["sub_name"].strip()
         for key in (
             "domme_gender",
@@ -439,9 +552,21 @@ class LongTermMemory:
         ):
             if isinstance(data.get(key), str) and data[key].strip():
                 updates[key] = data[key].strip()
-        for key in ("sub_titles", "hard_limits", "soft_limits", "kinks"):
-            if key in data:
-                updates[key] = _str_list(data.get(key))
+        for key, cap in (
+            ("sub_titles", 40),
+            ("hard_limits", 40),
+            ("soft_limits", 40),
+            ("kinks", 60),
+            ("relationship_notes", 80),
+            ("timeline", 120),
+            ("private_bond", 80),
+            ("facts", 100),
+            ("her_turn_ons", 40),
+            ("her_fantasies", 40),
+        ):
+            incoming = _str_list(data.get(key)) if key in data else []
+            if incoming:
+                updates[key] = _merge_str_list(getattr(self, key), incoming, cap)
         if isinstance(data.get("chastity"), dict):
             # Don't let model invent remaining-time fields
             ch = {
@@ -463,9 +588,6 @@ class LongTermMemory:
                     if keep in self.chastity:
                         ch[keep] = self.chastity[keep]
             updates["chastity"] = ch
-        for key in ("relationship_notes", "timeline", "private_bond", "facts"):
-            if key in data:
-                updates[key] = _str_list(data.get(key))[-120:]
         # lock_log is append-only from real API — never replace from LLM fiction
         if updates:
             self.update_fields(**updates)

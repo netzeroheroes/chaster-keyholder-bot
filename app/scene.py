@@ -94,6 +94,7 @@ class SceneState:
     session_toys: list[str] = field(default_factory=list)
     session_mode: str = ""  # virtual | in_person — last completed interview
     scene_interview: dict[str, Any] = field(default_factory=dict)
+    kink_probe: dict[str, Any] = field(default_factory=dict)
     play_thread: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
@@ -107,6 +108,7 @@ class SceneState:
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
+                "kink_probe": dict(self.kink_probe),
                 "play_thread": dict(self.play_thread),
             }
 
@@ -120,6 +122,7 @@ class SceneState:
         session_toys: list[str] | None = None,
         session_mode: str | None = None,
         scene_interview: dict[str, Any] | None = None,
+        kink_probe: dict[str, Any] | None = None,
         play_thread: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         from app.session_kit import clean_names
@@ -140,6 +143,8 @@ class SceneState:
                 self.session_mode = mode if mode in {"virtual", "in_person"} else ""
             if scene_interview is not None:
                 self.scene_interview = dict(scene_interview)
+            if kink_probe is not None:
+                self.kink_probe = dict(kink_probe)
             if play_thread is not None:
                 self.play_thread = {
                     str(k): str(v) for k, v in play_thread.items() if str(v).strip()
@@ -152,6 +157,7 @@ class SceneState:
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
+                "kink_probe": dict(self.kink_probe),
                 "play_thread": dict(self.play_thread),
             }
 

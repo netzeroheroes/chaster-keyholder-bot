@@ -42,7 +42,7 @@ from app.memory import LongTermMemory
 from app.persist import save_scene
 from app.rad_lockbox import RadLockboxClient, summarize_lockbox
 from app.roles import Room, can_access
-from app.runtime_controls import RuntimeControls
+from app.runtime_controls import RuntimeControls, voice_catalog
 from app.scene import SceneState
 from app.hygiene_request import (
     approve_hygiene,
@@ -92,8 +92,14 @@ _CONFIG_KEYS = (
     "bot_allow_pillory",
     "bot_voice",
     "bot_voice_sample",
+    "bot_voice_blurb",
     "bot_intensity",
+    "bot_intensity_blurb",
     "bot_quirks",
+    "bot_bio",
+    "bot_greeting",
+    "bot_persona",
+    "bot_sex",
     "bot_name",
     "domme_title",
 )
@@ -271,7 +277,7 @@ def register_extension_routes(
 
     def _ext_asset_stamp() -> str:
         newest = 0
-        for name in ("index.html", "ext.js", "ext.css"):
+        for name in ("index.html", "ext.js", "ext.css", "config.html", "config.js"):
             p = EXT_DIR / name
             if p.is_file():
                 newest = max(newest, int(p.stat().st_mtime))
@@ -299,11 +305,11 @@ def register_extension_routes(
 
     @api.get("/ext/config")
     @api.get("/ext/config/")
-    async def ext_config_page() -> FileResponse:
+    async def ext_config_page() -> HTMLResponse:
         path = EXT_DIR / "config.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Config UI missing")
-        return _no_store_html(path)
+        return _stamped_ext_html(path)
 
     @api.post("/api/ext/session")
     async def ext_session(body: ExtSessionBody) -> dict:
@@ -321,6 +327,7 @@ def register_extension_routes(
             "session": public_session_view(sess),
             "bot_name": memory.bot_name or "Keyholder",
             "domme_title": memory.domme_title or "",
+            "bot_sex": str(getattr(controls, "bot_sex", "") or "female"),
             "autopilot": autopilot_status(settings),
             "hygiene": await _hygiene_view(),
             "lockbox": await _box_view(),
@@ -427,6 +434,7 @@ def register_extension_routes(
             "config": cfg,
             "session_id": raw.get("sessionId"),
             "extension_slug": raw.get("extensionSlug"),
+            "voice_catalog": voice_catalog(),
         }
 
     @api.post("/api/ext/config/save")
@@ -498,8 +506,14 @@ def register_extension_routes(
         cfg.setdefault("bot_allow_pillory", True)
         cfg.setdefault("bot_voice", "cruel")
         cfg.setdefault("bot_voice_sample", "")
+        cfg.setdefault("bot_voice_blurb", "")
         cfg.setdefault("bot_intensity", "firm")
+        cfg.setdefault("bot_intensity_blurb", "")
         cfg.setdefault("bot_quirks", "")
+        cfg.setdefault("bot_bio", "")
+        cfg.setdefault("bot_greeting", "")
+        cfg.setdefault("bot_persona", "friend")
+        cfg.setdefault("bot_sex", "female")
         return cfg
 
     def _sync_controls_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -540,6 +554,10 @@ def register_extension_routes(
             "config": {**merged, **{k: live[k] for k in live if k in _CONFIG_KEYS}},
             "session_id": sess.session_id,
             "autopilot": autopilot_status(settings),
+            "her_turn_ons": list(memory.her_turn_ons or []),
+            "her_fantasies": list(memory.her_fantasies or []),
+            "her_orgasms": list(memory.her_orgasms or [])[-8:],
+            "voice_catalog": voice_catalog(),
         }
 
     @api.post("/api/ext/settings/save")
@@ -588,6 +606,17 @@ def register_extension_routes(
             mem_updates["domme_title"] = str(clean["domme_title"]).strip()
         if mem_updates:
             memory.update_fields(**mem_updates)
+        taste = {}
+        if isinstance(raw.get("her_turn_ons"), list):
+            taste["her_turn_ons"] = [
+                str(x).strip() for x in raw["her_turn_ons"] if str(x).strip()
+            ][-40:]
+        if isinstance(raw.get("her_fantasies"), list):
+            taste["her_fantasies"] = [
+                str(x).strip() for x in raw["her_fantasies"] if str(x).strip()
+            ][-40:]
+        if taste:
+            memory.update_fields(**taste)
         import time as _time
 
         cache.put(

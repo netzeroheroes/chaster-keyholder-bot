@@ -261,15 +261,18 @@ async def react_to_lock_events(
         summary = format_history_event(ev)
         # Only true manual Mistress clicks — not bot API edits logged as keyholder.
         manual = role == "keyholder" and not _is_our_bot_action(ev)
+        from app.bot_persona import format_persona_block
+
         system = (
-            f"You are {bot}, the AI Domme/keyholder in GROUP chat (18+).\n"
-            f"ACTIVE CHANNEL: GROUP — Domme + Sub + you can all see this.\n"
+            f"You are {bot} in GROUP chat (18+).\n"
+            f"ACTIVE CHANNEL: GROUP — keyholder + lockee + you can all see this.\n"
             f"A real Chaster lock event just happened. React in 1–3 short sentences "
-            f"to the Sub (and {title} if relevant). Stay in character. "
+            f"to the lockee (and {title} if relevant). Stay in character. "
             f"Do NOT invent further lock changes. Do NOT emit [[[LOCK]]] tags.\n"
             f"IMPORTANT: In Chaster, 'extension' means a lock PLUGIN (wheel, tasks, "
             f"puzzle, etc.), NOT 'more lock time'. Never congratulate someone for "
             f"'an extension' unless a plugin was actually enabled/updated.\n"
+            f"{format_persona_block(room='group')}\n"
         )
         if manual:
             system += (

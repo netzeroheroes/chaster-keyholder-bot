@@ -117,6 +117,35 @@ from app.punish import (
     looks_like_obedience,
 )
 from app.runtime_controls import format_voice_block, get_controls
+from app.bot_persona import format_persona_block, persona_from_controls
+from app.her_taste import (
+    apply_her_taste,
+    format_learn_her_director,
+    format_orgasm_director,
+    parse_her_taste,
+    parse_orgasm_rating,
+    record_orgasm,
+    wants_her_taste,
+)
+from app.kink_probe import (
+    apply_probe_answer,
+    format_probe_director,
+    format_probe_summary,
+    start_probe,
+    wants_cancel_probe,
+    wants_kink_probe,
+    wants_probe_go,
+)
+from app.tease_play import (
+    current_genre,
+    fetch_game_ideas,
+    fetch_porn_videos,
+    format_game_director,
+    format_porn_director,
+    wants_game,
+    wants_online_ideas,
+    wants_porn,
+)
 from app.scene_builder import pick_toys, wants_scene_build
 from app.scene_interview import (
     apply_interview_answer,
@@ -286,7 +315,7 @@ def extract_spoken_user(content: str) -> str:
 def _clean_history_for_model(
     history: list[ChatCompletionMessageParam],
     *,
-    limit: int = 24,
+    limit: int = 36,
     room: Room | None = None,
 ) -> list[ChatCompletionMessageParam]:
     """Keep a short real conversation — not last turn's rule dump."""
@@ -480,7 +509,28 @@ async def handle_chat_turn(
             + "; ".join(f"{k}={', '.join(v)}" for k, v in kink_bits.items())
             + ". Use them. Do not re-ask.]"
         )
-    if role == "domme" and wants_intake(message):
+    if role == "domme":
+        her_bits = parse_her_taste(message)
+        if her_bits:
+            apply_her_taste(memory, her_bits)
+            extra_notes.append(
+                "[DIRECTOR: Stored HER turn-ons/fantasies this turn: "
+                + "; ".join(f"{k}={', '.join(v)}" for k, v in her_bits.items())
+                + ". Use these to run HIS lock for her.]"
+            )
+        orgasm = parse_orgasm_rating(message)
+        if orgasm is not None:
+            note_m = re.search(
+                r"\bnote[:\s]+(.{3,200})", message or "", re.I
+            )
+            note = note_m.group(1).strip() if note_m else ""
+            record_orgasm(memory, orgasm, note=note)
+            extra_notes.append(
+                format_orgasm_director(orgasm, note=note, room=room)
+            )
+        if wants_her_taste(message):
+            extra_notes.append(format_learn_her_director(room=room))
+    if role == "domme" and wants_intake(message) and not wants_kink_probe(message):
         extra_notes.append(intake_director(room=room))
     if wants_persona(message):
         extra_notes.append(persona_director(room=room))
@@ -686,6 +736,7 @@ async def handle_chat_turn(
 
     # Explicit memory commands (Domme) — deterministic, not LLM
     if role == "domme":
+        memory.ingest_spoken_notes(message, speaker=speaker)
         remember_fact = memory.parse_remember_command(message)
         forget_q = memory.parse_forget_command(message)
         if remember_fact:
@@ -756,6 +807,62 @@ async def handle_chat_turn(
             else:
                 extra_notes.append(format_interview_director(iv, room=room))
 
+    # Grill the lockee for kinks / tools to use against him
+    probe = dict(scene.snapshot().get("kink_probe") or {})
+    if wants_cancel_probe(message) and probe.get("active"):
+        scene.update(
+            kink_probe={
+                "active": False,
+                "step": "kinks",
+                "answers": dict(probe.get("answers") or {}),
+                "go_group": False,
+            }
+        )
+        extra_notes.append(
+            "[DIRECTOR: She cancelled the kink interview. "
+            "Acknowledge. Do not keep grilling him.]"
+        )
+    elif role == "domme" and (
+        wants_kink_probe(message)
+        or (probe.get("active") and wants_probe_go(message))
+    ):
+        if wants_kink_probe(message) and not probe.get("active"):
+            probe = start_probe(
+                go_group=(room == "group") or wants_probe_go(message)
+            )
+        elif wants_probe_go(message):
+            probe = dict(probe)
+            probe["active"] = True
+            probe["go_group"] = True
+        if room == "group":
+            probe["go_group"] = True
+        scene.update(kink_probe=probe)
+        extra_notes.append(format_probe_director(probe, room=room))
+    elif (
+        role == "sub"
+        and room == "group"
+        and probe.get("active")
+        and probe.get("go_group")
+    ):
+        probe = apply_probe_answer(probe, message, memory=memory)
+        scene.update(kink_probe=probe)
+        if not probe.get("active"):
+            extra_notes.append(format_probe_summary(probe, room=room))
+            try:
+                answers = probe.get("answers") if isinstance(probe.get("answers"), dict) else {}
+                body = "\n".join(
+                    f"{k}: {v}" for k, v in answers.items() if str(v).strip()
+                )
+                bridge.inject_private_note(
+                    store,
+                    "Kink probe done — for you only:\n" + body,
+                    speaker=bot_name,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Could not ping private with kink probe")
+        else:
+            extra_notes.append(format_probe_director(probe, room=room))
+
     # Keyholder week plan — skeleton stays private even if she asked in Group
     if role == "domme" and wants_week_plan(message):
         if room == "private":
@@ -771,6 +878,35 @@ async def handle_chat_turn(
                 "[DIRECTOR: She asked to plan in GROUP. He can see this. "
                 "One mystery tease — no week list, no toys, no what she will do.]"
             )
+
+    # Porn teases + games matched to this lock's flavour
+    spec = persona_from_controls()
+    tags = current_genre(
+        session_kinks=list(scene.session_kinks or []),
+        memory_kinks=list(getattr(memory, "kinks", None) or []),
+        play_flavors=str((scene.play_thread or {}).get("flavors") or ""),
+        persona=spec["persona"],
+        sex=spec["sex"],
+    )
+    if wants_porn(message):
+        videos = await fetch_porn_videos(tags)
+        extra_notes.append(
+            format_porn_director(tags=tags, videos=videos, room=room)
+        )
+    if wants_game(message):
+        ideas: list[str] = []
+        if wants_online_ideas(message) or (role == "domme" and room == "private"):
+            ideas = await fetch_game_ideas(tags)
+        extra_notes.append(
+            format_game_director(
+                tags=tags,
+                toys=list(scene.session_toys or []),
+                persona=spec["persona"],
+                sex=spec["sex"],
+                ideas=ideas,
+                room=room,
+            )
+        )
 
     # Domme Chaster orders — API is source of truth; action turns skip LLM claims
     chaster_note = ""
@@ -1379,6 +1515,8 @@ async def handle_chat_turn(
         + anti_loop
         + "\n"
         + format_voice_block(room=room)
+        + "\n"
+        + format_persona_block(room=room)
     )
     if room == "private":
         system_prompt += "\n" + PRACTICE_BLOCK

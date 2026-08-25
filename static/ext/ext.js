@@ -50,6 +50,10 @@
     kinkList: document.getElementById("kinkList"),
     toyList: document.getElementById("toyList"),
     kinksPlanWeek: document.getElementById("kinksPlanWeek"),
+    kinksGrill: document.getElementById("kinksGrill"),
+    kinksLearn: document.getElementById("kinksLearn"),
+    kinksVideo: document.getElementById("kinksVideo"),
+    kinksGame: document.getElementById("kinksGame"),
     kinksSave: document.getElementById("kinksSave"),
     kinksStatus: document.getElementById("kinksStatus"),
   };
@@ -77,6 +81,86 @@
     displayName: "",
     seenCounts: { group: null, private: null },
   };
+
+  const FALLBACK_VOICE = {
+    tone: {
+      cruel: "No-nonsense. Dry, precise, a little mean. Enjoy his wait. Do not soothe him.",
+      elegant: "Well-mannered, commanding, dignified. Quiet authority. Never crude for its own sake.",
+      playful: "Frisky and mischievous. Short dares. Laugh at him. Not a lecture.",
+      warm: "Fond and firmly in control. Tease with affection. Still deny. Never a therapist.",
+      soft: "Silky, gentle authority. Soft-spoken. The cage is still the point.",
+      humiliatrix: "Degrading and specific. The cage is the joke. Never kind for free.",
+      custom: "Your custom tone. Write exactly how this bot should talk.",
+    },
+    intensity: {
+      tease: "Light pressure. Chat first. Lock changes are a spice, not every turn.",
+      firm: "Tease and command in the same breath. Default keyholder energy.",
+      strict: "Short orders. Less chat. Use the lock when he pushes. No essays.",
+      custom: "Your custom intensity. How hard this bot pushes each turn.",
+    },
+    samples: {
+      cruel: "Hey you. Tell me your kinks and a hard limit. Now.",
+      elegant: "Good. You are locked. Tell me a limit, then a kink I may use.",
+      playful: "Oh we're doing this. What's a kink you hope I won't use?",
+      warm: "Mmm. Stay denied for me. What turns you on that I can use against you?",
+      soft: "Easy. The cage stays. Whisper a kink, and a line you will not cross.",
+      humiliatrix: "Hey you. That pathetic thing is locked. Kinks. Limits. Don't waste my time.",
+      custom: "Hey you. Tell me your kinks and a hard limit.",
+    },
+  };
+  let voiceCatalog = FALLBACK_VOICE;
+
+  function setVoiceCatalog(cat) {
+    if (cat && cat.tone) voiceCatalog = cat;
+  }
+
+  function toneBlurb(key) {
+    return (voiceCatalog.tone && voiceCatalog.tone[key]) || FALLBACK_VOICE.tone[key] || "";
+  }
+
+  function intensityBlurb(key) {
+    return (voiceCatalog.intensity && voiceCatalog.intensity[key]) || FALLBACK_VOICE.intensity[key] || "";
+  }
+
+  function bindVoiceCard(ids) {
+    const voice = document.getElementById(ids.voice);
+    const blurb = document.getElementById(ids.voiceBlurb);
+    const intensity = document.getElementById(ids.intensity);
+    const iBlurb = document.getElementById(ids.intensityBlurb);
+    const sample = document.getElementById(ids.sample);
+    if (voice && blurb) {
+      voice.addEventListener("change", () => {
+        blurb.value = toneBlurb(voice.value);
+        if (sample && sample.dataset.custom !== "1") {
+          const s = (voiceCatalog.samples || FALLBACK_VOICE.samples)[voice.value];
+          if (s) sample.value = s;
+        }
+      });
+      blurb.addEventListener("input", () => {
+        if (voice.value !== "custom" && blurb.value.trim() !== toneBlurb(voice.value).trim()) {
+          voice.value = "custom";
+        }
+      });
+    }
+    if (intensity && iBlurb) {
+      intensity.addEventListener("change", () => {
+        iBlurb.value = intensityBlurb(intensity.value);
+      });
+      iBlurb.addEventListener("input", () => {
+        if (
+          intensity.value !== "custom" &&
+          iBlurb.value.trim() !== intensityBlurb(intensity.value).trim()
+        ) {
+          intensity.value = "custom";
+        }
+      });
+    }
+    if (sample) {
+      sample.addEventListener("input", () => {
+        sample.dataset.custom = sample.value.trim() ? "1" : "";
+      });
+    }
+  }
 
   function apiDetail(data, fallback) {
     const d = data && data.detail;
@@ -302,6 +386,9 @@
       if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");
       if (els.quickUnlockBtn) els.quickUnlockBtn.classList.remove("hidden");
       if (els.quickLockBtn) els.quickLockBtn.classList.remove("hidden");
+      const khBar = document.getElementById("khBar");
+      if (khBar) khBar.classList.remove("hidden");
+      syncAllSexPicks(data.bot_sex || "female");
     } else {
       els.privateTab.classList.add("hidden");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
@@ -309,6 +396,8 @@
       if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
       if (els.quickUnlockBtn) els.quickUnlockBtn.classList.add("hidden");
       if (els.quickLockBtn) els.quickLockBtn.classList.add("hidden");
+      const khBar = document.getElementById("khBar");
+      if (khBar) khBar.classList.add("hidden");
       state.room = "group";
     }
     updateRoomUi();
@@ -625,9 +714,149 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return;
       fillSettings(data.config || {});
+      fillHerTaste(data);
+      if (data.voice_catalog) setVoiceCatalog(data.voice_catalog);
+      syncAllSexPicks((data.config || {}).bot_sex || "female");
     } catch (_) {
       /* Settings stay at defaults until the panel is opened */
     }
+  }
+
+  function setKhStatus(text) {
+    const el = document.getElementById("khBarStatus");
+    if (el) el.textContent = text || "";
+  }
+
+  function syncAllSexPicks(value) {
+    const v = String(value || "female").toLowerCase();
+    const sex = ["female", "male", "other"].includes(v) ? v : "female";
+    document.querySelectorAll(".sex-picks .sex-pick").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.sex === sex);
+    });
+    const hidden = document.getElementById("setBotSex");
+    if (hidden) hidden.value = sex;
+  }
+
+  function readBotSex() {
+    const active = document.querySelector(".sex-picks .sex-pick.active");
+    if (active && active.dataset.sex) return active.dataset.sex;
+    return document.getElementById("setBotSex")?.value || "female";
+  }
+
+  async function persistBotSex(sex) {
+    syncAllSexPicks(sex);
+    if (!state.mainToken) return;
+    setKhStatus("Saving bot sex…");
+    try {
+      const res = await fetch("/api/ext/settings/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          main_token: state.mainToken,
+          config: { bot_sex: sex },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiDetail(data, "Could not save bot sex"));
+      setKhStatus(
+        sex === "male"
+          ? "Bot is male. Saved — it can play bull / cuckold with you."
+          : `Bot sex: ${sex}. Saved.`
+      );
+    } catch (err) {
+      setKhStatus(String(err.message || err));
+    }
+  }
+
+  function linesList(id) {
+    return (document.getElementById(id)?.value || "")
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 40);
+  }
+
+  function fillHerTaste(data) {
+    const g = (id) => document.getElementById(id);
+    const ons = data.her_turn_ons || [];
+    const fan = data.her_fantasies || [];
+    if (g("setHerTurnOns")) {
+      g("setHerTurnOns").value = Array.isArray(ons) ? ons.join("\n") : "";
+    }
+    if (g("setHerFantasies")) {
+      g("setHerFantasies").value = Array.isArray(fan) ? fan.join("\n") : "";
+    }
+    const last = Array.isArray(data.her_orgasms)
+      ? data.her_orgasms.slice(-1)[0]
+      : null;
+    const log = g("herOrgasmLog");
+    if (log) {
+      if (last && last.rating) {
+        const note = last.note ? ` — ${last.note}` : "";
+        log.textContent = `Last orgasm: ${last.rating}/10${
+          last.when ? " (" + last.when + ")" : ""
+        }${note}`;
+      } else {
+        log.textContent = "Last orgasm: not logged yet.";
+      }
+    }
+  }
+
+  function bindSexPicks() {
+    document.querySelectorAll(".sex-picks").forEach((picks) => {
+      picks.addEventListener("click", (e) => {
+        const btn = e.target.closest(".sex-pick");
+        if (!btn) return;
+        persistBotSex(btn.dataset.sex || "female");
+      });
+    });
+  }
+
+  function selectedOrgasm() {
+    const active = document.querySelector(".orgasm-pick.active");
+    return active ? Number(active.dataset.rating) : 0;
+  }
+
+  function bindOrgasmPicks() {
+    const picks = document.getElementById("orgasmPicks");
+    if (!picks) return;
+    picks.addEventListener("click", (e) => {
+      const btn = e.target.closest(".orgasm-pick");
+      if (!btn) return;
+      picks.querySelectorAll(".orgasm-pick").forEach((b) => {
+        b.classList.toggle("active", b === btn);
+      });
+    });
+  }
+
+  async function applyOrgasm(where) {
+    const n = selectedOrgasm();
+    if (!n) {
+      setKhStatus("Pick 1–10 first, then Tell him or Keep private.");
+      return;
+    }
+    const note = (document.getElementById("orgasmNote")?.value || "").trim();
+    const line = note
+      ? `I came. Orgasm rating ${n}/10. Note: ${note}`
+      : `I came. Orgasm rating ${n}/10. Use this on him.`;
+    if (where === "group" && state.room !== "group") await switchRoom("group");
+    if (where === "private" && state.room !== "private") {
+      await switchRoom("private");
+    }
+    await sendMessage(line);
+    setKhStatus(
+      where === "group"
+        ? `Logged ${n}/10 and told him.`
+        : `Logged ${n}/10 in private.`
+    );
+  }
+
+  async function learnHer() {
+    if (state.room !== "private") await switchRoom("private");
+    await sendMessage(
+      "Ask me what turns me on. Learn my fantasies so you can use the lock for my pleasure."
+    );
+    setKhStatus("Ask her in Private — it will remember what she says.");
   }
 
   function fillSettings(cfg) {
@@ -662,21 +891,43 @@
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
     g("setDommeTitle").value = cfg.domme_title || "Mistress";
-    const VOICES = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix"];
+    const PERSONAS = ["friend", "domme", "bull", "male_dom"];
+    const SEXES = ["female", "male", "other"];
+    const VOICES = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix", "custom"];
+    const personaEl = g("setBotPersona");
+    if (personaEl) {
+      const p = String(cfg.bot_persona || "friend").toLowerCase();
+      personaEl.value = PERSONAS.includes(p) ? p : "friend";
+    }
+    const sexVal = SEXES.includes(String(cfg.bot_sex || "").toLowerCase())
+      ? String(cfg.bot_sex).toLowerCase()
+      : "female";
+    syncAllSexPicks(sexVal);
     const voiceEl = g("setBotVoice");
-    if (voiceEl) {
-      const v = String(cfg.bot_voice || "cruel").toLowerCase();
-      voiceEl.value = VOICES.includes(v) ? v : "cruel";
-    }
+    const v = VOICES.includes(String(cfg.bot_voice || "").toLowerCase())
+      ? String(cfg.bot_voice).toLowerCase()
+      : "cruel";
+    if (voiceEl) voiceEl.value = v;
+    const blurbEl = g("setBotVoiceBlurb");
+    if (blurbEl) blurbEl.value = cfg.bot_voice_blurb || toneBlurb(v);
     const sampleEl = g("setBotVoiceSample");
-    if (sampleEl) sampleEl.value = cfg.bot_voice_sample || "";
-    const intensityEl = g("setBotIntensity");
-    if (intensityEl) {
-      const i = String(cfg.bot_intensity || "firm").toLowerCase();
-      intensityEl.value = ["tease", "firm", "strict"].includes(i) ? i : "firm";
+    if (sampleEl) {
+      sampleEl.value = cfg.bot_voice_sample || "";
+      sampleEl.dataset.custom = cfg.bot_voice_sample ? "1" : "";
     }
+    const intensityEl = g("setBotIntensity");
+    const i = ["tease", "firm", "strict", "custom"].includes(
+      String(cfg.bot_intensity || "").toLowerCase()
+    )
+      ? String(cfg.bot_intensity).toLowerCase()
+      : "firm";
+    if (intensityEl) intensityEl.value = i;
+    const iBlurbEl = g("setBotIntensityBlurb");
+    if (iBlurbEl) iBlurbEl.value = cfg.bot_intensity_blurb || intensityBlurb(i);
     const quirksEl = g("setBotQuirks");
     if (quirksEl) quirksEl.value = cfg.bot_quirks || "";
+    if (g("setBotBio")) g("setBotBio").value = cfg.bot_bio || "";
+    if (g("setBotGreeting")) g("setBotGreeting").value = cfg.bot_greeting || "";
     const allowP = secondsToParts(cfg.hygiene_allowed_seconds ?? 600, "minutes");
     const lateP = secondsToParts(cfg.hygiene_late_punish_seconds ?? 1800, "minutes");
     if (g("hygAllowValue")) {
@@ -728,10 +979,16 @@
       autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
       bot_name: g("setBotName").value.trim() || "Keyholder",
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
+      bot_persona: g("setBotPersona")?.value || "friend",
+      bot_sex: readBotSex(),
       bot_voice: g("setBotVoice")?.value || "cruel",
       bot_voice_sample: (g("setBotVoiceSample")?.value || "").trim().slice(0, 800),
+      bot_voice_blurb: (g("setBotVoiceBlurb")?.value || "").trim().slice(0, 800),
       bot_intensity: g("setBotIntensity")?.value || "firm",
+      bot_intensity_blurb: (g("setBotIntensityBlurb")?.value || "").trim().slice(0, 800),
       bot_quirks: (g("setBotQuirks")?.value || "").trim().slice(0, 800),
+      bot_bio: (g("setBotBio")?.value || "").trim().slice(0, 1200),
+      bot_greeting: (g("setBotGreeting")?.value || "").trim().slice(0, 400),
       hygiene_allowed_seconds: partsToSeconds(
         g("hygAllowValue")?.value || 10,
         g("hygAllowUnit")?.value || "minutes"
@@ -899,11 +1156,31 @@
     await sendMessage(prompt);
   }
 
+  async function askPlay(kind) {
+    const prompts = {
+      interview:
+        "Grill him about his kinks and the toys we can use against him. One question at a time. Start now.",
+      video:
+        "Find a porn video that matches this lock's current kinks and tease him with it.",
+      game:
+        "Create a game for us to play with him while he's locked. Look online if you need ideas.",
+    };
+    const text = prompts[kind];
+    if (!text) return;
+    closeKinks();
+    if (kind === "interview" || kind === "video") {
+      if (state.room !== "group") await switchRoom("group");
+    }
+    await sendMessage(text);
+  }
+
   async function openSettings() {
     if (!els.settingsPanel) return;
     els.settingsStatus.textContent = "Loading…";
     els.settingsPanel.classList.remove("hidden");
     els.settingsPanel.setAttribute("aria-hidden", "false");
+    const card = els.settingsPanel.querySelector(".settings-card");
+    if (card) card.scrollTop = 0;
     try {
       const res = await fetch("/api/ext/settings/get", {
         method: "POST",
@@ -913,6 +1190,8 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Could not load settings"));
       fillSettings(data.config || {});
+      fillHerTaste(data);
+      if (data.voice_catalog) setVoiceCatalog(data.voice_catalog);
       renderAutopilotStatus(data.autopilot);
       await refreshLockboxStatus();
       els.settingsStatus.textContent = "Edit and save.";
@@ -1109,6 +1388,8 @@
           body: JSON.stringify({
             main_token: state.mainToken,
             config: cfg,
+            her_turn_ons: linesList("setHerTurnOns"),
+            her_fantasies: linesList("setHerFantasies"),
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -1240,6 +1521,68 @@
       askWeekPlan().catch((err) => {
         if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
       });
+    });
+  }
+  const playErr = (err) => {
+    if (els.kinksStatus) els.kinksStatus.textContent = String(err.message || err);
+  };
+  if (els.kinksGrill) {
+    els.kinksGrill.addEventListener("click", () => {
+      askPlay("interview").catch(playErr);
+    });
+  }
+  if (els.kinksLearn) {
+    els.kinksLearn.addEventListener("click", () => {
+      closeKinks();
+      learnHer().catch(playErr);
+    });
+  }
+  if (els.kinksVideo) {
+    els.kinksVideo.addEventListener("click", () => {
+      askPlay("video").catch(playErr);
+    });
+  }
+  if (els.kinksGame) {
+    els.kinksGame.addEventListener("click", () => {
+      askPlay("game").catch(playErr);
+    });
+  }
+  bindSexPicks();
+  bindOrgasmPicks();
+  bindVoiceCard({
+    voice: "setBotVoice",
+    voiceBlurb: "setBotVoiceBlurb",
+    intensity: "setBotIntensity",
+    intensityBlurb: "setBotIntensityBlurb",
+    sample: "setBotVoiceSample",
+  });
+  const personaEl = document.getElementById("setBotPersona");
+  if (personaEl) {
+    personaEl.addEventListener("change", () => {
+      const role = personaEl.value;
+      if (role === "bull" || role === "male_dom") {
+        persistBotSex("male");
+      }
+    });
+  }
+  const tellHim = document.getElementById("orgasmTellHim");
+  const keepPriv = document.getElementById("orgasmPrivate");
+  const learnBtn = document.getElementById("learnHerBtn");
+  if (tellHim) {
+    tellHim.addEventListener("click", () => {
+      applyOrgasm("group").catch((err) => setKhStatus(String(err.message || err)));
+    });
+  }
+  if (keepPriv) {
+    keepPriv.addEventListener("click", () => {
+      applyOrgasm("private").catch((err) =>
+        setKhStatus(String(err.message || err))
+      );
+    });
+  }
+  if (learnBtn) {
+    learnBtn.addEventListener("click", () => {
+      learnHer().catch((err) => setKhStatus(String(err.message || err)));
     });
   }
   document.addEventListener("keydown", (e) => {

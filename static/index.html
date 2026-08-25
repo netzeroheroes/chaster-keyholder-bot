@@ -95,6 +95,110 @@
             <input id="subName" type="text" placeholder="Sub name" />
           </label>
         </div>
+        <div class="controls-block">
+          <p class="field-label">Bot sex</p>
+          <p class="meta">Always visible here. Male can play bull / cuckold with you while he stays locked.</p>
+          <div class="sex-picks" id="botSexPicks" role="group" aria-label="Bot sex">
+            <button type="button" class="sex-pick active" data-sex="female">Female</button>
+            <button type="button" class="sex-pick" data-sex="male">Male</button>
+            <button type="button" class="sex-pick" data-sex="other">Other</button>
+          </div>
+          <input type="hidden" id="botSex" value="female" />
+          <div class="name-row">
+            <label class="field">
+              <span>Role</span>
+              <select id="botPersona">
+                <option value="friend" selected>Friend — co-keyholder</option>
+                <option value="domme">Domme — authority</option>
+                <option value="bull">Bull — plays with you, he stays caged</option>
+                <option value="male_dom">Male Dom — your male co-keyholder</option>
+              </select>
+            </label>
+          </div>
+          <div class="name-row">
+            <label class="field">
+              <span>Tone</span>
+              <select id="botVoice">
+                <option value="cruel" selected>Cruel</option>
+                <option value="elegant">Elegant</option>
+                <option value="playful">Playful</option>
+                <option value="warm">Warm</option>
+                <option value="soft">Soft</option>
+                <option value="humiliatrix">Humiliatrix</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Intensity</span>
+              <select id="botIntensity">
+                <option value="tease">Tease</option>
+                <option value="firm" selected>Firm</option>
+                <option value="strict">Strict</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>What this tone means (edit to make Custom)</span>
+            <textarea id="botVoiceBlurb" rows="3"></textarea>
+          </label>
+          <label class="field">
+            <span>What this intensity means (edit to make Custom)</span>
+            <textarea id="botIntensityBlurb" rows="2"></textarea>
+          </label>
+          <label class="field">
+            <span>Who they are</span>
+            <textarea id="botBio" rows="3" placeholder="I am a 23 year old dominatrix. Creative. Bondage, humiliation, mind games."></textarea>
+          </label>
+          <label class="field">
+            <span>First line / greeting</span>
+            <textarea id="botGreeting" rows="2" placeholder="Hey you, tell me your kinks and limits?"></textarea>
+          </label>
+          <label class="field">
+            <span>Voice sample — how they sound</span>
+            <textarea id="botVoiceSample" rows="3" placeholder="Hey you — kinks and a hard limit."></textarea>
+          </label>
+          <label class="field">
+            <span>Quirks / inside jokes</span>
+            <textarea id="botQuirks" rows="2"></textarea>
+          </label>
+          <button type="button" id="savePersona" class="btn primary">Save personality</button>
+          <p class="meta" id="personaStatus"></p>
+        </div>
+        <div class="controls-block">
+          <p class="field-label">Your pleasure</p>
+          <p class="meta">Rate an orgasm and the bot deals with him. It also learns what turns you on.</p>
+          <div class="orgasm-picks" id="orgasmPicks" role="group" aria-label="Orgasm rating 1 to 10">
+            <button type="button" class="orgasm-pick" data-rating="1">1</button>
+            <button type="button" class="orgasm-pick" data-rating="2">2</button>
+            <button type="button" class="orgasm-pick" data-rating="3">3</button>
+            <button type="button" class="orgasm-pick" data-rating="4">4</button>
+            <button type="button" class="orgasm-pick" data-rating="5">5</button>
+            <button type="button" class="orgasm-pick" data-rating="6">6</button>
+            <button type="button" class="orgasm-pick" data-rating="7">7</button>
+            <button type="button" class="orgasm-pick" data-rating="8">8</button>
+            <button type="button" class="orgasm-pick" data-rating="9">9</button>
+            <button type="button" class="orgasm-pick" data-rating="10">10</button>
+          </div>
+          <label class="field">
+            <span>What worked / what didn’t (optional)</span>
+            <input id="orgasmNote" type="text" maxlength="200" placeholder="e.g. the cuck talk, him locked while I came" />
+          </label>
+          <div class="actions">
+            <button type="button" id="orgasmTellHim" class="btn primary">Tell him</button>
+            <button type="button" id="orgasmPrivate" class="btn ghost">Keep private</button>
+            <button type="button" id="learnHerBtn" class="btn ghost">Learn me</button>
+          </div>
+          <label class="field">
+            <span>What turns you on</span>
+            <textarea id="herTurnOns" rows="3" placeholder="One per line"></textarea>
+          </label>
+          <label class="field">
+            <span>Fantasies you want used on him</span>
+            <textarea id="herFantasies" rows="3" placeholder="One per line"></textarea>
+          </label>
+          <p class="meta" id="herOrgasmLog">Last orgasm: not logged yet.</p>
+        </div>
         <label class="field grow">
           <span>Active plan (Sub never sees this text)</span>
           <textarea id="directives" spellcheck="false" placeholder="What should happen when you execute…"></textarea>
@@ -112,6 +216,13 @@
           <div class="actions">
             <button type="button" id="openKit" class="btn primary">Choose toys &amp; kinks</button>
             <button type="button" id="planWeek" class="btn ghost">Plan the week</button>
+          </div>
+          <div class="actions">
+            <button type="button" id="grillHim" class="btn ghost">Interview him</button>
+            <button type="button" id="suggestVideo" class="btn ghost">Suggest a video</button>
+          </div>
+          <div class="actions">
+            <button type="button" id="makeGame" class="btn ghost">Make a game</button>
           </div>
         </div>
 

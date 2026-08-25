@@ -215,7 +215,7 @@ def repair_bot_submissive(
     sub = (sub_name or "BOY").strip() or "BOY"
     bot = (bot_name or "Keyholder").strip() or "Keyholder"
     return (
-        f"{sub} — watch your mouth. I am {bot}, a Domme keyholder — not your peer, "
+        f"{sub} — watch your mouth. I am {bot} — not your peer, "
         f"not a slut, and not {title}'s obedient servant. "
         f"{title} and I control your lock. That insolence earns a real consequence."
     )
@@ -369,8 +369,10 @@ def looks_like_image_dump(text: str) -> bool:
 
 
 _LEAKED_BRACKET = re.compile(
-    r"\[(?:ADDRESS|IDENTITY|CHANNEL|DIRECTOR|HARD RULES|WHO IS SPEAKING|SYSTEM)"
-    r"[^\]]{0,240}\]\s*",
+    r"\[(?:ADDRESS|IDENTITY|CHANNEL|DIRECTOR|HARD RULES|WHO IS SPEAKING|SYSTEM"
+    r"|PERSONA|VOICE|TEASE VIDEO|PLAY GAME|KINK PROBE|SCENE INTERVIEW|SCENE GUIDE"
+    r"|WEEK PLANNER|KIT CHOICE|SESSION KIT)"
+    r"[^\]]{0,400}\]\s*",
     re.I,
 )
 _LEAKED_PROMPT = re.compile(

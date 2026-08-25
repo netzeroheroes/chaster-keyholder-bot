@@ -27,7 +27,7 @@ from app.lockbox_sync import (
     unlock_for_hygiene,
 )
 from app.rad_lockbox import RadLockboxClient, get_rad_client
-from app.runtime_controls import init_controls
+from app.runtime_controls import init_controls, voice_catalog
 
 from app.agent import ChatAgent
 from app.bridge import GroupBridge
@@ -126,6 +126,9 @@ class MemoryUpdate(BaseModel):
     private_bond: list[str] | None = None
     facts: list[str] | None = None
     lock_log: list[str] | None = None
+    her_turn_ons: list[str] | None = None
+    her_fantasies: list[str] | None = None
+    her_orgasms: list[dict] | None = None
 
 
 class ChasterTimeRequest(BaseModel):
@@ -189,8 +192,14 @@ class ControlsUpdate(BaseModel):
     bot_allow_pillory: bool | None = None
     bot_voice: str | None = None
     bot_voice_sample: str | None = None
+    bot_voice_blurb: str | None = None
     bot_intensity: str | None = None
+    bot_intensity_blurb: str | None = None
     bot_quirks: str | None = None
+    bot_bio: str | None = None
+    bot_greeting: str | None = None
+    bot_persona: str | None = None
+    bot_sex: str | None = None
 
 
 def create_api(
@@ -432,7 +441,7 @@ def create_api(
         if role != "domme":
             raise HTTPException(status_code=403, detail="Domme only")
         _check_pin(role, x_role_pin)
-        return {**controls.snapshot(), "in_window": in_window(settings)}
+        return {**controls.snapshot(), "in_window": in_window(settings), "voice_catalog": voice_catalog()}
 
     @api.patch("/api/controls")
     async def patch_controls(body: ControlsUpdate) -> dict:

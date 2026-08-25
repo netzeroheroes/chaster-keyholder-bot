@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -56,6 +57,27 @@ async def http_post(args: dict[str, Any]) -> str:
             },
             default=str,
         )
+
+
+async def _search_tease_videos(args: dict[str, Any]) -> str:
+    from app.tease_play import fetch_porn_videos, search_url
+
+    query = str(args.get("query") or "chastity").strip() or "chastity"
+    tags = [part.strip() for part in re.split(r"[,\s]+", query) if part.strip()]
+    videos = await fetch_porn_videos(tags)
+    return json.dumps(
+        {"query": query, "videos": videos, "search_url": search_url(tags)},
+        default=str,
+    )
+
+
+async def _search_play_ideas(args: dict[str, Any]) -> str:
+    from app.tease_play import fetch_game_ideas
+
+    query = str(args.get("query") or "chastity game").strip() or "chastity game"
+    tags = [part.strip() for part in re.split(r"[,\s]+", query) if part.strip()]
+    ideas = await fetch_game_ideas(tags)
+    return json.dumps({"query": query, "ideas": ideas}, default=str)
 
 
 def build_default_registry() -> ToolRegistry:
@@ -119,6 +141,47 @@ def build_default_registry() -> ToolRegistry:
                 "required": ["url"],
             },
             handler=http_post,
+        )
+    )
+    registry.register(
+        Tool(
+            name="search_tease_videos",
+            description=(
+                "Search adult video clips matching a chastity/lock genre "
+                "(cuckold, SPH, denial, etc). 18+ only. Use when the keyholder "
+                "wants porn to tease the lockee."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms, e.g. 'cuckold chastity'",
+                    }
+                },
+                "required": ["query"],
+            },
+            handler=_search_tease_videos,
+        )
+    )
+    registry.register(
+        Tool(
+            name="search_play_ideas",
+            description=(
+                "Look up chastity / keyholder game and task ideas online. "
+                "Use when inventing a game and local ideas are not enough."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms for games or tasks",
+                    }
+                },
+                "required": ["query"],
+            },
+            handler=_search_play_ideas,
         )
     )
     return registry

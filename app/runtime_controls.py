@@ -44,11 +44,17 @@ class RuntimeControls:
     bot_allow_freeze: bool = True
     bot_allow_hide_timer: bool = True
     bot_allow_pillory: bool = True
-    # How the AI Domme talks (Settings → Voice)
+    # How the AI talks (Settings → Voice / persona)
     bot_voice: str = "cruel"
     bot_voice_sample: str = ""
+    bot_voice_blurb: str = ""
     bot_intensity: str = "firm"
+    bot_intensity_blurb: str = ""
     bot_quirks: str = ""
+    bot_bio: str = ""
+    bot_greeting: str = ""
+    bot_persona: str = "friend"
+    bot_sex: str = "female"
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -79,8 +85,14 @@ class RuntimeControls:
             bot_allow_pillory=getattr(settings, "bot_allow_pillory", True),
             bot_voice=getattr(settings, "bot_voice", "cruel") or "cruel",
             bot_voice_sample=getattr(settings, "bot_voice_sample", "") or "",
+            bot_voice_blurb=getattr(settings, "bot_voice_blurb", "") or "",
             bot_intensity=getattr(settings, "bot_intensity", "firm") or "firm",
+            bot_intensity_blurb=getattr(settings, "bot_intensity_blurb", "") or "",
             bot_quirks=getattr(settings, "bot_quirks", "") or "",
+            bot_bio=getattr(settings, "bot_bio", "") or "",
+            bot_greeting=getattr(settings, "bot_greeting", "") or "",
+            bot_persona=getattr(settings, "bot_persona", "friend") or "friend",
+            bot_sex=getattr(settings, "bot_sex", "female") or "female",
         )
 
     @classmethod
@@ -134,6 +146,21 @@ class RuntimeControls:
                 self.max_add_time_seconds = hi
                 self.hard_add_time_seconds = hi
                 self.default_add_time_seconds = hi
+            from app.bot_persona import (
+                default_sex_for,
+                normalize_persona,
+                normalize_sex,
+            )
+
+            if "bot_voice" in kwargs:
+                self.bot_voice = normalize_voice(self.bot_voice)
+            if "bot_intensity" in kwargs:
+                self.bot_intensity = normalize_intensity(self.bot_intensity)
+            if "bot_persona" in kwargs or "bot_sex" in kwargs:
+                role = normalize_persona(self.bot_persona)
+                self.bot_persona = role
+                sex = normalize_sex(self.bot_sex)
+                self.bot_sex = sex or default_sex_for(role)
             if self.min_add_time_seconds > self.max_add_time_seconds:
                 self.min_add_time_seconds, self.max_add_time_seconds = (
                     self.max_add_time_seconds,
@@ -236,6 +263,7 @@ VOICE_PRESETS = {
     "humiliatrix": (
         "Degrading and specific. The cage is the joke. Never kind for free."
     ),
+    "custom": "Your custom tone. Write exactly how this bot should talk.",
 }
 
 INTENSITY_PRESETS = {
@@ -248,7 +276,36 @@ INTENSITY_PRESETS = {
     "strict": (
         "Short orders. Less chat. Use the lock when he pushes. No essays."
     ),
+    "custom": "Your custom intensity. How hard this bot pushes each turn.",
 }
+
+VOICE_SAMPLES = {
+    "cruel": "Hey you. Tell me your kinks and a hard limit. Now.",
+    "elegant": "Good. You are locked. Tell me a limit, then a kink I may use.",
+    "playful": "Oh we're doing this. What's a kink you hope I won't use?",
+    "warm": "Mmm. Stay denied for me. What turns you on that I can use against you?",
+    "soft": "Easy. The cage stays. Whisper a kink, and a line you will not cross.",
+    "humiliatrix": "Hey you. That pathetic thing is locked. Kinks. Limits. Don't waste my time.",
+    "custom": "Hey you. Tell me your kinks and a hard limit.",
+}
+
+
+def normalize_voice(raw: str | None) -> str:
+    key = str(raw or "").strip().lower()
+    return key if key in VOICE_PRESETS else "cruel"
+
+
+def normalize_intensity(raw: str | None) -> str:
+    key = str(raw or "").strip().lower()
+    return key if key in INTENSITY_PRESETS else "firm"
+
+
+def voice_catalog() -> dict[str, dict[str, str]]:
+    return {
+        "tone": dict(VOICE_PRESETS),
+        "intensity": dict(INTENSITY_PRESETS),
+        "samples": dict(VOICE_SAMPLES),
+    }
 
 
 MISS_G_GROUP_SAMPLE = (
@@ -257,39 +314,73 @@ MISS_G_GROUP_SAMPLE = (
 
 
 def format_voice_block(*, room: str = "") -> str:
-    """Inject Settings → Voice into the model prompt."""
+    """Inject Settings → Voice / character card into the model prompt."""
     try:
         controls = get_controls()
     except RuntimeError:
         return ""
-    key = str(getattr(controls, "bot_voice", "") or "cruel").strip().lower()
-    if key not in VOICE_PRESETS:
-        key = "cruel"
-    intensity = str(getattr(controls, "bot_intensity", "") or "firm").strip().lower()
-    if intensity not in INTENSITY_PRESETS:
-        intensity = "firm"
+    key = normalize_voice(getattr(controls, "bot_voice", "") or "cruel")
+    intensity = normalize_intensity(getattr(controls, "bot_intensity", "") or "firm")
+    tone_text = (
+        str(getattr(controls, "bot_voice_blurb", "") or "").strip()
+        or VOICE_PRESETS[key]
+    )[:800]
+    intensity_text = (
+        str(getattr(controls, "bot_intensity_blurb", "") or "").strip()
+        or INTENSITY_PRESETS[intensity]
+    )[:800]
     sample = str(getattr(controls, "bot_voice_sample", "") or "").strip()[:800]
     quirks = str(getattr(controls, "bot_quirks", "") or "").strip()[:800]
+    bio = str(getattr(controls, "bot_bio", "") or "").strip()[:1200]
+    greeting = str(getattr(controls, "bot_greeting", "") or "").strip()[:400]
+    from app.bot_persona import BULL_GROUP_SAMPLE, MALE_DOM_GROUP_SAMPLE, resolve_persona
+
+    spec = resolve_persona(controls=controls)
     lines = [
-        "[VOICE — Settings]",
-        f"Tone: {key}. {VOICE_PRESETS[key]}",
-        f"Intensity: {intensity}. {INTENSITY_PRESETS[intensity]}",
+        "[VOICE — HARD. Sound like THIS, not a generic chatbot.]",
+        f"Tone ({key}): {tone_text}",
+        f"Intensity ({intensity}): {intensity_text}",
         "Match this in every reply. Do not name the setting.",
         "Read his last beat (beg / brat / quiet) and answer it — "
         "do not soften the lock to comfort him.",
     ]
+    if bio:
+        lines.append("WHO YOU ARE (character card — stay in this):")
+        lines.append(bio)
+    if greeting:
+        lines.append("OPENING ENERGY — first-message vibe to keep using:")
+        lines.append(greeting)
     if sample:
-        lines.append("Match this sample of her voice:")
+        lines.append("SPEAK LIKE THIS SAMPLE (copy the rhythm, not the exact words every time):")
         lines.append(sample)
     if quirks:
         lines.append("Quirks / inside jokes to keep using:")
         lines.append(quirks)
     if (room or "").strip().lower() == "group":
-        lines.append(
-            "GROUP: Bratty mind games with the lock time. She is his girlfriend — "
-            "you talked her into this. Short questions. No (brackets). Never call her pet."
-        )
-        if not sample:
-            lines.append("Match this sample of her voice:")
-            lines.append(MISS_G_GROUP_SAMPLE)
+        male = spec["sex"] == "male" or spec["persona"] in {"bull", "male_dom"}
+        if spec["persona"] == "bull" or (male and spec["persona"] != "male_dom"):
+            lines.append(
+                "GROUP: Male voice. She is his girlfriend — you can play with her "
+                "while he stays locked (cuck / bull). Short questions. No (brackets). "
+                "Never call her pet."
+            )
+            if not sample:
+                lines.append("SPEAK LIKE THIS SAMPLE:")
+                lines.append(BULL_GROUP_SAMPLE)
+        elif spec["persona"] == "male_dom" or male:
+            lines.append(
+                "GROUP: Male Dom mind games with the lock. She is the keyholder. "
+                "Short questions. No (brackets). Never call her pet."
+            )
+            if not sample:
+                lines.append("SPEAK LIKE THIS SAMPLE:")
+                lines.append(MALE_DOM_GROUP_SAMPLE)
+        else:
+            lines.append(
+                "GROUP: Bratty mind games with the lock time. She is his girlfriend — "
+                "you talked her into this. Short questions. No (brackets). Never call her pet."
+            )
+            if not sample:
+                lines.append("SPEAK LIKE THIS SAMPLE:")
+                lines.append(MISS_G_GROUP_SAMPLE)
     return "\n".join(lines)

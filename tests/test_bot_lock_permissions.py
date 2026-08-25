@@ -52,18 +52,29 @@ class BotLockPermissionTests(unittest.TestCase):
         self.ctrl.bot_voice = "warm"
         self.ctrl.bot_voice_sample = "Mmm. Stay denied, darling."
         text = rc.format_voice_block()
-        self.assertIn("Tone: warm", text)
+        self.assertIn("Tone (warm):", text)
         self.assertIn("Stay denied, darling", text)
-        self.assertIn("Intensity: firm", text)
+        self.assertIn("Intensity (firm):", text)
 
     def test_voice_includes_quirks_and_intensity(self) -> None:
         self.ctrl.bot_voice = "elegant"
         self.ctrl.bot_intensity = "strict"
         self.ctrl.bot_quirks = "calls him pet"
         text = rc.format_voice_block()
-        self.assertIn("Tone: elegant", text)
-        self.assertIn("Intensity: strict", text)
+        self.assertIn("Tone (elegant):", text)
+        self.assertIn("Intensity (strict):", text)
         self.assertIn("calls him pet", text)
+
+    def test_custom_tone_blurb_beats_preset(self) -> None:
+        self.ctrl.bot_voice = "custom"
+        self.ctrl.bot_voice_blurb = "Cocky. Short. Always mentions the cage."
+        self.ctrl.bot_bio = "I am 23. I run mind games."
+        self.ctrl.bot_greeting = "Hey you, tell me your kinks and limits?"
+        text = rc.format_voice_block()
+        self.assertIn("Cocky. Short", text)
+        self.assertIn("I am 23", text)
+        self.assertIn("Hey you, tell me your kinks", text)
+        self.assertNotIn("No-nonsense. Dry, precise", text)
 
     def test_group_voice_uses_miss_g_sample(self) -> None:
         self.ctrl.bot_voice_sample = ""

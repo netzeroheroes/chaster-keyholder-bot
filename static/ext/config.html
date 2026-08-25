@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Extension configure</title>
-  <link rel="stylesheet" href="/static/ext/ext.css" />
+  <link rel="stylesheet" href="/static/ext/ext.css?v=EXT_BUILD" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.9/iframeResizer.contentWindow.min.js"></script>
 </head>
 <body class="config-body">
@@ -18,8 +18,33 @@
     <p class="title">Bot timings &amp; lock controls</p>
     <p class="meta">Saved into this lock’s extension config. Outsiders without a Chaster token see nothing.</p>
 
-    <p class="title" style="font-size:1rem">Voice</p>
-    <p class="meta">Archetype, pressure, and quirks.</p>
+    <p class="title" style="font-size:1rem">Bot sex</p>
+    <p class="meta">Who the bot is. Male can play bull / cuckold with you while he stays locked. This is also on the chat bar after you save.</p>
+    <div class="sex-picks" id="botSexPicks" role="group" aria-label="Bot sex">
+      <button type="button" class="sex-pick active" data-sex="female">Female</button>
+      <button type="button" class="sex-pick" data-sex="male">Male</button>
+      <button type="button" class="sex-pick" data-sex="other">Other</button>
+    </div>
+    <input type="hidden" id="botSex" value="female" />
+    <p class="title" style="font-size:1rem">Create the bot</p>
+    <p class="meta">Tone and intensity show below — edit the text and save as Custom. Add who they are and a first line.</p>
+    <label class="field">
+      <span>Role</span>
+      <select id="botPersona">
+        <option value="friend" selected>Friend — co-keyholder</option>
+        <option value="domme">Domme</option>
+        <option value="bull">Bull</option>
+        <option value="male_dom">Male Dom</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Who they are</span>
+      <textarea id="botBio" rows="3" placeholder="I am a 23 year old dominatrix. Creative. Bondage, humiliation, mind games."></textarea>
+    </label>
+    <label class="field">
+      <span>First line / greeting</span>
+      <textarea id="botGreeting" rows="2" placeholder="Hey you, tell me your kinks and limits?"></textarea>
+    </label>
     <label class="field">
       <span>Tone</span>
       <select id="botVoice">
@@ -29,7 +54,12 @@
         <option value="warm">Warm</option>
         <option value="soft">Soft</option>
         <option value="humiliatrix">Humiliatrix</option>
+        <option value="custom">Custom</option>
       </select>
+    </label>
+    <label class="field">
+      <span>What this tone means (edit to make Custom)</span>
+      <textarea id="botVoiceBlurb" rows="3"></textarea>
     </label>
     <label class="field">
       <span>Intensity</span>
@@ -37,10 +67,15 @@
         <option value="tease">Tease</option>
         <option value="firm" selected>Firm</option>
         <option value="strict">Strict</option>
+        <option value="custom">Custom</option>
       </select>
     </label>
     <label class="field">
-      <span>How she sounds (optional)</span>
+      <span>What this intensity means (edit to make Custom)</span>
+      <textarea id="botIntensityBlurb" rows="2"></textarea>
+    </label>
+    <label class="field">
+      <span>Voice sample — how they sound</span>
       <textarea id="botVoiceSample" rows="3" placeholder="Hey you — kinks and a hard limit. Short, direct, a little mean."></textarea>
     </label>
     <label class="field">
@@ -103,6 +138,6 @@
     <p id="cfgStatus" class="status"></p>
   </form>
 
-  <script src="/static/ext/config.js"></script>
+  <script src="/static/ext/config.js?v=EXT_BUILD"></script>
 </body>
 </html>

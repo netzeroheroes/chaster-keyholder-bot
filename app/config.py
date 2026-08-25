@@ -110,8 +110,14 @@ class Settings(BaseSettings):
     bot_allow_pillory: bool = True
     bot_voice: str = "cruel"
     bot_voice_sample: str = ""
+    bot_voice_blurb: str = ""
     bot_intensity: str = "firm"
+    bot_intensity_blurb: str = ""
     bot_quirks: str = ""
+    bot_bio: str = ""
+    bot_greeting: str = ""
+    bot_persona: str = "friend"
+    bot_sex: str = "female"
 
     # Chaster partner extension (iframe) hosting
     # Main/config pages must be public HTTPS; content is token-gated.

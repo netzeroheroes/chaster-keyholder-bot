@@ -205,14 +205,17 @@ async def run_unprompted_tick(
             else:
                 chaster_line = "\n[LOCK CHANGE skipped/failed — do not invent one.]"
 
+    from app.bot_persona import format_persona_block
+
     system = (
         f"You are {bot}, helping the keyholder. Unprompted check-in in GROUP chat.\n"
         f"Keyholder is {title}. Lockee is {sub}. Speak to him only.\n"
-        "Write ONE short taunt about the cage and the wait. Call him pet. "
+        "Write ONE short taunt about the cage and the wait. "
         "No (stage directions). No instruction brackets. Do not offer unlock.\n"
         "Do not invent how long since you last spoke, whether he obeyed, or remaining time "
         "unless LOCK CHANGE CONFIRMED is present.\n"
-        "Never involve anyone under 18."
+        "Never involve anyone under 18.\n"
+        + format_persona_block(room="group")
     )
     user = (
         "Send an unprompted tease/order while the Sub is under our control."

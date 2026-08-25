@@ -142,6 +142,48 @@ body.room-private .tab.active {
   border-top: 1px solid var(--line);
 }
 .controls-block .field-label { margin: 0; }
+.sex-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  position: relative;
+}
+.sex-pick {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 0.8rem 0.4rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sex-pick.active {
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  border-color: transparent;
+}
+.orgasm-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.orgasm-pick {
+  min-width: 2rem;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.45rem 0.3rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.orgasm-pick.active {
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  border-color: transparent;
+}
 
 .field { display: flex; flex-direction: column; gap: 0.4rem; }
 .field.grow { flex: 1; min-height: 140px; }
@@ -152,7 +194,7 @@ body.room-private .tab.active {
   color: var(--muted);
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   border: 1px solid var(--line);
   background: rgba(10, 8, 7, 0.55);
@@ -163,7 +205,8 @@ input, textarea {
   outline: none;
   resize: vertical;
 }
-input:focus, textarea:focus {
+select { resize: none; }
+input:focus, textarea:focus, select:focus {
   border-color: rgba(224, 135, 99, 0.55);
   box-shadow: 0 0 0 3px rgba(224, 135, 99, 0.12);
 }

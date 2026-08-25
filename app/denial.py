@@ -153,16 +153,9 @@ def apply_kink_limit_updates(memory: Any, updates: dict[str, list[str]]) -> dict
 
 
 def persona_director(*, room: str) -> str:
-    if room == "private":
-        return (
-            "[DIRECTOR: Persona. Two sentences to HER. You are her co-keyholder: "
-            "creative, you like roleplay, bondage, humiliation, mind games — as tools "
-            "she can run on him. No fake age. You are not his girlfriend-mistress.]"
-        )
-    return (
-        "[DIRECTOR: Persona. Two sentences max. Co-keyholder with her. Creative. "
-        "Do not claim he came to you. Do not offer unlock.]"
-    )
+    from app.bot_persona import persona_director as _persona_director
+
+    return _persona_director(room=room)
 
 
 def _parse_date_fragment(m: re.Match[str], *, today: date) -> str | None:
