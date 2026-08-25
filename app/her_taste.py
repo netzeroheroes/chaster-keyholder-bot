@@ -128,6 +128,7 @@ def record_orgasm(
     rating: int,
     *,
     note: str = "",
+    tell_him: bool = False,
 ) -> dict[str, Any]:
     score = clamp_rating(rating)
     if score is None:
@@ -137,6 +138,7 @@ def record_orgasm(
         "when": _now(),
         "rating": str(score),
         "note": (note or "").strip()[:240],
+        "tell_him": bool(tell_him),
     }
     log.append(entry)
     memory.update_fields(her_orgasms=log[-40:])
@@ -154,6 +156,7 @@ def last_orgasm(memory: Any) -> dict[str, str]:
         "when": str(last.get("when") or ""),
         "rating": str(last.get("rating") or ""),
         "note": str(last.get("note") or ""),
+        "tell_him": bool(last.get("tell_him")),
     }
 
 
@@ -177,6 +180,12 @@ def format_her_taste_block(memory: Any, *, room: str = "private") -> str:
         lines.append(
             f"Last orgasm she logged: {last['rating']}/10 ({last.get('when') or 'recent'}){extra}."
         )
+        if last.get("tell_him") in (True, "true", "1"):
+            lines.append("He was told the score.")
+        else:
+            lines.append(
+                "He was only told she came — not the number. Do not quote her rating in Group."
+            )
     if room == "group":
         lines.append(
             "GROUP: Do not dump this list. Use it quietly on him. "
@@ -188,6 +197,13 @@ def format_her_taste_block(memory: Any, *, room: str = "private") -> str:
 def format_orgasm_director(rating: int, *, note: str = "", room: str = "private") -> str:
     score = clamp_rating(rating) or 5
     note_bit = f" Her note: {note.strip()[:200]}." if (note or "").strip() else ""
+    bull = False
+    try:
+        from app.bot_persona import is_bull_voice
+
+        bull = is_bull_voice()
+    except Exception:  # noqa: BLE001
+        bull = False
     if score >= 8:
         treat = (
             "HIGH. She came hard. He did not. Rub it in. Keep him locked. "
@@ -206,20 +222,45 @@ def format_orgasm_director(rating: int, *, note: str = "", room: str = "private"
             "Offer one concrete next beat from her fantasies. Do not punish her."
         )
     if room == "private":
-        where = (
-            "Talk to HER. Plan how to use this on him. "
-            "[[[GROUP]]] only if she wants him told now."
-        )
+        if bull:
+            where = (
+                "You are her BULL. You were with her. Talk to HER — hungry, specific. "
+                "Do not bounce to a lock-tease briefing. "
+                "He is being told she came, NOT the number. Do not emit [[[GROUP]]] yourself."
+            )
+        else:
+            where = (
+                "Talk to HER. Plan how to use this on him. "
+                "He is being told she came, not the score. Do not emit [[[GROUP]]] yourself."
+            )
     else:
         where = (
             "One mean line to him about her orgasm — no numbers lecture. "
             "She is the one who came. He waits."
         )
+        if bull:
+            where = (
+                "You are the bull. One mean line: she came with you. He is locked. "
+                "He waits. Do not unlock."
+            )
     return (
         f"[HER ORGASM — she rated it {score}/10.{note_bit}]\n"
         f"{treat}\n"
         f"{where}\n"
         "Stay in hard limits. Unlock stays hers."
+    )
+
+
+def format_orgasm_lockee_notice(*, bull_voice: bool = False) -> str:
+    """Group line when she logged an orgasm in Private — no score, no note."""
+    if bull_voice:
+        return (
+            "She just came. You're still locked. "
+            "You don't get the details — I was with her. Sit with that."
+        )
+    return (
+        "She just came. You're still locked. "
+        "You don't get the details. Wait."
     )
 
 

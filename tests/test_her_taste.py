@@ -55,12 +55,24 @@ class HerTasteTests(unittest.TestCase):
         self.assertEqual(mem.her_turn_ons, ["cuck talk"])
         record_orgasm(mem, 9, note="the denial")
         self.assertEqual(mem.her_orgasms[-1]["rating"], "9")
+        self.assertFalse(mem.her_orgasms[-1]["tell_him"])
+        record_orgasm(mem, 8, note="told", tell_him=True)
+        self.assertTrue(mem.her_orgasms[-1]["tell_him"])
         high = format_orgasm_director(9, note="the denial", room="group")
         self.assertIn("HIGH", high)
         self.assertIn("he waits", high.lower())
         low = format_orgasm_director(2, room="private")
         self.assertIn("LOW", low)
         self.assertIn("Do not punish her", low)
+
+    def test_private_orgasm_notice_hides_score(self) -> None:
+        from app.her_taste import format_orgasm_lockee_notice
+
+        line = format_orgasm_lockee_notice(bull_voice=True)
+        self.assertIn("She just came", line)
+        self.assertIn("I was with her", line)
+        self.assertNotIn("/10", line)
+        self.assertNotIn("rating", line.lower())
 
     def test_memory_prompt_includes_her_pleasure(self) -> None:
         from app.memory import LongTermMemory
@@ -75,7 +87,8 @@ class HerTasteTests(unittest.TestCase):
         self.assertIn("8/10", block)
         group = mem._group_memory_block(mem.snapshot())
         self.assertIn("turn-ons", group.lower())
-        self.assertIn("8", group)
+        self.assertIn("she came", group.lower())
+        self.assertNotIn("8/10", group)
 
     def test_ingest_and_merge_does_not_wipe(self) -> None:
         from app.memory import LongTermMemory, _merge_str_list

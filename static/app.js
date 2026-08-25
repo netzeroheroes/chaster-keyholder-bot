@@ -305,7 +305,14 @@ async function applyOrgasm(where) {
   const line = note
     ? `I came. Orgasm rating ${n}/10. Note: ${note}`
     : `I came. Orgasm rating ${n}/10. Use this on him.`;
-  await ensureRoom(where);
+  if (where === "private") {
+    await ensureRoom("private");
+    await sendMessage(
+      `${line} Keep the rating private. Let him know I came, not the number.`
+    );
+    return;
+  }
+  await ensureRoom("group");
   await sendMessage(line);
 }
 
@@ -1235,6 +1242,9 @@ if (sexPicks && els.botSex) {
     if (!btn) return;
     els.botSex.value = btn.dataset.sex || "female";
     syncSexPicks(els.botSex.value);
+    if (els.botSex.value === "male" && els.botPersona) {
+      els.botPersona.value = "bull";
+    }
     if (!state.pin || state.role !== "domme") return;
     const res = await fetch("/api/controls", {
       method: "PATCH",
@@ -1243,11 +1253,14 @@ if (sexPicks && els.botSex) {
         role: "domme",
         pin: state.pin,
         bot_sex: els.botSex.value,
+        ...(els.botSex.value === "male" ? { bot_persona: "bull" } : {}),
       }),
     });
     if (els.personaStatus) {
       els.personaStatus.textContent = res.ok
-        ? `Bot sex: ${els.botSex.value}. Saved.`
+        ? els.botSex.value === "male"
+          ? "Bot is the bull. Saved."
+          : `Bot sex: ${els.botSex.value}. Saved.`
         : "Could not save bot sex.";
     }
   });

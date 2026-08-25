@@ -88,7 +88,17 @@ class BotPersonaTests(unittest.TestCase):
         self.assertIn("HARD OVERRIDE", override)
         self.assertIn("secretary spinning ideas", override)
 
-    def test_she_asked_for_attention_is_the_two_of_you(self) -> None:
+    def test_male_sex_alone_promotes_friend_to_bull(self) -> None:
+        from app import runtime_controls as rc
+
+        ctrl = rc.RuntimeControls()
+        ctrl.save = lambda: None  # type: ignore[method-assign]
+        self.assertEqual(ctrl.bot_persona, "friend")
+        ctrl.update(bot_sex="male")
+        self.assertEqual(ctrl.bot_sex, "male")
+        self.assertEqual(ctrl.bot_persona, "bull")
+        ctrl.update(bot_persona="friend", bot_sex="male")
+        self.assertEqual(ctrl.bot_persona, "friend")
         self.assertTrue(wants_her_attention("what about the 2 of us?"))
         self.assertTrue(wants_her_attention("i think i need some attention"))
         self.assertTrue(wants_her_attention("I want you tonight"))

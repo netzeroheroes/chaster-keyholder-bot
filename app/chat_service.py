@@ -544,7 +544,7 @@ async def handle_chat_turn(
                 r"\bnote[:\s]+(.{3,200})", message or "", re.I
             )
             note = note_m.group(1).strip() if note_m else ""
-            record_orgasm(memory, orgasm, note=note)
+            record_orgasm(memory, orgasm, note=note, tell_him=(room == "group"))
             extra_notes.append(
                 format_orgasm_director(orgasm, note=note, room=room)
             )
@@ -1535,6 +1535,13 @@ async def handle_chat_turn(
                 "Do not spin ideas.\n"
                 "He is locked; she is not. Unlock stays hers. "
                 "Darling/baby toward her is fine. Never call her the lockee.\n"
+            )
+        elif bull and parse_orgasm_rating(message) is not None:
+            anti_loop = (
+                "\nTHIS TURN — PRIVATE:\n"
+                f"{title} just came. You are her bull — you were with her.\n"
+                "Reply TO her. Heat. Do not spin a tease-him plan. "
+                "He is being told she came, not the score. Do not emit [[[GROUP]]].\n"
             )
         elif bull:
             anti_loop = (

@@ -477,6 +477,11 @@ def register_extension_routes(
                 cfg[key] = src[key]
             elif key in live:
                 cfg[key] = live[key]
+        # Live sex/role beat a stale Chaster copy (KH bar saves disk-first).
+        for key in ("bot_persona", "bot_sex"):
+            live_val = str(live.get(key) or "").strip()
+            if live_val:
+                cfg[key] = live_val
         if "bot_name" not in cfg or not cfg.get("bot_name"):
             cfg["bot_name"] = memory.bot_name or "Keyholder"
         if "domme_title" not in cfg:

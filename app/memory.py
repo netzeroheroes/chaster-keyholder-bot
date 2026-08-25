@@ -403,10 +403,16 @@ class LongTermMemory:
             )
         last = (snap.get("her_orgasms") or [])[-1:] if snap.get("her_orgasms") else []
         if last and isinstance(last[0], dict) and last[0].get("rating"):
-            lines.append(
-                f"She last logged an orgasm at {last[0].get('rating')}/10 — "
-                "he did not. Tease that."
-            )
+            if last[0].get("tell_him") in (True, "true", "1"):
+                lines.append(
+                    f"She last logged an orgasm at {last[0].get('rating')}/10 — "
+                    "he did not. Tease that."
+                )
+            else:
+                lines.append(
+                    "She came recently. He did not get the score. "
+                    "Tease that she came. Do not quote her rating."
+                )
         if snap.get("chastity"):
             lines.append(
                 "Cage notes: "

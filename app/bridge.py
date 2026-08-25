@@ -281,6 +281,16 @@ class GroupBridge:
 
         visible, posts = self.split_private_reply(private_reply)
         her = (domme_name or "").strip() or "the keyholder"
+        from app.her_taste import format_orgasm_lockee_notice, parse_orgasm_rating
+
+        orgasm_score = parse_orgasm_rating(domme_message)
+        orgasm_keep_private = orgasm_score is not None and not wants_him_told(
+            domme_message
+        )
+        if orgasm_keep_private:
+            from app.bot_persona import is_bull_voice
+
+            posts = [format_orgasm_lockee_notice(bull_voice=is_bull_voice())]
         if wants_rules_told(domme_message):
             thread = dict(getattr(scene, "play_thread", None) or {})
             view = arm_fate_game(choose_fate_game(domme_message))
@@ -290,8 +300,11 @@ class GroupBridge:
             await self.publish_group_messages(store, [line], speaker=speaker)
             note = "\n\n— Sent to group —\n" + line
             return (brief_rules_delivery() + note).strip(), [line]
-        if posts and planning_stays_private(domme_message) and not wants_him_told(
-            domme_message
+        if (
+            posts
+            and planning_stays_private(domme_message)
+            and not wants_him_told(domme_message)
+            and not orgasm_keep_private
         ):
             log.warning("Dropped GROUP cross-post so the plan stays private")
             posts = []

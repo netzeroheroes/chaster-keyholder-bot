@@ -745,22 +745,28 @@
 
   async function persistBotSex(sex) {
     syncAllSexPicks(sex);
+    if (sex === "male") {
+      const personaEl = document.getElementById("setBotPersona");
+      if (personaEl) personaEl.value = "bull";
+    }
     if (!state.mainToken) return;
     setKhStatus("Saving bot sex…");
     try {
+      const config = { bot_sex: sex };
+      if (sex === "male") config.bot_persona = "bull";
       const res = await fetch("/api/ext/settings/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           main_token: state.mainToken,
-          config: { bot_sex: sex },
+          config,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiDetail(data, "Could not save bot sex"));
       setKhStatus(
         sex === "male"
-          ? "Bot is male. Saved — it can play bull / cuckold with you."
+          ? "Bot is the bull. Saved — it plays with you; he stays locked."
           : `Bot sex: ${sex}. Saved.`
       );
     } catch (err) {
@@ -839,16 +845,19 @@
     const line = note
       ? `I came. Orgasm rating ${n}/10. Note: ${note}`
       : `I came. Orgasm rating ${n}/10. Use this on him.`;
-    if (where === "group" && state.room !== "group") await switchRoom("group");
-    if (where === "private" && state.room !== "private") {
+    if (where === "private") {
       await switchRoom("private");
+      await sendMessage(
+        `${line} Keep the rating private. Let him know I came, not the number.`
+      );
+      setKhStatus(
+        `Logged ${n}/10 in private. He’ll see that you came — not the score.`
+      );
+      return;
     }
+    if (state.room !== "group") await switchRoom("group");
     await sendMessage(line);
-    setKhStatus(
-      where === "group"
-        ? `Logged ${n}/10 and told him.`
-        : `Logged ${n}/10 in private.`
-    );
+    setKhStatus(`Logged ${n}/10 and told him.`);
   }
 
   async function learnHer() {

@@ -158,9 +158,15 @@ class RuntimeControls:
                 self.bot_intensity = normalize_intensity(self.bot_intensity)
             if "bot_persona" in kwargs or "bot_sex" in kwargs:
                 role = normalize_persona(self.bot_persona)
-                self.bot_persona = role
                 sex = normalize_sex(self.bot_sex)
                 self.bot_sex = sex or default_sex_for(role)
+                # KH bar sends sex alone. Male without an explicit role → the bull.
+                if "bot_persona" not in kwargs:
+                    if self.bot_sex == "male" and role == "friend":
+                        role = "bull"
+                    elif self.bot_sex == "female" and role == "bull":
+                        role = "friend"
+                self.bot_persona = role
             if self.min_add_time_seconds > self.max_add_time_seconds:
                 self.min_add_time_seconds, self.max_add_time_seconds = (
                     self.max_add_time_seconds,
