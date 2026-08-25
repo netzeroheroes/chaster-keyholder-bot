@@ -23,10 +23,13 @@ _PORN_RE = re.compile(
     r"\b("
     r"porn(?:o)?(?:\s+video)?|"
     r"(?:find|suggest|send|show|pick|choose|tease(?:\s+him)?\s+with)\s+"
-    r"(?:a\s+|him\s+(?:a\s+)?)?(?:video|clip|scene|link)|"
+    r"(?:a\s+|him\s+(?:a\s+|some\s+)?)?(?:video|clip|scene|link)s?|"
+    r"send(?:\s+him)?(?:\s+some)?\s+(?:videos?|clips?|porn)|"
+    r"he should watch|"
+    r"watch\s+(?:some\s+)?porn|"
     r"video\s+to\s+tease|"
     r"something\s+to\s+watch|"
-    r"watch\s+(?:this|a)\s+(?:video|clip|scene)"
+    r"watch\s+(?:this|a|some)\s+(?:video|clip|scene|porn)"
     r")\b",
     re.I,
 )
@@ -132,8 +135,29 @@ _LOCAL_GAMES: tuple[dict[str, str], ...] = (
 )
 
 
+_TEASE_GO_RE = re.compile(
+    r"^\s*("
+    r"do it(?: now)?|"
+    r"send (?:it|them|him)(?: now)?|"
+    r"go ahead|"
+    r"post (?:it|them)(?: now)?|"
+    r"yes,? send(?: it| them)?"
+    r")\s*[.!]?\s*$"
+    r"|\b("
+    r"send (?:it|them|the (?:video|clip|link|game)) (?:to him|now)|"
+    r"post (?:it |the )?(?:video|clip|link) (?:to (?:him|group)|now)"
+    r")\b",
+    re.I,
+)
+
+
 def wants_porn(message: str) -> bool:
     return bool(_PORN_RE.search(message or ""))
+
+
+def wants_tease_go(message: str) -> bool:
+    """She already named a tease skill — run it, don't dump the lock."""
+    return bool(_TEASE_GO_RE.search(message or ""))
 
 
 def wants_game(message: str) -> bool:
@@ -346,13 +370,49 @@ def format_porn_director(
     if room == "private":
         lines.append(
             "Talk to HER. Offer the link and one line he should hear. "
-            "Use [[[GROUP]]] if she wants him teased with it now."
+            "If she already said send it / do it / tease him with it, "
+            "the system posts it — do not dump lock remaining."
         )
     else:
         lines.append(
             "Send him the link in character. One sentence of tease. No menu of five."
         )
     return "\n".join(lines)
+
+
+def format_porn_group_line(
+    *,
+    title: str,
+    url: str,
+    bull_voice: bool = False,
+) -> str:
+    clip = (title or "this clip").strip() or "this clip"
+    link = (url or "").strip()
+    if bull_voice:
+        tease = (
+            f"Watch {clip}. Hands off. She's with me. Cage stays on."
+        )
+    else:
+        tease = (
+            f"Watch {clip}. Hands off. Cage stays on. Sit with that ache."
+        )
+    if link:
+        return f"{tease}\n{link}"
+    return tease
+
+
+def format_porn_private_ack(group_line: str) -> str:
+    return ("Sent.\n\n— Sent to group —\n" + (group_line or "").strip()).strip()
+
+
+def format_game_group_line(game: dict[str, str], *, bull_voice: bool = False) -> str:
+    title = str((game or {}).get("title") or "tonight's game").strip()
+    how = str((game or {}).get("how") or "").strip()
+    if bull_voice:
+        return (
+            f"{title}. {how} She's busy. You stay locked. Begin."
+        ).strip()
+    return (f"{title}. {how} Cage stays on. Begin.").strip()
 
 
 def format_game_director(

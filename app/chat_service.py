@@ -168,10 +168,16 @@ from app.tease_play import (
     fetch_game_ideas,
     fetch_porn_videos,
     format_game_director,
+    format_game_group_line,
     format_porn_director,
+    format_porn_group_line,
+    format_porn_private_ack,
+    pick_local_games,
+    search_url,
     wants_game,
     wants_online_ideas,
     wants_porn,
+    wants_tease_go,
 )
 from app.scene_builder import pick_toys, wants_scene_build
 from app.scene_interview import (
@@ -1041,7 +1047,7 @@ async def handle_chat_turn(
                 "One mystery tease — no week list, no toys, no what she will do.]"
             )
 
-    # Porn teases + games matched to this lock's flavour
+    # Porn teases + games matched to this lock's flavour — run the skill, don't dump the lock
     spec = persona_from_controls()
     tags = current_genre(
         session_kinks=list(scene.session_kinks or []),
@@ -1050,29 +1056,102 @@ async def handle_chat_turn(
         persona=spec["persona"],
         sex=spec["sex"],
     )
-    if wants_porn(message):
+    tease_force_reply: str | None = None
+    tease_group_posts: list[str] = []
+    thread = dict(scene.play_thread or {})
+    pending_skill = str(thread.get("tease_skill") or "").strip().lower()
+    probe_now = dict(scene.snapshot().get("kink_probe") or {})
+    steal_go = bool(probe_now.get("active") and wants_probe_go(message))
+    go_now = (not steal_go) and (
+        wants_tease_go(message) or wants_him_told(message)
+    )
+    send_porn = wants_porn(message) or (pending_skill == "porn" and go_now)
+    send_game = wants_game(message) or (pending_skill == "game" and go_now)
+    if role == "domme" and send_porn:
         videos = await fetch_porn_videos(tags)
-        extra_notes.append(
-            format_porn_director(tags=tags, videos=videos, room=room)
+        pick = (videos or [{}])[0] if videos else {}
+        url = str(pick.get("url") or thread.get("tease_url") or "").strip()
+        title = str(pick.get("title") or thread.get("tease_title") or "").strip()
+        if not url:
+            url = search_url(tags)
+            title = title or "what you can't have"
+        execute = go_now or room == "group" or bool(
+            re.search(r"\bsend(?:\s+him)?\b", message or "", re.I)
         )
-    if wants_game(message):
-        ideas: list[str] = []
-        if wants_online_ideas(message) or (role == "domme" and room == "private"):
-            ideas = await fetch_game_ideas(tags)
-        extra_notes.append(
-            format_game_director(
-                tags=tags,
-                toys=list(scene.session_toys or []),
-                persona=spec["persona"],
-                sex=spec["sex"],
-                ideas=ideas,
-                room=room,
+        apply_play_updates(
+            scene,
+            {
+                "tease_skill": "" if execute else "porn",
+                "tease_url": url,
+                "tease_title": title,
+            },
+        )
+        if not execute:
+            extra_notes.append(
+                format_porn_director(tags=tags, videos=videos, room=room)
             )
+        else:
+            group_line = format_porn_group_line(
+                title=title,
+                url=url,
+                bull_voice=is_bull_voice(),
+            )
+            if room == "private":
+                try:
+                    tease_group_posts = await bridge.publish_group_messages(
+                        store, [group_line], speaker=bot_name
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("Porn tease group post failed")
+                    tease_group_posts = [group_line]
+                tease_force_reply = format_porn_private_ack(group_line)
+            else:
+                tease_force_reply = group_line
+    elif role == "domme" and send_game:
+        execute = go_now or room == "group"
+        games = pick_local_games(
+            tags=tags,
+            toys=list(scene.session_toys or []),
+            persona=spec["persona"],
+            sex=spec["sex"],
+            count=1,
         )
+        game = games[0] if games else {
+            "title": "Video tease",
+            "how": "Hands off. Watch. Stay locked.",
+        }
+        apply_play_updates(scene, {"tease_skill": "" if execute else "game"})
+        if not execute:
+            ideas: list[str] = []
+            if wants_online_ideas(message) or room == "private":
+                ideas = await fetch_game_ideas(tags)
+            extra_notes.append(
+                format_game_director(
+                    tags=tags,
+                    toys=list(scene.session_toys or []),
+                    persona=spec["persona"],
+                    sex=spec["sex"],
+                    ideas=ideas,
+                    room=room,
+                )
+            )
+        else:
+            group_line = format_game_group_line(game, bull_voice=is_bull_voice())
+            if room == "private":
+                try:
+                    tease_group_posts = await bridge.publish_group_messages(
+                        store, [group_line], speaker=bot_name
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("Game tease group post failed")
+                    tease_group_posts = [group_line]
+                tease_force_reply = format_porn_private_ack(group_line)
+            else:
+                tease_force_reply = group_line
 
     # Domme Chaster orders — API is source of truth; action turns skip LLM claims
     chaster_note = ""
-    chaster_truth_reply: str | None = None
+    chaster_truth_reply: str | None = tease_force_reply
     if chaster and chaster.configured:
         try:
             st = await chaster.status()
@@ -2068,12 +2147,20 @@ async def handle_chat_turn(
         visible_reply = cleaned_salad or (
             "Pick one of his kinks and use it. Keep the hour as play, then lock him."
         )
-    if room == "private" or role == "domme":
+    if not tease_force_reply and (room == "private" or role == "domme"):
         you_form = rewrite_keyholder_as_you(visible_reply)
         if you_form != (visible_reply or ""):
             log.warning("Rewrote keyholder she→you in %s reply", room)
             visible_reply = you_form
-    if room == "private":
+    if room == "private" and tease_force_reply:
+        visible_reply = (tease_force_reply or "").strip()
+        visible_reply = re.sub(
+            r"\[\[\[GROUP\]\]\].*?\[\[\[/GROUP\]\]\]",
+            "",
+            visible_reply,
+            flags=re.I | re.S,
+        )
+    elif room == "private":
         rem_m = re.search(r"- Remaining:\s*([^\n(]+)", chaster_note or "")
         rem = (rem_m.group(1).strip() if rem_m else "") or live_remaining
         frozen = bool(re.search(r"- Frozen:\s*True", chaster_note or "", re.I))
@@ -2111,7 +2198,8 @@ async def handle_chat_turn(
             r"\[\[\[/?GROUP\]\]\]", "", visible_reply, flags=re.I
         ).strip()
     elif (
-        role == "domme"
+        not tease_force_reply
+        and role == "domme"
         and not (room == "group" and lead_now)
         and mistreats_domme_as_sub(
             visible_reply, user_message=message, bull_voice=bull
@@ -2137,13 +2225,14 @@ async def handle_chat_turn(
                 view, window=str(thread.get("window") or "")
             )
             log.info("Posted fate game in Group")
-        else:
+        elif not tease_force_reply:
             softened = soften_group_tease(visible_reply)
             if softened != visible_reply:
                 log.warning("Softened group tease (no spoilers / homework)")
                 visible_reply = softened
         if (
-            role == "domme"
+            not tease_force_reply
+            and role == "domme"
             and not lead_now
             and should_take_to_private(message)
             and raw_group
@@ -2179,7 +2268,7 @@ async def handle_chat_turn(
                 )
             except Exception:  # noqa: BLE001
                 log.exception("Could not ping private with week plan")
-    else:
+    elif not tease_force_reply:
         private_part, tagged_posts = bridge.split_private_reply(visible_reply)
         collapsed = collapse_idea_list(private_part)
         if collapsed != private_part:
@@ -2282,7 +2371,9 @@ async def handle_chat_turn(
         if messages and messages[-1].get("role") == "assistant":
             messages[-1] = {"role": "assistant", "content": visible_reply}
 
-    if room == "private" and role == "domme":
+    if tease_group_posts:
+        group_posts = list(tease_group_posts)
+    elif room == "private" and role == "domme":
         visible_reply, group_posts = await bridge.maybe_initiate_from_private(
             agent=agent,
             scene=scene,

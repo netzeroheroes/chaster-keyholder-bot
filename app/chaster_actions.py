@@ -465,9 +465,12 @@ def parse_chaster_intent(
         return ChasterIntent(kind="tour_step", reason=context or text)
 
     if re.search(
-        r"\b((?:do|apply|run)\s+(?:them|those|these|each|it)|"
+        r"\b("
+        r"apply\s+(?:them|those|these|the\s+)?(?:plan|changes|settings)|"
         r"start\s+with\s+(?:the\s+)?visibility|"
-        r"apply\s+(?:the\s+)?(?:plan|changes|settings))\b",
+        r"(?:hide|show)\s+(?:the\s+)?(?:timer|remaining)|"
+        r"do\s+(?:the\s+)?(?:visibility|timer|settings)\b"
+        r")\b",
         low,
     ):
         return ChasterIntent(kind="apply_planned", reason=context or text)

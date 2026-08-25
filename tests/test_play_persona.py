@@ -20,14 +20,18 @@ from app.kink_probe import (
     wants_kink_probe,
     wants_probe_go,
 )
+from app.chaster_actions import parse_chaster_intent
 from app.tease_play import (
     current_genre,
     format_game_director,
     format_porn_director,
+    format_porn_group_line,
+    format_porn_private_ack,
     genre_query,
     pick_local_games,
     search_url,
     wants_game,
+    wants_tease_go,
     wants_online_ideas,
     wants_porn,
 )
@@ -212,9 +216,36 @@ class TeasePlayTests(unittest.TestCase):
     def test_detects_porn_and_games(self) -> None:
         self.assertTrue(wants_porn("find a video to tease him"))
         self.assertTrue(wants_porn("suggest porn that matches the lock"))
+        self.assertTrue(wants_porn("send him some videos"))
+        self.assertTrue(
+            wants_porn("i think he should watch porn to enforce his situation")
+        )
+        self.assertTrue(
+            wants_porn(
+                "Find a porn video that matches this lock's current kinks "
+                "and tease him with it."
+            )
+        )
         self.assertFalse(wants_porn("add an hour"))
         self.assertTrue(wants_game("create a game for us to play"))
         self.assertTrue(wants_online_ideas("look online if you need ideas"))
+        self.assertTrue(wants_tease_go("do it"))
+        self.assertTrue(wants_tease_go("send it"))
+        self.assertFalse(wants_tease_go("do the visibility"))
+        self.assertIsNone(parse_chaster_intent("do it"))
+        self.assertIsNone(parse_chaster_intent("send it"))
+        line = format_porn_group_line(
+            title="Locked cuck watches",
+            url="https://www.pornhub.com/view_video.php?viewkey=abc",
+            bull_voice=True,
+        )
+        self.assertIn("viewkey=abc", line)
+        self.assertNotIn("remaining", line.lower())
+        ack = format_porn_private_ack(line)
+        self.assertIn("Sent.", ack)
+        self.assertIn("Sent to group", ack)
+        self.assertIn("viewkey=abc", ack)
+        self.assertNotIn("I couldn't save a keyholder note", ack)
 
     def test_genre_follows_kit_and_bull(self) -> None:
         tags = current_genre(
