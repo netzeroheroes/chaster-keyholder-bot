@@ -145,6 +145,9 @@ class GroupBridge:
         text: str,
         *,
         speaker: str = "Keyholder",
+        image_url: str | None = None,
+        video_url: str | None = None,
+        embed_url: str | None = None,
     ) -> None:
         sid = session_id_for("group")
         history = store.get(sid)
@@ -159,6 +162,9 @@ class GroupBridge:
                 speaker=speaker or "Keyholder",
                 content=text,
                 room="group",
+                image_url=image_url or None,
+                video_url=video_url or None,
+                embed_url=embed_url or None,
                 from_bot=True,
             )
         )
@@ -169,10 +175,21 @@ class GroupBridge:
         posts: list[str],
         *,
         speaker: str = "Keyholder",
+        image_url: str | None = None,
+        video_url: str | None = None,
+        embed_url: str | None = None,
     ) -> list[str]:
         published: list[str] = []
-        for post in posts:
-            self.inject_group_bot_message(store, post, speaker=speaker)
+        for index, post in enumerate(posts):
+            media = index == 0
+            self.inject_group_bot_message(
+                store,
+                post,
+                speaker=speaker,
+                image_url=image_url if media else None,
+                video_url=video_url if media else None,
+                embed_url=embed_url if media else None,
+            )
             published.append(post)
             send = None
             with self._lock:

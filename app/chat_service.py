@@ -174,6 +174,7 @@ from app.tease_play import (
     format_porn_private_ack,
     is_specific_tease_link,
     pick_local_games,
+    tease_media_fields,
     wants_game,
     wants_online_ideas,
     wants_porn,
@@ -1058,6 +1059,7 @@ async def handle_chat_turn(
     )
     tease_force_reply: str | None = None
     tease_group_posts: list[str] = []
+    tease_media: dict[str, str] = {}
     thread = dict(scene.play_thread or {})
     pending_skill = str(thread.get("tease_skill") or "").strip().lower()
     probe_now = dict(scene.snapshot().get("kink_probe") or {})
@@ -1108,6 +1110,13 @@ async def handle_chat_turn(
                 format_porn_director(tags=tags, videos=videos, room=room)
             )
         else:
+            tease_media = tease_media_fields(
+                url=url,
+                kind=kind,
+                image_url=str(pick.get("image_url") or ""),
+                video_url=str(pick.get("video_url") or ""),
+                embed_url=str(pick.get("embed_url") or ""),
+            )
             group_line = format_porn_group_line(
                 title=title,
                 url=url,
@@ -1117,7 +1126,12 @@ async def handle_chat_turn(
             if room == "private":
                 try:
                     tease_group_posts = await bridge.publish_group_messages(
-                        store, [group_line], speaker=bot_name
+                        store,
+                        [group_line],
+                        speaker=bot_name,
+                        image_url=tease_media.get("image_url"),
+                        video_url=tease_media.get("video_url"),
+                        embed_url=tease_media.get("embed_url"),
                     )
                 except Exception:  # noqa: BLE001
                     log.exception("Porn tease group post failed")
@@ -2494,10 +2508,17 @@ async def handle_chat_turn(
             ]
         ),
     )
-    for beat in beats:
+    for index, beat in enumerate(beats):
+        media = tease_media if (tease_media and index == len(beats) - 1) else {}
         store.append_display(
             DisplayMessage(
-                speaker=bot_name, content=beat, room=room, from_bot=True
+                speaker=bot_name,
+                content=beat,
+                room=room,
+                image_url=media.get("image_url"),
+                video_url=media.get("video_url"),
+                embed_url=media.get("embed_url"),
+                from_bot=True,
             )
         )
 

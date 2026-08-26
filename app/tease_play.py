@@ -344,6 +344,69 @@ def tease_kind(url: str) -> str:
     return "video"
 
 
+def redgif_iframe(url: str) -> str:
+    match = re.search(
+        r"redgifs\.com/(?:watch|ifr)/([A-Za-z0-9]+)", url or "", re.I
+    )
+    if not match:
+        return ""
+    return f"https://www.redgifs.com/ifr/{match.group(1)}"
+
+
+def tease_media_fields(
+    *,
+    url: str = "",
+    kind: str = "",
+    image_url: str = "",
+    video_url: str = "",
+    embed_url: str = "",
+) -> dict[str, str]:
+    """URLs the chat UI can show in-bubble like a messenger."""
+    link = (url or "").strip()
+    kind = (kind or tease_kind(link)).lower()
+    image_url = (image_url or "").strip()
+    video_url = (video_url or "").strip()
+    embed_url = (embed_url or "").strip() or redgif_iframe(link) or redgif_iframe(
+        video_url
+    )
+    if not image_url and kind == "image" and is_specific_tease_link(link):
+        image_url = link
+    if not video_url and re.search(r"\.(mp4|webm)(\?|$)", link, re.I):
+        video_url = link
+    out: dict[str, str] = {}
+    if image_url:
+        out["image_url"] = image_url
+    if video_url:
+        out["video_url"] = video_url
+    if embed_url:
+        out["embed_url"] = embed_url
+    return out
+
+
+def _reddit_video_url(data: dict[str, Any]) -> str:
+    for key in ("media", "secure_media"):
+        block = data.get(key)
+        if not isinstance(block, dict):
+            continue
+        hosted = block.get("reddit_video")
+        if not isinstance(hosted, dict):
+            continue
+        raw = str(hosted.get("fallback_url") or "").strip()
+        if raw.startswith("http"):
+            return raw.split("?")[0]
+    return ""
+
+
+def _reddit_preview_image(data: dict[str, Any]) -> str:
+    preview = data.get("preview") if isinstance(data.get("preview"), dict) else {}
+    images = preview.get("images") if isinstance(preview, dict) else []
+    if not images or not isinstance(images[0], dict):
+        return ""
+    source = images[0].get("source") if isinstance(images[0].get("source"), dict) else {}
+    raw = str((source or {}).get("url") or "").replace("&amp;", "&").strip()
+    return raw if raw.startswith("http") else ""
+
+
 def _abs_reddit(path: str) -> str:
     bit = (path or "").strip()
     if bit.startswith("http"):
@@ -423,14 +486,24 @@ def reddit_media_from_listing(payload: Any) -> list[dict[str, str]]:
             continue
         seen.add(url)
         title = re.sub(r"\s+", " ", str(inner.get("title") or "").strip())[:120]
-        out.append(
-            {
-                "title": title or "what you can't have",
-                "url": url,
-                "kind": tease_kind(url),
-                "duration": "",
-            }
+        kind = tease_kind(url)
+        item = {
+            "title": title or "what you can't have",
+            "url": url,
+            "kind": kind,
+            "duration": "",
+        }
+        item.update(
+            tease_media_fields(
+                url=url,
+                kind=kind,
+                image_url=_reddit_preview_image(inner)
+                if kind != "image"
+                else url,
+                video_url=_reddit_video_url(inner),
+            )
         )
+        out.append(item)
         if len(out) >= 12:
             break
     return out
@@ -453,14 +526,15 @@ def _video_items(payload: Any) -> list[dict[str, str]]:
         if not is_specific_tease_link(url):
             continue
         duration = str(item.get("duration") or item.get("formattedDuration") or "").strip()
-        out.append(
-            {
-                "title": title[:160],
-                "url": url,
-                "kind": tease_kind(url),
-                "duration": duration,
-            }
-        )
+        kind = tease_kind(url)
+        row = {
+            "title": title[:160],
+            "url": url,
+            "kind": kind,
+            "duration": duration,
+        }
+        row.update(tease_media_fields(url=url, kind=kind))
+        out.append(row)
         if len(out) >= 4:
             break
     return out
@@ -517,14 +591,29 @@ async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dic
         if not gid or _UNSAFE_TITLE.search(title) or _UNSAFE_TITLE.search(tags_txt):
             continue
         url = f"https://www.redgifs.com/watch/{gid}"
-        out.append(
-            {
-                "title": title or "what you can't have",
-                "url": url,
-                "kind": "video",
-                "duration": str(gif.get("duration") or ""),
-            }
+        hosts = gif.get("urls") if isinstance(gif.get("urls"), dict) else {}
+        item = {
+            "title": title or "what you can't have",
+            "url": url,
+            "kind": "video",
+            "duration": str(gif.get("duration") or ""),
+        }
+        item.update(
+            tease_media_fields(
+                url=url,
+                kind="video",
+                image_url=str(
+                    (hosts or {}).get("poster")
+                    or (hosts or {}).get("thumbnail")
+                    or ""
+                ),
+                video_url=str(
+                    (hosts or {}).get("hd") or (hosts or {}).get("sd") or ""
+                ),
+                embed_url=redgif_iframe(url),
+            )
         )
+        out.append(item)
         if len(out) >= 8:
             break
     return out

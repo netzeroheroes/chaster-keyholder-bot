@@ -31,8 +31,10 @@ from app.tease_play import (
     is_specific_tease_link,
     pick_local_games,
     reddit_media_from_listing,
+    redgif_iframe,
     search_url,
     subs_for_tags,
+    tease_media_fields,
     wants_game,
     wants_tease_go,
     wants_online_ideas,
@@ -360,6 +362,18 @@ class TeasePlayTests(unittest.TestCase):
         items = reddit_media_from_listing(listing)
         urls = [item["url"] for item in items]
         self.assertIn("https://i.redd.it/abc123.jpg", urls)
+        pic_item = next(i for i in items if "abc123.jpg" in i["url"])
+        self.assertEqual(pic_item.get("image_url"), "https://i.redd.it/abc123.jpg")
+        self.assertEqual(
+            redgif_iframe("https://www.redgifs.com/watch/exampleclip"),
+            "https://www.redgifs.com/ifr/exampleclip",
+        )
+        self.assertEqual(
+            tease_media_fields(url="https://www.redgifs.com/watch/exampleclip").get(
+                "embed_url"
+            ),
+            "https://www.redgifs.com/ifr/exampleclip",
+        )
         self.assertIn("https://www.redgifs.com/watch/exampleclip", urls)
         self.assertFalse(any("nope.jpg" in u for u in urls))
         self.assertFalse(any("/self/" in u for u in urls))

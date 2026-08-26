@@ -107,7 +107,9 @@ def load_sessions(store: SessionStore, path: Path = SESSIONS_PATH) -> None:
                     speaker=speaker,
                     content=str(m.get("content", "")),
                     room=str(m.get("room", room)),
-                    image_url=m.get("image_url"),
+                    image_url=m.get("image_url") or None,
+                    video_url=m.get("video_url") or None,
+                    embed_url=m.get("embed_url") or None,
                     from_bot=bool(m.get("from_bot"))
                     or is_bot_display_speaker(speaker),
                 )

@@ -14,7 +14,20 @@ class DisplayMessage:
     content: str
     room: str
     image_url: str | None = None
+    video_url: str | None = None
+    embed_url: str | None = None
     from_bot: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "speaker": self.speaker,
+            "content": self.content,
+            "room": self.room,
+            "image_url": self.image_url,
+            "video_url": self.video_url,
+            "embed_url": self.embed_url,
+            "from_bot": bool(self.from_bot),
+        }
 
 
 class SessionStore:
@@ -50,16 +63,7 @@ class SessionStore:
 
     def get_display(self, room: str) -> list[dict[str, Any]]:
         with self._lock:
-            return [
-                {
-                    "speaker": m.speaker,
-                    "content": m.content,
-                    "room": m.room,
-                    "image_url": m.image_url,
-                    "from_bot": bool(m.from_bot),
-                }
-                for m in self._display[room]
-            ]
+            return [m.as_dict() for m in self._display[room]]
 
     def clear(self, session_id: str) -> None:
         with self._lock:
@@ -76,16 +80,7 @@ class SessionStore:
             return {
                 "sessions": {k: list(v) for k, v in self._sessions.items()},
                 "display": {
-                    room: [
-                        {
-                            "speaker": m.speaker,
-                            "content": m.content,
-                            "room": m.room,
-                            "image_url": m.image_url,
-                            "from_bot": bool(m.from_bot),
-                        }
-                        for m in msgs
-                    ]
+                    room: [m.as_dict() for m in msgs]
                     for room, msgs in self._display.items()
                 },
             }

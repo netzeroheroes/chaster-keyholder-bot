@@ -310,6 +310,54 @@
     return "bot";
   }
 
+  function displayCaption(m) {
+    let text = String((m && m.content) || "");
+    if (m && (m.image_url || m.video_url || m.embed_url)) {
+      text = text.replace(/https?:\/\/\S+/g, "").replace(/\n{3,}/g, "\n\n").trim();
+    }
+    return text;
+  }
+
+  function appendChatMedia(div, m) {
+    if (!m) return;
+    if (m.embed_url) {
+      const wrap = document.createElement("div");
+      wrap.className = "chat-embed";
+      const ifr = document.createElement("iframe");
+      ifr.src = m.embed_url;
+      ifr.loading = "lazy";
+      ifr.allowFullscreen = true;
+      ifr.setAttribute("allow", "autoplay; fullscreen");
+      ifr.title = "Tease clip";
+      wrap.appendChild(ifr);
+      div.appendChild(wrap);
+      return;
+    }
+    if (m.video_url) {
+      const video = document.createElement("video");
+      video.className = "chat-media";
+      video.src = m.video_url;
+      video.controls = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      if (m.image_url) video.poster = m.image_url;
+      div.appendChild(video);
+      return;
+    }
+    if (m.image_url) {
+      const link = document.createElement("a");
+      link.href = m.image_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      const img = document.createElement("img");
+      img.className = "chat-image";
+      img.src = m.image_url;
+      img.alt = displayCaption(m) || "Tease";
+      link.appendChild(img);
+      div.appendChild(link);
+    }
+  }
+
   function renderMessages(messages) {
     const prev = state.lastCount;
     const grew = messages.length > prev && prev >= 0;
@@ -322,17 +370,12 @@
       div.className = `msg ${cls}`;
       div.innerHTML = `<span class="who">${who}</span>`;
       if (m.content && !String(m.content).startsWith("[image]")) {
-        div.append(document.createTextNode(m.content));
-      } else if (m.content && !m.image_url) {
+        const text = displayCaption(m);
+        if (text) div.append(document.createTextNode(text));
+      } else if (m.content && !m.image_url && !m.video_url && !m.embed_url) {
         div.append(document.createTextNode(m.content));
       }
-      if (m.image_url) {
-        const img = document.createElement("img");
-        img.className = "chat-image";
-        img.src = m.image_url;
-        img.alt = m.content || "Tease image";
-        div.appendChild(img);
-      }
+      appendChatMedia(div, m);
       els.messages.appendChild(div);
     }
     state.lastCount = messages.length;
