@@ -370,6 +370,12 @@ class TeasePlayTests(unittest.TestCase):
         )
         self.assertEqual(
             tease_media_fields(url="https://www.redgifs.com/watch/exampleclip").get(
+                "page_url"
+            ),
+            "https://www.redgifs.com/watch/exampleclip",
+        )
+        self.assertEqual(
+            tease_media_fields(url="https://www.redgifs.com/watch/exampleclip").get(
                 "embed_url"
             ),
             "https://www.redgifs.com/ifr/exampleclip",

@@ -16,6 +16,7 @@ class DisplayMessage:
     image_url: str | None = None
     video_url: str | None = None
     embed_url: str | None = None
+    page_url: str | None = None
     from_bot: bool = False
 
     def as_dict(self) -> dict[str, Any]:
@@ -26,6 +27,7 @@ class DisplayMessage:
             "image_url": self.image_url,
             "video_url": self.video_url,
             "embed_url": self.embed_url,
+            "page_url": self.page_url,
             "from_bot": bool(self.from_bot),
         }
 

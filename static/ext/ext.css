@@ -341,6 +341,38 @@ h1 { margin: 0.15rem 0 0; font-size: 1.15rem; }
   height: 100%;
   border: 0;
 }
+.msg a.chat-link,
+.msg a.chat-open {
+  color: var(--accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.msg a.chat-open {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  word-break: normal;
+}
+.msg a.chat-media-play {
+  position: relative;
+  display: inline-block;
+}
+.msg a.chat-media-play::after {
+  content: "▶";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  pointer-events: none;
+}
 .msg .who {
   display: block;
   font-size: 0.68rem;

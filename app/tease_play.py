@@ -380,6 +380,8 @@ def tease_media_fields(
         out["video_url"] = video_url
     if embed_url:
         out["embed_url"] = embed_url
+    if is_specific_tease_link(link):
+        out["page_url"] = link
     return out
 
 

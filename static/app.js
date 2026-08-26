@@ -197,27 +197,88 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
     return "bot";
   }
 
-  function displayCaption(m) {
-    let text = String((m && m.content) || "");
-    if (m && (m.image_url || m.video_url || m.embed_url)) {
-      text = text.replace(/https?:\/\/\S+/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  function firstHttpUrl(text) {
+    const match = String(text || "").match(/https?:\/\/[^\s<>]+/i);
+    return match ? match[0] : "";
+  }
+
+  function redgifId(url) {
+    const match = String(url || "").match(
+      /redgifs\.com\/(?:watch|ifr)\/([A-Za-z0-9]+)/i
+    );
+    return match ? match[1] : "";
+  }
+
+  function mediaPageUrl(m) {
+    return (
+      (m && m.page_url) ||
+      firstHttpUrl(m && m.content) ||
+      (m && m.embed_url) ||
+      (m && m.video_url) ||
+      (m && m.image_url) ||
+      ""
+    );
+  }
+
+  function appendCaption(div, m) {
+    const raw = String((m && m.content) || "");
+    if (!raw || raw.startsWith("[image]")) return;
+    const parts = raw.split(/(https?:\/\/[^\s]+)/gi);
+    const box = document.createElement("span");
+    for (const part of parts) {
+      if (/^https?:\/\//i.test(part)) {
+        const a = document.createElement("a");
+        a.href = part;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.className = "chat-link";
+        a.textContent = part;
+        box.appendChild(a);
+      } else if (part) {
+        box.appendChild(document.createTextNode(part));
+      }
     }
-    return text;
+    div.appendChild(box);
+  }
+
+  function appendOpenClip(div, href) {
+    if (!href) return;
+    const a = document.createElement("a");
+    a.className = "chat-open";
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Open clip";
+    div.appendChild(a);
   }
 
   function appendChatMedia(div, m) {
     if (!m) return;
-    if (m.embed_url) {
+    const page = mediaPageUrl(m);
+    const gid =
+      redgifId(m.embed_url) || redgifId(page) || redgifId(m.video_url);
+    const embed =
+      (m.embed_url && /redgifs\.com\/ifr\//i.test(m.embed_url) && m.embed_url) ||
+      (gid ? `https://www.redgifs.com/ifr/${gid}` : "");
+    const open =
+      page ||
+      (gid ? `https://www.redgifs.com/watch/${gid}` : "") ||
+      m.video_url ||
+      m.image_url ||
+      "";
+
+    if (embed) {
       const wrap = document.createElement("div");
       wrap.className = "chat-embed";
       const ifr = document.createElement("iframe");
-      ifr.src = m.embed_url;
+      ifr.src = embed;
       ifr.loading = "lazy";
       ifr.allowFullscreen = true;
       ifr.setAttribute("allow", "autoplay; fullscreen; encrypted-media");
       ifr.title = "Tease clip";
       wrap.appendChild(ifr);
       div.appendChild(wrap);
+      appendOpenClip(div, open);
       return;
     }
     if (m.video_url) {
@@ -229,17 +290,19 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
       video.preload = "metadata";
       if (m.image_url) video.poster = m.image_url;
       div.appendChild(video);
+      appendOpenClip(div, open);
       return;
     }
     if (m.image_url) {
       const link = document.createElement("a");
-      link.href = m.image_url;
+      link.href = open || m.image_url;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
+      link.className = gid || /\/watch\//i.test(open || "") ? "chat-media-play" : "";
       const img = document.createElement("img");
       img.className = "chat-image";
       img.src = m.image_url;
-      img.alt = displayCaption(m) || "Tease image";
+      img.alt = "Tease";
       link.appendChild(img);
       div.appendChild(link);
     }
@@ -252,10 +315,9 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
     div.className = `msg ${cls}`;
     div.innerHTML = `<span class="who">${who}</span>`;
     if (m.content && !String(m.content).startsWith("[image]")) {
-      const text = displayCaption(m);
-      if (text) div.append(document.createTextNode(text));
+      appendCaption(div, m);
     } else if (m.content && !m.image_url && !m.video_url && !m.embed_url) {
-      div.append(document.createTextNode(m.content));
+      appendCaption(div, m);
     }
     appendChatMedia(div, m);
     els.messages.appendChild(div);

@@ -1132,6 +1132,7 @@ async def handle_chat_turn(
                         image_url=tease_media.get("image_url"),
                         video_url=tease_media.get("video_url"),
                         embed_url=tease_media.get("embed_url"),
+                        page_url=tease_media.get("page_url"),
                     )
                 except Exception:  # noqa: BLE001
                     log.exception("Porn tease group post failed")
@@ -2518,6 +2519,7 @@ async def handle_chat_turn(
                 image_url=media.get("image_url"),
                 video_url=media.get("video_url"),
                 embed_url=media.get("embed_url"),
+                page_url=media.get("page_url"),
                 from_bot=True,
             )
         )

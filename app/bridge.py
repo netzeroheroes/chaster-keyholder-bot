@@ -148,6 +148,7 @@ class GroupBridge:
         image_url: str | None = None,
         video_url: str | None = None,
         embed_url: str | None = None,
+        page_url: str | None = None,
     ) -> None:
         sid = session_id_for("group")
         history = store.get(sid)
@@ -165,6 +166,7 @@ class GroupBridge:
                 image_url=image_url or None,
                 video_url=video_url or None,
                 embed_url=embed_url or None,
+                page_url=page_url or None,
                 from_bot=True,
             )
         )
@@ -178,6 +180,7 @@ class GroupBridge:
         image_url: str | None = None,
         video_url: str | None = None,
         embed_url: str | None = None,
+        page_url: str | None = None,
     ) -> list[str]:
         published: list[str] = []
         for index, post in enumerate(posts):
@@ -189,6 +192,7 @@ class GroupBridge:
                 image_url=image_url if media else None,
                 video_url=video_url if media else None,
                 embed_url=embed_url if media else None,
+                page_url=page_url if media else None,
             )
             published.append(post)
             send = None
