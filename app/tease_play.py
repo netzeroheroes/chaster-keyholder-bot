@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 
@@ -59,6 +61,60 @@ _ONLINE_RE = re.compile(
     r"from\s+(?:reddit|the\s+web|online)"
     r")\b",
     re.I,
+)
+
+# 18+ media-heavy subs only. Skip personals / meetup boards.
+_TAG_SUBS: dict[str, tuple[str, ...]] = {
+    "chastity": ("MaleChastity", "Chastity", "chastitycages"),
+    "cuckolding": ("Cuckold", "hotwife", "cuckoldcaptions"),
+    "cuckold": ("Cuckold", "hotwife", "cuckoldcaptions"),
+    "cuck": ("Cuckold", "hotwife"),
+    "hotwife": ("hotwife", "Cuckold"),
+    "bull": ("Cuckold", "hotwife"),
+    "sph": ("SPH", "smallpenishumiliation"),
+    "cei": ("cumeatinginstruction",),
+    "humiliation": ("Femdom", "SPH"),
+    "tease and denial": ("OrgasmDenial", "MaleChastity"),
+    "orgasm control": ("OrgasmDenial", "MaleChastity"),
+    "edging": ("OrgasmDenial", "edging"),
+    "anal play": ("pegging", "anal"),
+    "pegging": ("pegging",),
+    "spanking": ("spanking",),
+    "impact play": ("spanking",),
+    "bondage": ("Femdom", "MaleChastity"),
+}
+
+_DEFAULT_SUBS: tuple[str, ...] = ("MaleChastity", "Cuckold", "cuckoldcaptions")
+
+_UNSAFE_TITLE = re.compile(
+    r"\b("
+    r"teen(?:ager)?s?|loli|shota|underage|minor|child|kid|"
+    r"jailbait|preteen|young\s+girl"
+    r")\b",
+    re.I,
+)
+
+_SEARCH_PAGE = re.compile(
+    r"pornhub\.com/video/search|/video/search\?|"
+    r"xvideos\.com/\?k=|xhamster\.com/search|"
+    r"reddit\.com/search|reddit\.com/r/[^/]+/?(\?|$)",
+    re.I,
+)
+
+_IMAGE_FILE = re.compile(
+    r"\.(gif|gifv|jpe?g|png|webp)(\?|$)",
+    re.I,
+)
+
+_DIRECT_MEDIA_HOSTS = (
+    "i.redd.it",
+    "preview.redd.it",
+    "i.imgur.com",
+    "imgur.com",
+    "redgifs.com",
+    "gfycat.com",
+    "redgif.com",
+    "v.redd.it",
 )
 
 _QUERY_MAP: dict[str, str] = {
@@ -216,9 +272,166 @@ def genre_query(tags: list[str]) -> str:
     return " ".join(bits) or "chastity cage"
 
 
+def subs_for_tags(tags: list[str]) -> list[str]:
+    """Pick NSFW media subs that match this lock's flavour."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        key = (name or "").strip()
+        if not key or key.lower() in seen:
+            return
+        seen.add(key.lower())
+        out.append(key)
+
+    for tag in tags or []:
+        mapped = _TAG_SUBS.get(str(tag or "").strip().lower())
+        if mapped:
+            for sub in mapped:
+                add(sub)
+        if len(out) >= 4:
+            break
+    if not out:
+        for sub in _DEFAULT_SUBS:
+            add(sub)
+    # Always keep a chastity board in the mix
+    if "malechastity" not in seen and "chastity" not in seen:
+        add("MaleChastity")
+    return out[:4]
+
+
 def search_url(tags: list[str]) -> str:
-    q = quote_plus(genre_query(tags))
-    return f"https://www.pornhub.com/video/search?search={q}"
+    """A board to browse — never send this as 'the clip'."""
+    sub = (subs_for_tags(tags) or ["MaleChastity"])[0]
+    return f"https://www.reddit.com/r/{sub}/"
+
+
+def is_specific_tease_link(url: str) -> bool:
+    """True for a clickable clip/pic/post — not a search or sub listing."""
+    raw = (url or "").strip()
+    if not raw.startswith("http"):
+        return False
+    if _SEARCH_PAGE.search(raw):
+        return False
+    low = raw.lower()
+    if "/comments/" in low or "/gallery/" in low:
+        return True
+    host = (urlparse(raw).hostname or "").lower()
+    if any(h == host or host.endswith("." + h) for h in _DIRECT_MEDIA_HOSTS):
+        return True
+    if any(
+        bit in low
+        for bit in (
+            "redgifs.com/watch",
+            "pornhub.com/view_video",
+            "xvideos.com/video",
+            "xnxx.com/video",
+            "xhamster.com/videos",
+        )
+    ):
+        return True
+    return bool(_IMAGE_FILE.search(low) or re.search(r"\.(mp4|webm)(\?|$)", low))
+
+
+def tease_kind(url: str) -> str:
+    low = (url or "").lower()
+    if _IMAGE_FILE.search(low) or "i.redd.it" in low or "i.imgur.com" in low:
+        return "image"
+    if "/gallery/" in low:
+        return "image"
+    return "video"
+
+
+def _abs_reddit(path: str) -> str:
+    bit = (path or "").strip()
+    if bit.startswith("http"):
+        return bit
+    if bit.startswith("/"):
+        return "https://www.reddit.com" + bit
+    return ""
+
+
+def _media_url_from_post(data: dict[str, Any]) -> str:
+    """Direct picture/gif/redgif when we can; else the Reddit post he can open."""
+    if not isinstance(data, dict):
+        return ""
+    if data.get("stickied") or data.get("removed_by_category"):
+        return ""
+    if data.get("over_18") is False:
+        return ""
+    title = str(data.get("title") or "")
+    if _UNSAFE_TITLE.search(title):
+        return ""
+    permalink = _abs_reddit(str(data.get("permalink") or ""))
+    dest = str(
+        data.get("url_overridden_by_dest") or data.get("url") or ""
+    ).strip()
+    if dest.startswith("/"):
+        dest = _abs_reddit(dest)
+    domain = str(data.get("domain") or "").lower()
+    hint = str(data.get("post_hint") or "").lower()
+
+    if data.get("is_self") and hint not in {"image", "hosted:video", "rich:video"}:
+        return ""
+
+    # Hosted Reddit video / gallery: the post page is the thing that plays
+    if (
+        data.get("is_video")
+        or data.get("is_gallery")
+        or domain == "v.redd.it"
+        or "reddit.com/gallery" in dest.lower()
+    ):
+        return permalink or dest
+    if "reddit.com/gallery" in dest.lower():
+        return permalink or dest
+
+    if dest.startswith("http") and is_specific_tease_link(dest):
+        return dest
+    if hint in {"image", "hosted:video", "rich:video", "link"} and permalink:
+        if dest.startswith("http") and not _SEARCH_PAGE.search(dest):
+            return dest
+        return permalink
+    if permalink and "/comments/" in permalink and not data.get("is_self"):
+        return permalink
+    return ""
+
+
+def _reddit_posts(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        out: list[dict[str, Any]] = []
+        for child in data.get("children") or []:
+            inner = child.get("data") if isinstance(child, dict) else None
+            if isinstance(inner, dict):
+                out.append(inner)
+        return out
+    return []
+
+
+def reddit_media_from_listing(payload: Any) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for inner in _reddit_posts(payload):
+        url = _media_url_from_post(inner)
+        if not url or url in seen or not is_specific_tease_link(url):
+            continue
+        seen.add(url)
+        title = re.sub(r"\s+", " ", str(inner.get("title") or "").strip())[:120]
+        out.append(
+            {
+                "title": title or "what you can't have",
+                "url": url,
+                "kind": tease_kind(url),
+                "duration": "",
+            }
+        )
+        if len(out) >= 12:
+            break
+    return out
 
 
 def _video_items(payload: Any) -> list[dict[str, str]]:
@@ -235,14 +448,132 @@ def _video_items(payload: Any) -> list[dict[str, str]]:
             continue
         if not url.startswith("http"):
             url = "https://www.pornhub.com" + (url if url.startswith("/") else "/" + url)
+        if not is_specific_tease_link(url):
+            continue
         duration = str(item.get("duration") or item.get("formattedDuration") or "").strip()
-        out.append({"title": title[:160], "url": url, "duration": duration})
+        out.append(
+            {
+                "title": title[:160],
+                "url": url,
+                "kind": tease_kind(url),
+                "duration": duration,
+            }
+        )
         if len(out) >= 4:
             break
     return out
 
 
+async def _get_json(client: httpx.AsyncClient, url: str) -> Any:
+    try:
+        response = await client.get(
+            url,
+            headers={"User-Agent": _UA, "Accept": "application/json"},
+            cookies={"over18": "1"},
+        )
+        if response.status_code >= 400:
+            log.info("Tease HTTP %s for %s", response.status_code, url)
+            return None
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except Exception:  # noqa: BLE001
+        log.info("Tease fetch failed for %s", url, exc_info=True)
+        return None
+
+
+async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dict[str, str]]:
+    auth = await _get_json(client, "https://api.redgifs.com/v2/auth/temporary")
+    token = str((auth or {}).get("token") or "").strip()
+    if not token:
+        return []
+    query = genre_query(tags)
+    try:
+        response = await client.get(
+            "https://api.redgifs.com/v2/gifs/search",
+            params={"search_text": query, "count": 12},
+            headers={
+                "User-Agent": _UA,
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        if response.status_code >= 400:
+            log.info("Redgifs search HTTP %s", response.status_code)
+            return []
+        payload = response.json()
+        gifs = payload.get("gifs") if isinstance(payload, dict) else []
+    except Exception:  # noqa: BLE001
+        log.info("Redgifs search failed", exc_info=True)
+        return []
+    out: list[dict[str, str]] = []
+    for gif in gifs or []:
+        if not isinstance(gif, dict):
+            continue
+        gid = str(gif.get("id") or "").strip()
+        tags_txt = " ".join(str(t) for t in (gif.get("tags") or []) if t)
+        title = str(gif.get("description") or tags_txt or gid).strip()[:120]
+        if not gid or _UNSAFE_TITLE.search(title) or _UNSAFE_TITLE.search(tags_txt):
+            continue
+        url = f"https://www.redgifs.com/watch/{gid}"
+        out.append(
+            {
+                "title": title or "what you can't have",
+                "url": url,
+                "kind": "video",
+                "duration": str(gif.get("duration") or ""),
+            }
+        )
+        if len(out) >= 8:
+            break
+    return out
+
+
+async def fetch_reddit_teases(tags: list[str]) -> list[dict[str, str]]:
+    """Reddit posts (via Pullpush) + Redgifs — official reddit.com JSON is 403 now."""
+    subs = subs_for_tags(tags)
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def absorb(payload: Any) -> None:
+        for item in reddit_media_from_listing(payload):
+            url = item["url"]
+            if url in seen:
+                continue
+            seen.add(url)
+            found.append(item)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            pulls = [
+                "https://api.pullpush.io/reddit/search/submission/"
+                f"?subreddit={sub}&size=25&sort=desc&sort_type=created_utc"
+                for sub in subs
+            ]
+            payloads = await asyncio.gather(
+                *[_get_json(client, path) for path in pulls],
+                return_exceptions=True,
+            )
+            for payload in payloads:
+                if isinstance(payload, Exception) or payload is None:
+                    continue
+                absorb(payload)
+            for item in await _fetch_redgifs(client, tags):
+                url = item["url"]
+                if url in seen:
+                    continue
+                seen.add(url)
+                found.append(item)
+    except Exception:  # noqa: BLE001
+        log.exception("Reddit tease search failed")
+    random.shuffle(found)
+    return found[:8]
+
+
 async def fetch_porn_videos(tags: list[str]) -> list[dict[str, str]]:
+    """Specific clickable clips/pics — Reddit first, then a Pornhub video if it is not a search."""
+    reddit = await fetch_reddit_teases(tags)
+    if reddit:
+        return reddit
     query = genre_query(tags)
     url = (
         "https://www.pornhub.com/webmasters/search"
@@ -350,23 +681,22 @@ def format_porn_director(
     room: str = "private",
 ) -> str:
     flavour = ", ".join(tags) or "chastity"
-    fallback = search_url(tags)
     lines = [
         "[TEASE VIDEO — she asked for porn that matches this lock]",
         f"Genre to match: {flavour}.",
         "Adults only. Never anything involving minors.",
-        "Pick ONE clip. Tie it to the lock. Hands-off for him unless she said otherwise.",
+        "Pick ONE real Reddit/Redgif/image link. Never a search page. Never invent a URL.",
+        "Hands-off for him unless she said otherwise.",
     ]
     if videos:
-        lines.append("Use one of these real links — do not invent URLs:")
+        lines.append("Use one of these real links:")
         for item in videos:
             dur = f" ({item['duration']})" if item.get("duration") else ""
             lines.append(f"- {item['title']}{dur}: {item['url']}")
     else:
         lines.append(
-            "Live search missed. Give this search and describe what he should watch:"
+            "Live Reddit pull missed. Do not invent a clip. Ask her to tap Video again."
         )
-        lines.append(fallback)
     if room == "private":
         lines.append(
             "Talk to HER. Offer the link and one line he should hear. "
@@ -385,17 +715,16 @@ def format_porn_group_line(
     title: str,
     url: str,
     bull_voice: bool = False,
+    kind: str = "",
 ) -> str:
-    clip = (title or "this clip").strip() or "this clip"
+    clip = (title or "this").strip() or "this"
     link = (url or "").strip()
+    pic = (kind or tease_kind(link)).lower() in {"image", "gif", "gallery"}
+    verb = "Look at" if pic else "Watch"
     if bull_voice:
-        tease = (
-            f"Watch {clip}. Hands off. She's with me. Cage stays on."
-        )
+        tease = f"{verb} {clip}. Hands off. She's with me. Cage stays on."
     else:
-        tease = (
-            f"Watch {clip}. Hands off. Cage stays on. Sit with that ache."
-        )
+        tease = f"{verb} {clip}. Hands off. Cage stays on. Sit with that ache."
     if link:
         return f"{tease}\n{link}"
     return tease

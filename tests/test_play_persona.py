@@ -28,8 +28,11 @@ from app.tease_play import (
     format_porn_group_line,
     format_porn_private_ack,
     genre_query,
+    is_specific_tease_link,
     pick_local_games,
+    reddit_media_from_listing,
     search_url,
+    subs_for_tags,
     wants_game,
     wants_tease_go,
     wants_online_ideas,
@@ -261,7 +264,9 @@ class TeasePlayTests(unittest.TestCase):
         self.assertIn("sph", joined)
         q = genre_query(tags)
         self.assertIn("cuckold", q.lower())
-        self.assertIn("pornhub.com/video/search", search_url(tags))
+        self.assertIn("reddit.com/r/MaleChastity", search_url(tags))
+        self.assertIn("MaleChastity", subs_for_tags(tags))
+        self.assertIn("Cuckold", subs_for_tags(["Cuckolding", "Chastity"]))
 
     def test_game_director_names_a_hook(self) -> None:
         games = pick_local_games(
@@ -294,7 +299,106 @@ class TeasePlayTests(unittest.TestCase):
         self.assertIn("viewkey=abc", with_links)
         self.assertIn("Locked cuck watches", with_links)
         fallback = format_porn_director(tags=tags, videos=[], room="private")
-        self.assertIn("pornhub.com/video/search", fallback)
+        self.assertIn("Reddit", fallback)
+        self.assertNotIn("pornhub.com/video/search", fallback)
+        self.assertNotIn("Give this search", fallback)
+
+    def test_reddit_media_is_a_real_click(self) -> None:
+        listing = {
+            "data": {
+                "children": [
+                    {
+                        "data": {
+                            "title": "Locked and watching",
+                            "url": "https://i.redd.it/abc123.jpg",
+                            "permalink": "/r/MaleChastity/comments/xyz/locked/",
+                            "over_18": True,
+                            "stickied": False,
+                            "is_self": False,
+                            "domain": "i.redd.it",
+                            "post_hint": "image",
+                        }
+                    },
+                    {
+                        "data": {
+                            "title": "teen tease",
+                            "url": "https://i.redd.it/nope.jpg",
+                            "permalink": "/r/x/comments/1/x/",
+                            "over_18": True,
+                            "is_self": False,
+                            "domain": "i.redd.it",
+                            "post_hint": "image",
+                        }
+                    },
+                    {
+                        "data": {
+                            "title": "Redgif for the cuck",
+                            "url": "https://www.redgifs.com/watch/exampleclip",
+                            "permalink": "/r/Cuckold/comments/abc/redgif/",
+                            "over_18": True,
+                            "is_self": False,
+                            "domain": "redgifs.com",
+                            "post_hint": "rich:video",
+                        }
+                    },
+                    {
+                        "data": {
+                            "title": "Just a text post",
+                            "url": "https://www.reddit.com/r/MaleChastity/comments/s/self/",
+                            "permalink": "/r/MaleChastity/comments/s/self/",
+                            "over_18": True,
+                            "is_self": True,
+                            "domain": "self.MaleChastity",
+                        }
+                    },
+                ]
+            }
+        }
+        items = reddit_media_from_listing(listing)
+        urls = [item["url"] for item in items]
+        self.assertIn("https://i.redd.it/abc123.jpg", urls)
+        self.assertIn("https://www.redgifs.com/watch/exampleclip", urls)
+        self.assertFalse(any("nope.jpg" in u for u in urls))
+        self.assertFalse(any("/self/" in u for u in urls))
+        pic = format_porn_group_line(
+            title="Locked and watching",
+            url="https://i.redd.it/abc123.jpg",
+            kind="image",
+        )
+        self.assertIn("Look at", pic)
+        self.assertIn("i.redd.it/abc123.jpg", pic)
+        self.assertTrue(is_specific_tease_link("https://i.redd.it/abc123.jpg"))
+        self.assertTrue(
+            is_specific_tease_link(
+                "https://www.reddit.com/r/MaleChastity/comments/xyz/locked/"
+            )
+        )
+        self.assertFalse(
+            is_specific_tease_link(
+                "https://www.pornhub.com/video/search?search=chastity+cage+cuckold"
+            )
+        )
+        self.assertFalse(is_specific_tease_link("https://www.reddit.com/r/MaleChastity/"))
+        pullpush = {
+            "data": [
+                {
+                    "title": "Cage pic",
+                    "url": "https://i.redd.it/fresh.jpg",
+                    "permalink": "/r/MaleChastity/comments/zz/cage/",
+                    "over_18": True,
+                    "is_self": False,
+                    "domain": "i.redd.it",
+                    "post_hint": "image",
+                }
+            ]
+        }
+        pulled = reddit_media_from_listing(pullpush)
+        self.assertEqual(pulled[0]["url"], "https://i.redd.it/fresh.jpg")
+        self.assertTrue(
+            is_specific_tease_link(
+                "https://v3.redgifs.com/watch/712286666547560214"
+            )
+        )
 
 
 class HandoffTests(unittest.TestCase):

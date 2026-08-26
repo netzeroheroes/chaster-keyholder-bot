@@ -172,8 +172,8 @@ from app.tease_play import (
     format_porn_director,
     format_porn_group_line,
     format_porn_private_ack,
+    is_specific_tease_link,
     pick_local_games,
-    search_url,
     wants_game,
     wants_online_ideas,
     wants_porn,
@@ -1069,24 +1069,41 @@ async def handle_chat_turn(
     send_game = wants_game(message) or (pending_skill == "game" and go_now)
     if role == "domme" and send_porn:
         videos = await fetch_porn_videos(tags)
-        pick = (videos or [{}])[0] if videos else {}
-        url = str(pick.get("url") or thread.get("tease_url") or "").strip()
+        last = str(thread.get("tease_url") or "").strip()
+        fresh = [
+            item
+            for item in (videos or [])
+            if is_specific_tease_link(str(item.get("url") or ""))
+            and str(item.get("url") or "") != last
+        ] or [
+            item
+            for item in (videos or [])
+            if is_specific_tease_link(str(item.get("url") or ""))
+        ]
+        pick = fresh[0] if fresh else {}
+        url = str(pick.get("url") or "").strip()
+        if not is_specific_tease_link(url) and is_specific_tease_link(last):
+            url = last
+        if not is_specific_tease_link(url):
+            url = ""
         title = str(pick.get("title") or thread.get("tease_title") or "").strip()
-        if not url:
-            url = search_url(tags)
-            title = title or "what you can't have"
+        kind = str(pick.get("kind") or "").strip()
         execute = go_now or room == "group" or bool(
             re.search(r"\bsend(?:\s+him)?\b", message or "", re.I)
         )
         apply_play_updates(
             scene,
             {
-                "tease_skill": "" if execute else "porn",
+                "tease_skill": "" if (execute and url) else "porn",
                 "tease_url": url,
                 "tease_title": title,
             },
         )
-        if not execute:
+        if execute and not url:
+            tease_force_reply = (
+                "Couldn't grab a specific Reddit clip just now. Tap Video again."
+            )
+        elif not execute:
             extra_notes.append(
                 format_porn_director(tags=tags, videos=videos, room=room)
             )
@@ -1095,6 +1112,7 @@ async def handle_chat_turn(
                 title=title,
                 url=url,
                 bull_voice=is_bull_voice(),
+                kind=kind,
             )
             if room == "private":
                 try:

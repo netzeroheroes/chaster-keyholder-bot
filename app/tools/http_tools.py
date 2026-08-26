@@ -149,7 +149,8 @@ def build_default_registry() -> ToolRegistry:
             description=(
                 "Search adult video clips matching a chastity/lock genre "
                 "(cuckold, SPH, denial, etc). 18+ only. Use when the keyholder "
-                "wants porn to tease the lockee."
+                "wants porn to tease the lockee. Returns specific Reddit/Redgif "
+                "links, never a search page."
             ),
             parameters={
                 "type": "object",
