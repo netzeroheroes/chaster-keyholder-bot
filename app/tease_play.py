@@ -21,16 +21,18 @@ _UA = (
     "AppleWebKit/537.36"
 )
 
+_MEDIA = r"(?:video|clip|scene|link|pic(?:ture)?|photo|image)s?"
 _PORN_RE = re.compile(
     r"\b("
     r"porn(?:o)?(?:\s+video)?|"
     r"(?:find|suggest|send|show|pick|choose|tease(?:\s+him)?\s+with)\s+"
-    r"(?:a\s+|him\s+(?:a\s+|some\s+)?)?(?:video|clip|scene|link)s?|"
-    r"send(?:\s+him)?(?:\s+some)?\s+(?:videos?|clips?|porn)|"
+    r"(?:a\s+|him\s+(?:a\s+|some\s+)?)?" + _MEDIA + r"(?:\s+or\s+" + _MEDIA + r")?|"
+    r"send(?:\s+him)?(?:\s+(?:a|some|an?))?\s+" + _MEDIA + r"(?:\s+or\s+" + _MEDIA + r")?|"
     r"he should watch|"
     r"watch\s+(?:some\s+)?porn|"
     r"video\s+to\s+tease|"
-    r"something\s+to\s+watch|"
+    r"something\s+to\s+(?:watch|look at)|"
+    r"(?:picture|pic|photo|image|video|clip)\s+or\s+(?:video|clip|picture|pic|photo|image)|"
     r"watch\s+(?:this|a|some)\s+(?:video|clip|scene|porn)"
     r")\b",
     re.I,

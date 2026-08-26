@@ -220,6 +220,9 @@ class TeasePlayTests(unittest.TestCase):
         self.assertTrue(wants_porn("find a video to tease him"))
         self.assertTrue(wants_porn("suggest porn that matches the lock"))
         self.assertTrue(wants_porn("send him some videos"))
+        self.assertTrue(wants_porn("send him a picture or video"))
+        self.assertTrue(wants_porn("send him a picture"))
+        self.assertTrue(wants_porn("send him a pic"))
         self.assertTrue(
             wants_porn("i think he should watch porn to enforce his situation")
         )

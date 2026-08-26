@@ -2411,7 +2411,7 @@ async def handle_chat_turn(
         cleaned, _img_tags = images.extract_prompts(visible_reply)
         if _img_tags:
             visible_reply = cleaned
-    if images and images.enabled:
+    if images and images.enabled and not tease_force_reply:
         cleaned, img_prompts = images.extract_prompts(visible_reply)
         wants_pic = role == "domme" and bool(
             re.search(
