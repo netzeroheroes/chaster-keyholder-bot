@@ -173,8 +173,10 @@ from app.tease_play import (
     format_porn_group_line,
     format_porn_private_ack,
     is_specific_tease_link,
+    parse_tease_batch,
     pick_local_games,
     tease_media_fields,
+    wanted_media_kind,
     wants_game,
     wants_online_ideas,
     wants_porn,
@@ -1069,8 +1071,12 @@ async def handle_chat_turn(
     )
     send_porn = wants_porn(message) or (pending_skill == "porn" and go_now)
     send_game = wants_game(message) or (pending_skill == "game" and go_now)
+    kind_want = wanted_media_kind(message)
+    if kind_want == "any" and pending_skill == "porn":
+        kind_want = str(thread.get("tease_media_kind") or "any") or "any"
+    batch_count, batch_gap = parse_tease_batch(message)
     if role == "domme" and send_porn:
-        videos = await fetch_porn_videos(tags)
+        videos = await fetch_porn_videos(tags, kind=kind_want)
         last = str(thread.get("tease_url") or "").strip()
         fresh = [
             item
@@ -1082,47 +1088,63 @@ async def handle_chat_turn(
             for item in (videos or [])
             if is_specific_tease_link(str(item.get("url") or ""))
         ]
-        pick = fresh[0] if fresh else {}
+        picks = fresh[: max(1, batch_count)] if fresh else []
+        pick = picks[0] if picks else {}
         url = str(pick.get("url") or "").strip()
         if not is_specific_tease_link(url) and is_specific_tease_link(last):
             url = last
+            pick = {
+                "url": last,
+                "title": str(thread.get("tease_title") or ""),
+                "kind": str(thread.get("tease_media_kind") or kind_want),
+            }
+            picks = [pick]
         if not is_specific_tease_link(url):
             url = ""
         title = str(pick.get("title") or thread.get("tease_title") or "").strip()
-        kind = str(pick.get("kind") or "").strip()
+        kind = str(pick.get("kind") or kind_want or "").strip()
         execute = go_now or room == "group" or bool(
             re.search(r"\bsend(?:\s+him)?\b", message or "", re.I)
-        )
+        ) or batch_count > 1
+        flavour = ", ".join(tags[:3]) or "this lock"
         apply_play_updates(
             scene,
             {
                 "tease_skill": "" if (execute and url) else "porn",
                 "tease_url": url,
                 "tease_title": title,
+                "tease_media_kind": kind_want,
             },
         )
         if execute and not url:
             tease_force_reply = (
-                "Couldn't grab a specific Reddit clip just now. Tap Video again."
+                "Couldn't grab a matching "
+                f"{'picture' if kind_want == 'image' else 'clip'} "
+                f"for {flavour} just now. Tap Video again."
             )
         elif not execute:
             extra_notes.append(
                 format_porn_director(tags=tags, videos=videos, room=room)
             )
         else:
-            tease_media = tease_media_fields(
-                url=url,
-                kind=kind,
-                image_url=str(pick.get("image_url") or ""),
-                video_url=str(pick.get("video_url") or ""),
-                embed_url=str(pick.get("embed_url") or ""),
-            )
+
+            def _media_for(item: dict[str, str]) -> dict[str, str]:
+                return tease_media_fields(
+                    url=str(item.get("url") or ""),
+                    kind=str(item.get("kind") or kind_want),
+                    image_url=str(item.get("image_url") or ""),
+                    video_url=str(item.get("video_url") or ""),
+                    embed_url=str(item.get("embed_url") or ""),
+                )
+
+            tease_media = _media_for(pick)
             group_line = format_porn_group_line(
                 title=title,
                 url=url,
                 bull_voice=is_bull_voice(),
                 kind=kind,
             )
+            rest = picks[1:]
             if room == "private":
                 try:
                     tease_group_posts = await bridge.publish_group_messages(
@@ -1137,9 +1159,72 @@ async def handle_chat_turn(
                 except Exception:  # noqa: BLE001
                     log.exception("Porn tease group post failed")
                     tease_group_posts = [group_line]
-                tease_force_reply = format_porn_private_ack(group_line)
+                if rest and batch_gap > 0:
+                    tease_force_reply = (
+                        f"Sent 1 of {len(picks)} — "
+                        f"{'pictures' if kind_want == 'image' else 'clips'} "
+                        f"for {flavour}. Next in {batch_gap // 60 or 1} min.\n\n"
+                        "— Sent to group —\n" + group_line
+                    )
+                elif rest:
+                    extra_lines = [group_line]
+                    for item in rest:
+                        line = format_porn_group_line(
+                            title=str(item.get("title") or ""),
+                            url=str(item.get("url") or ""),
+                            bull_voice=is_bull_voice(),
+                            kind=str(item.get("kind") or kind_want),
+                        )
+                        media = _media_for(item)
+                        try:
+                            await bridge.publish_group_messages(
+                                store,
+                                [line],
+                                speaker=bot_name,
+                                image_url=media.get("image_url"),
+                                video_url=media.get("video_url"),
+                                embed_url=media.get("embed_url"),
+                                page_url=media.get("page_url"),
+                            )
+                        except Exception:  # noqa: BLE001
+                            log.exception("Porn tease extra post failed")
+                        extra_lines.append(line)
+                    tease_group_posts = extra_lines
+                    tease_force_reply = format_porn_private_ack(
+                        "\n---\n".join(extra_lines)
+                    )
+                else:
+                    tease_force_reply = format_porn_private_ack(group_line)
             else:
                 tease_force_reply = group_line
+            if rest and batch_gap > 0:
+                async def _drip_tease_clips(
+                    leftover: list[dict[str, str]] = rest,
+                    pause: int = batch_gap,
+                ) -> None:
+                    for item in leftover:
+                        await asyncio.sleep(pause)
+                        line = format_porn_group_line(
+                            title=str(item.get("title") or ""),
+                            url=str(item.get("url") or ""),
+                            bull_voice=is_bull_voice(),
+                            kind=str(item.get("kind") or kind_want),
+                        )
+                        media = _media_for(item)
+                        try:
+                            await bridge.publish_group_messages(
+                                store,
+                                [line],
+                                speaker=bot_name,
+                                image_url=media.get("image_url"),
+                                video_url=media.get("video_url"),
+                                embed_url=media.get("embed_url"),
+                                page_url=media.get("page_url"),
+                            )
+                        except Exception:  # noqa: BLE001
+                            log.exception("Tease drip post failed")
+
+                asyncio.create_task(_drip_tease_clips())
     elif role == "domme" and send_game:
         execute = go_now or room == "group"
         games = pick_local_games(

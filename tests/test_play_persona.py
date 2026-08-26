@@ -35,6 +35,10 @@ from app.tease_play import (
     search_url,
     subs_for_tags,
     tease_media_fields,
+    wanted_media_kind,
+    parse_tease_batch,
+    rank_tease_items,
+    theme_score,
     wants_game,
     wants_tease_go,
     wants_online_ideas,
@@ -225,6 +229,15 @@ class TeasePlayTests(unittest.TestCase):
         self.assertTrue(wants_porn("send him a picture or video"))
         self.assertTrue(wants_porn("send him a picture"))
         self.assertTrue(wants_porn("send him a pic"))
+        self.assertTrue(wants_porn("5 clips 1 minute apart"))
+        self.assertTrue(wants_porn("1 every minute for 5 minutes"))
+        self.assertEqual(wanted_media_kind("send him a picture"), "image")
+        self.assertEqual(wanted_media_kind("5 clips 1 minute apart"), "video")
+        self.assertEqual(wanted_media_kind("send him a picture or video"), "any")
+        self.assertEqual(parse_tease_batch("5 clips 1 minute apart"), (5, 60))
+        self.assertEqual(parse_tease_batch("1 every minute for 5 minutes")[1], 60)
+        self.assertGreaterEqual(parse_tease_batch("1 every minute for 5 minutes")[0], 5)
+        self.assertTrue(wants_tease_go("i asked you to do it"))
         self.assertTrue(
             wants_porn("i think he should watch porn to enforce his situation")
         )
@@ -402,6 +415,37 @@ class TeasePlayTests(unittest.TestCase):
             )
         )
         self.assertFalse(is_specific_tease_link("https://www.reddit.com/r/MaleChastity/"))
+        tagged = [
+            {
+                "title": "Amateur OnlyFans",
+                "kind": "video",
+                "url": "https://www.redgifs.com/watch/aaa",
+                "theme_blob": "onlyfans tits amateur",
+            },
+            {
+                "title": "Locked cuck",
+                "kind": "video",
+                "url": "https://www.redgifs.com/watch/bbb",
+                "theme_blob": "chastity cuckold cage",
+            },
+            {
+                "title": "Cage pic",
+                "kind": "image",
+                "url": "https://i.redd.it/cage.jpg",
+                "theme_blob": "chastity cage",
+            },
+        ]
+        ranked = rank_tease_items(
+            tagged, ["Chastity", "Cuckolding"], kind="video"
+        )
+        self.assertEqual(ranked[0]["title"], "Locked cuck")
+        self.assertFalse(any(item["kind"] == "image" for item in ranked))
+        pics = rank_tease_items(tagged, ["Chastity"], kind="image")
+        self.assertEqual(pics[0]["kind"], "image")
+        self.assertGreater(
+            theme_score(tagged[1], ["Chastity", "Cuckolding"]),
+            theme_score(tagged[0], ["Chastity", "Cuckolding"]),
+        )
         pullpush = {
             "data": [
                 {

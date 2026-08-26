@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import re
 from typing import Any
 from urllib.parse import quote_plus, urlparse
@@ -28,6 +27,10 @@ _PORN_RE = re.compile(
     r"(?:find|suggest|send|show|pick|choose|tease(?:\s+him)?\s+with)\s+"
     r"(?:a\s+|him\s+(?:a\s+|some\s+)?)?" + _MEDIA + r"(?:\s+or\s+" + _MEDIA + r")?|"
     r"send(?:\s+him)?(?:\s+(?:a|some|an?))?\s+" + _MEDIA + r"(?:\s+or\s+" + _MEDIA + r")?|"
+    r"\d+\s+" + _MEDIA + r"|"
+    r"(?:video|clip)s?\s+\d+\s+minute|"
+    r"every minute|"
+    r"minute apart|"
     r"he should watch|"
     r"watch\s+(?:some\s+)?porn|"
     r"video\s+to\s+tease|"
@@ -37,6 +40,48 @@ _PORN_RE = re.compile(
     r")\b",
     re.I,
 )
+
+_VIDEO_ASK = re.compile(
+    r"\b(videos?|clips?|scenes?|gifs?|redgifs?|watch)\b",
+    re.I,
+)
+_IMAGE_ASK = re.compile(
+    r"\b(pictures?|pics?|photos?|images?)\b",
+    re.I,
+)
+_DRIP_EVERY = re.compile(
+    r"\b("
+    r"every minute|"
+    r"(?:a|one|1)\s+minute apart|"
+    r"minute apart|"
+    r"every\s+(\d+)\s*min(?:ute)?s?"
+    r")\b",
+    re.I,
+)
+_BATCH_COUNT = re.compile(
+    r"\b(\d+)\s+" + _MEDIA + r"\b",
+    re.I,
+)
+
+_THEME_ALIASES: dict[str, tuple[str, ...]] = {
+    "chastity": ("chastity", "cage", "caged", "locked", "locktober", "keyholder"),
+    "cuckolding": ("cuckold", "cuck", "hotwife", "bull", "creampie"),
+    "cuckold": ("cuckold", "cuck", "hotwife", "bull"),
+    "cuck": ("cuckold", "cuck", "hotwife", "bull"),
+    "bull": ("bull", "cuckold", "hotwife"),
+    "hotwife": ("hotwife", "cuckold", "wife"),
+    "sph": ("sph", "small penis", "humiliation"),
+    "cei": ("cei", "cum eating"),
+    "humiliation": ("humiliation", "sph", "degrade"),
+    "tease and denial": ("denial", "tease", "denied", "edging"),
+    "orgasm control": ("denial", "orgasm", "denied"),
+    "edging": ("edge", "edging", "denial"),
+    "anal play": ("anal", "pegging", "plug"),
+    "pegging": ("pegging", "peg"),
+    "spanking": ("spank", "spanking"),
+    "impact play": ("spank", "impact"),
+    "bondage": ("bondage", "tied"),
+}
 
 _GAME_RE = re.compile(
     r"\b("
@@ -203,7 +248,9 @@ _TEASE_GO_RE = re.compile(
     r")\s*[.!]?\s*$"
     r"|\b("
     r"send (?:it|them|the (?:video|clip|link|game)) (?:to him|now)|"
-    r"post (?:it |the )?(?:video|clip|link) (?:to (?:him|group)|now)"
+    r"post (?:it |the )?(?:video|clip|link) (?:to (?:him|group)|now)|"
+    r"i asked you to do it|"
+    r"you (?:to )?do it"
     r")\b",
     re.I,
 )
@@ -211,6 +258,40 @@ _TEASE_GO_RE = re.compile(
 
 def wants_porn(message: str) -> bool:
     return bool(_PORN_RE.search(message or ""))
+
+
+def wanted_media_kind(message: str) -> str:
+    """video, image, or any — pictures and clips are not the same tease."""
+    text = message or ""
+    wants_video = bool(_VIDEO_ASK.search(text))
+    wants_image = bool(_IMAGE_ASK.search(text))
+    if wants_video and wants_image:
+        return "any"
+    if wants_video:
+        return "video"
+    if wants_image:
+        return "image"
+    return "any"
+
+
+def parse_tease_batch(message: str) -> tuple[int, int]:
+    """How many items, and seconds between them (0 = send this one now)."""
+    count = 1
+    found = _BATCH_COUNT.search(message or "")
+    if found:
+        count = max(1, min(8, int(found.group(1))))
+    gap = 0
+    drip = _DRIP_EVERY.search(message or "")
+    if drip:
+        extra = drip.group(2)
+        if extra:
+            gap = max(30, min(600, int(extra) * 60))
+        else:
+            gap = 60
+    span = re.search(r"\bfor\s+(\d+)\s*min(?:ute)?s?\b", message or "", re.I)
+    if span and gap:
+        count = max(count, max(1, min(8, int(span.group(1)))))
+    return count, gap
 
 
 def wants_tease_go(message: str) -> bool:
@@ -272,6 +353,98 @@ def genre_query(tags: list[str]) -> str:
         if len(bits) >= 3:
             break
     return " ".join(bits) or "chastity cage"
+
+
+def redgifs_query(tags: list[str]) -> str:
+    """Short search that stays on lock flavour, not generic porn."""
+    preferred: list[str] = []
+    seen: set[str] = set()
+    mapping = {
+        "chastity": "chastity",
+        "cuckolding": "cuckold",
+        "cuckold": "cuckold",
+        "cuck": "cuckold",
+        "bull": "cuckold",
+        "hotwife": "hotwife",
+        "sph": "sph",
+        "cei": "cei",
+        "edging": "edging",
+        "pegging": "pegging",
+    }
+    for tag in tags or []:
+        key = str(tag or "").strip().lower()
+        word = mapping.get(key, "")
+        if not word or word in seen:
+            continue
+        seen.add(word)
+        preferred.append(word)
+        if len(preferred) >= 2:
+            break
+    if "chastity" not in seen:
+        preferred.insert(0, "chastity")
+    return " ".join(preferred[:2]) or "chastity"
+
+
+def theme_needles(tags: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in tags or ["chastity"]:
+        key = str(tag or "").strip().lower()
+        if not key:
+            continue
+        aliases = _THEME_ALIASES.get(key, (key,))
+        for word in (key, *aliases):
+            bit = word.strip().lower()
+            if bit and bit not in seen:
+                seen.add(bit)
+                out.append(bit)
+    return out
+
+
+def theme_score(item: dict[str, str], tags: list[str]) -> int:
+    blob = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "tags", "url", "sub", "theme_blob")
+    ).lower()
+    score = 0
+    for needle in theme_needles(tags):
+        if needle and needle in blob:
+            score += 3 if needle in {"chastity", "cuckold", "cage", "bull"} else 1
+    return score
+
+
+def item_media_kind(item: dict[str, str]) -> str:
+    kind = str((item or {}).get("kind") or "").lower()
+    if kind in {"image", "gif", "gallery"}:
+        return "image"
+    if kind == "video":
+        return "video"
+    url = str((item or {}).get("url") or "")
+    if (item or {}).get("embed_url") or (item or {}).get("video_url"):
+        if tease_kind(url) == "image" and not (item or {}).get("embed_url"):
+            return "image"
+        return "video"
+    return tease_kind(url)
+
+
+def rank_tease_items(
+    items: list[dict[str, str]],
+    tags: list[str],
+    *,
+    kind: str = "any",
+) -> list[dict[str, str]]:
+    want = (kind or "any").strip().lower() or "any"
+    scored: list[tuple[int, dict[str, str]]] = []
+    for item in items or []:
+        ikind = item_media_kind(item)
+        if want == "video" and ikind == "image":
+            continue
+        if want == "image" and ikind != "image":
+            continue
+        scored.append((theme_score(item, tags), item))
+    scored.sort(key=lambda row: -row[0])
+    themed = [item for score, item in scored if score > 0]
+    return themed or [item for _, item in scored]
 
 
 def subs_for_tags(tags: list[str]) -> list[str]:
@@ -488,12 +661,27 @@ def reddit_media_from_listing(payload: Any) -> list[dict[str, str]]:
             continue
         seen.add(url)
         title = re.sub(r"\s+", " ", str(inner.get("title") or "").strip())[:120]
-        kind = tease_kind(url)
+        sub = ""
+        perm = str(inner.get("permalink") or "")
+        found_sub = re.search(r"/r/([^/]+)/", perm, re.I)
+        if found_sub:
+            sub = found_sub.group(1)
+        video_url = _reddit_video_url(inner)
+        if (
+            video_url
+            or inner.get("is_video")
+            or "redgifs.com" in url.lower()
+        ):
+            kind = "video"
+        else:
+            kind = tease_kind(url)
         item = {
             "title": title or "what you can't have",
             "url": url,
             "kind": kind,
             "duration": "",
+            "sub": sub,
+            "theme_blob": f"{title} {sub} {url}",
         }
         item.update(
             tease_media_fields(
@@ -564,11 +752,11 @@ async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dic
     token = str((auth or {}).get("token") or "").strip()
     if not token:
         return []
-    query = genre_query(tags)
+    query = redgifs_query(tags)
     try:
         response = await client.get(
             "https://api.redgifs.com/v2/gifs/search",
-            params={"search_text": query, "count": 12},
+            params={"search_text": query, "count": 20},
             headers={
                 "User-Agent": _UA,
                 "Accept": "application/json",
@@ -592,6 +780,8 @@ async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dic
         title = str(gif.get("description") or tags_txt or gid).strip()[:120]
         if not gid or _UNSAFE_TITLE.search(title) or _UNSAFE_TITLE.search(tags_txt):
             continue
+        if theme_score({"theme_blob": tags_txt, "title": title}, tags) <= 0:
+            continue
         url = f"https://www.redgifs.com/watch/{gid}"
         hosts = gif.get("urls") if isinstance(gif.get("urls"), dict) else {}
         item = {
@@ -599,6 +789,8 @@ async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dic
             "url": url,
             "kind": "video",
             "duration": str(gif.get("duration") or ""),
+            "tags": tags_txt,
+            "theme_blob": f"{title} {tags_txt}",
         }
         item.update(
             tease_media_fields(
@@ -621,16 +813,23 @@ async def _fetch_redgifs(client: httpx.AsyncClient, tags: list[str]) -> list[dic
     return out
 
 
-async def fetch_reddit_teases(tags: list[str]) -> list[dict[str, str]]:
+async def fetch_reddit_teases(
+    tags: list[str], *, kind: str = "any"
+) -> list[dict[str, str]]:
     """Reddit posts (via Pullpush) + Redgifs — official reddit.com JSON is 403 now."""
     subs = subs_for_tags(tags)
     found: list[dict[str, str]] = []
     seen: set[str] = set()
+    want = (kind or "any").strip().lower() or "any"
 
     def absorb(payload: Any) -> None:
         for item in reddit_media_from_listing(payload):
             url = item["url"]
             if url in seen:
+                continue
+            if want == "video" and item_media_kind(item) == "image":
+                continue
+            if want == "image" and item_media_kind(item) != "image":
                 continue
             seen.add(url)
             found.append(item)
@@ -650,21 +849,23 @@ async def fetch_reddit_teases(tags: list[str]) -> list[dict[str, str]]:
                 if isinstance(payload, Exception) or payload is None:
                     continue
                 absorb(payload)
-            for item in await _fetch_redgifs(client, tags):
-                url = item["url"]
-                if url in seen:
-                    continue
-                seen.add(url)
-                found.append(item)
+            if want != "image":
+                for item in await _fetch_redgifs(client, tags):
+                    url = item["url"]
+                    if url in seen:
+                        continue
+                    seen.add(url)
+                    found.append(item)
     except Exception:  # noqa: BLE001
         log.exception("Reddit tease search failed")
-    random.shuffle(found)
-    return found[:8]
+    return rank_tease_items(found, tags, kind=want)[:8]
 
 
-async def fetch_porn_videos(tags: list[str]) -> list[dict[str, str]]:
+async def fetch_porn_videos(
+    tags: list[str], *, kind: str = "any"
+) -> list[dict[str, str]]:
     """Specific clickable clips/pics — Reddit first, then a Pornhub video if it is not a search."""
-    reddit = await fetch_reddit_teases(tags)
+    reddit = await fetch_reddit_teases(tags, kind=kind)
     if reddit:
         return reddit
     query = genre_query(tags)
@@ -678,7 +879,7 @@ async def fetch_porn_videos(tags: list[str]) -> list[dict[str, str]]:
             if response.status_code >= 400:
                 log.info("Porn search HTTP %s", response.status_code)
                 return []
-            return _video_items(response.json())
+            return rank_tease_items(_video_items(response.json()), tags, kind=kind)
     except Exception:  # noqa: BLE001
         log.exception("Porn search failed")
         return []
