@@ -100,11 +100,21 @@ def _parse(iso: str) -> datetime | None:
         return None
 
 
+def _state_path() -> Path:
+    from app.lock_scope import current_lock_scope
+
+    scope = current_lock_scope()
+    if scope:
+        return DATA_DIR / "locks" / scope / "play_session.json"
+    return PATH
+
+
 def _load_raw() -> dict[str, Any]:
-    if not PATH.is_file():
+    path = _state_path()
+    if not path.is_file():
         return dict(_IDLE)
     try:
-        raw = json.loads(PATH.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return dict(_IDLE)
     if not isinstance(raw, dict):
@@ -126,8 +136,10 @@ def _load_raw() -> dict[str, Any]:
 
 
 def _save_raw(state: dict[str, Any]) -> None:
+    path = _state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def _clamp_rate(rate: float) -> float:

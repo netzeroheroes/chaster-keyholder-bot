@@ -304,6 +304,11 @@ async def autopilot_loop(
             if should_tick:
                 if not forced:
                     _LAST_SKIP_REASON = ""
+                lock_id = (getattr(settings, "chaster_lock_id", "") or "").strip()
+                if lock_id:
+                    from app.lock_scope import bind_lock_scope
+
+                    bind_lock_scope(lock_id=lock_id)
                 posted = await run_unprompted_tick(
                     settings=settings,
                     agent=agent,

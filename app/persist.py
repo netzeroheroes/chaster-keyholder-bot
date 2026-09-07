@@ -17,12 +17,15 @@ SCENE_PATH = DATA_DIR / "scene.json"
 SESSIONS_PATH = DATA_DIR / "sessions.json"
 
 
-def save_scene(scene: SceneState, path: Path = SCENE_PATH) -> None:
+def save_scene(scene: SceneState, path: Path | None = None) -> None:
+    dest = path or getattr(scene, "_path", None) or SCENE_PATH
+    dest.parent.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    dest.write_text(
         json.dumps(scene.snapshot(), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    scene._path = dest  # type: ignore[attr-defined]
 
 
 def load_scene(path: Path = SCENE_PATH) -> SceneState:
@@ -42,6 +45,7 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
         lockee_prompt=DEFAULT_LOCKEE_PROMPT,
         secret_directives=DEFAULT_ACTIVE_PLAN,
     )
+    scene._path = path  # type: ignore[attr-defined]
     if not path.is_file():
         save_scene(scene, path)
         return scene

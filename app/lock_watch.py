@@ -163,6 +163,33 @@ def mark_history_events_seen(events: list[dict[str, Any]]) -> None:
     _save_state(state)
 
 
+def _lock_id_from_events(events: list[dict[str, Any]]) -> str:
+    for ev in events:
+        raw = ev.get("lock")
+        if isinstance(raw, dict):
+            lid = str(raw.get("_id") or raw.get("id") or "").strip()
+        else:
+            lid = str(raw or "").strip()
+        if lid:
+            return lid
+    return ""
+
+
+def _bind_watch_scope(
+    chaster: ChasterClient, *, lock_id: str = "", events: list[dict[str, Any]] | None = None
+) -> str:
+    from app.lock_scope import bind_lock_scope
+
+    lid = (lock_id or "").strip()
+    if not lid and events:
+        lid = _lock_id_from_events(events)
+    if not lid:
+        lid = (chaster.settings.chaster_lock_id or "").strip()
+    if lid:
+        bind_lock_scope(lock_id=lid)
+    return lid
+
+
 async def fetch_new_events(
     chaster: ChasterClient, *, limit: int = 15
 ) -> list[dict[str, Any]]:
@@ -173,6 +200,7 @@ async def fetch_new_events(
         lock_id = str((st.get("lock") or {}).get("lock_id") or "")
     if not lock_id:
         return []
+    _bind_watch_scope(chaster, lock_id=lock_id)
 
     results = await chaster.get_lock_history(lock_id, limit=limit)
     if not results:
@@ -238,6 +266,15 @@ async def react_to_lock_events(
     """Post AI Domme reactions into the group room for new lock history events."""
     if not events:
         return 0
+
+    from app.lock_store import memory_for, scene_for
+    from app.lock_scope import current_lock_scope
+
+    _bind_watch_scope(chaster, events=events)
+    scope = current_lock_scope()
+    if scope:
+        memory = memory_for(scope, memory)
+        scene = scene_for(scope, scene)
 
     # Physical lockbox bridge — no AI, just API sync (time from Chaster)
     if rad is not None:

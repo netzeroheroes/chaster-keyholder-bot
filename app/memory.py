@@ -113,11 +113,13 @@ class LongTermMemory:
     learned_games: list[str] = field(default_factory=list)
     lockee_intel: list[str] = field(default_factory=list)
     _lock: Lock = field(default_factory=Lock, repr=False)
+    _path: Path = field(default=MEMORY_PATH, repr=False, compare=False)
 
     @classmethod
     def load(cls, path: Path = MEMORY_PATH) -> LongTermMemory:
         if not path.is_file():
             mem = cls()
+            mem._path = path
             mem.save(path)
             return mem
         try:
@@ -131,9 +133,13 @@ class LongTermMemory:
         title = str(data.get("domme_title") or "").strip()
         if title.lower() in {"mistress", "miss"} and str(data.get("domme_name") or "").strip():
             data["domme_title"] = ""
-        return cls(**data)
+        mem = cls(**data)
+        mem._path = path
+        return mem
 
-    def save(self, path: Path = MEMORY_PATH) -> None:
+    def save(self, path: Path | None = None) -> None:
+        dest = path or self._path or MEMORY_PATH
+        dest.parent.mkdir(parents=True, exist_ok=True)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         with self._lock:
             payload = {
@@ -166,7 +172,9 @@ class LongTermMemory:
                 "learned_games": list(self.learned_games)[-40:],
                 "lockee_intel": list(self.lockee_intel)[-40:],
             }
-            path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        if path is not None:
+            self._path = dest
 
     def snapshot(self) -> dict:
         with self._lock:

@@ -532,6 +532,57 @@ async def handle_chat_turn(
     message: str,
     chaster_role: str | None = None,
     chaster_username: str | None = None,
+    lock_id: str = "",
+    session_id: str = "",
+) -> dict[str, Any]:
+    from app.lock_scope import bind_lock_scope, current_lock_scope, reset_lock_scope
+    from app.lock_store import memory_for, persist_scene, scene_for
+
+    # Only rebind when a lock/session is passed. Empty args must keep the
+    # request-scoped lock already set by the extension (do not wipe it).
+    scope_token = None
+    if str(lock_id or "").strip() or str(session_id or "").strip():
+        scope_token = bind_lock_scope(lock_id=lock_id, session_id=session_id)
+    scope = current_lock_scope()
+    if scope:
+        memory = memory_for(scope, memory)
+        scene = scene_for(scope, scene)
+    try:
+        return await _handle_chat_turn_scoped(
+            agent=agent,
+            store=store,
+            scene=scene,
+            memory=memory,
+            bridge=bridge,
+            images=images,
+            chaster=chaster,
+            role=role,
+            room=room,
+            message=message,
+            chaster_role=chaster_role,
+            chaster_username=chaster_username,
+        )
+    finally:
+        if scope:
+            persist_scene(scene)
+        if scope_token is not None:
+            reset_lock_scope(scope_token)
+
+
+async def _handle_chat_turn_scoped(
+    *,
+    agent: ChatAgent,
+    store: SessionStore,
+    scene: SceneState,
+    memory: LongTermMemory,
+    bridge: GroupBridge,
+    images: ImageService | None = None,
+    chaster: ChasterClient | None = None,
+    role: Role,
+    room: Room,
+    message: str,
+    chaster_role: str | None = None,
+    chaster_username: str | None = None,
 ) -> dict[str, Any]:
     sid = session_id_for(room)
     raw_history = store.get(sid)

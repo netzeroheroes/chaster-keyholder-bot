@@ -67,8 +67,10 @@ def private_hard_rule() -> str:
     return PRIVATE_HARD_RULE
 
 
-def session_id_for(room: Room) -> str:
-    return f"room:{room}"
+def session_id_for(room: Room, lock_id: str | None = None) -> str:
+    from app.lock_scope import session_id_for as _scoped
+
+    return _scoped(room, lock_id)
 
 
 def is_keyholder_private(room: str | None) -> bool:

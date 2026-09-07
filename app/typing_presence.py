@@ -14,7 +14,9 @@ _store: dict[str, dict[str, dict[str, float | str]]] = {}
 
 
 def set_typing(room: str, speaker: str, label: str = "") -> None:
-    r = (room or "").strip() or "group"
+    from app.lock_scope import display_key
+
+    r = display_key((room or "").strip() or "group")
     sp = (speaker or "").strip()
     if not sp:
         return
@@ -28,7 +30,9 @@ def set_typing(room: str, speaker: str, label: str = "") -> None:
 
 
 def clear_typing(room: str, speaker: str) -> None:
-    r = (room or "").strip() or "group"
+    from app.lock_scope import display_key
+
+    r = display_key((room or "").strip() or "group")
     sp = (speaker or "").strip()
     if not sp:
         return
@@ -42,7 +46,9 @@ def clear_typing(room: str, speaker: str) -> None:
 
 
 def list_typing(room: str, *, exclude: str = "") -> list[dict[str, str]]:
-    r = (room or "").strip() or "group"
+    from app.lock_scope import display_key
+
+    r = display_key((room or "").strip() or "group")
     now = time.monotonic()
     ex = (exclude or "").strip()
     out: list[dict[str, str]] = []

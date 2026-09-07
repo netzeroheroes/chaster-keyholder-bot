@@ -32,6 +32,8 @@ from app.extension_auth import (
     resolve_main_token,
 )
 from app.images import ImageService
+from app.lock_scope import bind_lock_scope, current_lock_scope, reset_lock_scope
+from app.lock_store import memory_for, persist_scene, scene_for
 from app.lockbox_sync import (
     last_sync_status,
     relock_after_hygiene,
@@ -39,7 +41,6 @@ from app.lockbox_sync import (
     unlock_for_hygiene,
 )
 from app.memory import LongTermMemory
-from app.persist import save_scene
 from app.rad_lockbox import RadLockboxClient, summarize_lockbox
 from app.roles import Room, access_denied_detail, can_access
 from app.runtime_controls import RuntimeControls, voice_catalog
@@ -185,24 +186,28 @@ async def _require_session(
         from app.extension_auth import ExtSession
         import time
 
-        return ExtSession(
+        sess = ExtSession(
             main_token=main_token,
             role=role,  # type: ignore[arg-type]
             user_id="dev",
             session_id="dev",
-            lock_id="",
+            lock_id="dev",
             wearer_username="lockee",
             keyholder_username="keyholder",
             config={},
             fetched_at=time.time(),
         )
+        bind_lock_scope(lock_id=sess.lock_id, session_id=sess.session_id)
+        return sess
     try:
-        return await resolve_main_token(chaster, main_token, cache=cache)
+        sess = await resolve_main_token(chaster, main_token, cache=cache)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=401,
             detail="Open this page from Chaster (invalid or expired mainToken).",
         ) from exc
+    bind_lock_scope(lock_id=sess.lock_id, session_id=sess.session_id)
+    return sess
 
 
 def register_extension_routes(
@@ -221,6 +226,12 @@ def register_extension_routes(
 ) -> None:
     cache = ExtensionAuthCache(ttl_seconds=120)
     _box_cache: dict[str, Any] = {"at": 0.0, "data": None}
+
+    def _lock_memory() -> LongTermMemory:
+        return memory_for(current_lock_scope(), memory)
+
+    def _lock_scene() -> SceneState:
+        return scene_for(current_lock_scope(), scene)
 
     async def _box_view(*, force: bool = False) -> dict:
         now = time.time()
@@ -254,6 +265,14 @@ def register_extension_routes(
         _box_cache["at"] = now
         _box_cache["data"] = view
         return view
+
+    @api.middleware("http")
+    async def isolate_lock_scope(request: Request, call_next):
+        token = bind_lock_scope(lock_id="", session_id="")
+        try:
+            return await call_next(request)
+        finally:
+            reset_lock_scope(token)
 
     @api.middleware("http")
     async def extension_security_headers(request: Request, call_next):
@@ -326,8 +345,8 @@ def register_extension_routes(
         return {
             "ok": True,
             "session": public_session_view(sess),
-            "bot_name": memory.bot_name or "Keyholder",
-            "domme_title": memory.domme_title or "",
+            "bot_name": _lock_memory().bot_name or "Keyholder",
+            "domme_title": _lock_memory().domme_title or "",
             "bot_sex": str(getattr(controls, "bot_sex", "") or "female"),
             "autopilot": autopilot_status(settings),
             "hygiene": await _hygiene_view(),
@@ -414,6 +433,8 @@ def register_extension_routes(
                 message=body.message,
                 chaster_role=sess.role,
                 chaster_username=sess.speaker_username,
+                lock_id=sess.lock_id,
+                session_id=sess.session_id,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -428,16 +449,23 @@ def register_extension_routes(
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=401, detail=_api_detail(exc)) from exc
+        sid = str(raw.get("sessionId") or "")
+        lock = raw.get("lock") if isinstance(raw.get("lock"), dict) else {}
+        bind_lock_scope(
+            lock_id=str(lock.get("_id") or lock.get("id") or ""),
+            session_id=sid,
+        )
         cfg = dict(raw.get("config") or {})
         # Merge live runtime defaults for missing keys
         live = controls.snapshot()
+        mem = _lock_memory()
         for key in _CONFIG_KEYS:
             if key not in cfg and key in live:
                 cfg[key] = live[key]
             if key == "bot_name" and key not in cfg:
-                cfg[key] = memory.bot_name or "Keyholder"
+                cfg[key] = mem.bot_name or "Keyholder"
             if key == "domme_title" and key not in cfg:
-                cfg[key] = memory.domme_title or ""
+                cfg[key] = mem.domme_title or ""
         return {
             "ok": True,
             "config": cfg,
@@ -472,7 +500,7 @@ def register_extension_routes(
         if "domme_title" in clean and clean["domme_title"]:
             mem_updates["domme_title"] = str(clean["domme_title"]).strip()
         if mem_updates:
-            memory.update_fields(**mem_updates)
+            _lock_memory().update_fields(**mem_updates)
 
         return {"ok": True, "config": clean}
 
@@ -491,10 +519,11 @@ def register_extension_routes(
             live_val = str(live.get(key) or "").strip()
             if live_val:
                 cfg[key] = live_val
+        mem = _lock_memory()
         if "bot_name" not in cfg or not cfg.get("bot_name"):
-            cfg["bot_name"] = memory.bot_name or "Keyholder"
+            cfg["bot_name"] = mem.bot_name or "Keyholder"
         if "domme_title" not in cfg:
-            cfg["domme_title"] = memory.domme_title or ""
+            cfg["domme_title"] = mem.domme_title or ""
         # Sensible defaults if still missing (avoids Chaster "Field required")
         cfg.setdefault("auto_punish_enabled", False)
         cfg.setdefault("auto_punish_seconds", 600)
@@ -569,9 +598,9 @@ def register_extension_routes(
             "config": {**merged, **{k: live[k] for k in live if k in _CONFIG_KEYS}},
             "session_id": sess.session_id,
             "autopilot": autopilot_status(settings),
-            "her_turn_ons": list(memory.her_turn_ons or []),
-            "her_fantasies": list(memory.her_fantasies or []),
-            "her_orgasms": list(memory.her_orgasms or [])[-8:],
+            "her_turn_ons": list(_lock_memory().her_turn_ons or []),
+            "her_fantasies": list(_lock_memory().her_fantasies or []),
+            "her_orgasms": list(_lock_memory().her_orgasms or [])[-8:],
             "voice_catalog": voice_catalog(),
         }
 
@@ -619,8 +648,9 @@ def register_extension_routes(
             mem_updates["bot_name"] = str(clean["bot_name"]).strip()
         if clean.get("domme_title"):
             mem_updates["domme_title"] = str(clean["domme_title"]).strip()
+        mem = _lock_memory()
         if mem_updates:
-            memory.update_fields(**mem_updates)
+            mem.update_fields(**mem_updates)
         taste = {}
         if isinstance(raw.get("her_turn_ons"), list):
             taste["her_turn_ons"] = [
@@ -631,7 +661,7 @@ def register_extension_routes(
                 str(x).strip() for x in raw["her_fantasies"] if str(x).strip()
             ][-40:]
         if taste:
-            memory.update_fields(**taste)
+            mem.update_fields(**taste)
         import time as _time
 
         cache.put(
@@ -689,8 +719,8 @@ def register_extension_routes(
             settings=settings,
             agent=agent,
             store=store,
-            scene=scene,
-            memory=memory,
+            scene=_lock_scene(),
+            memory=_lock_memory(),
             bridge=bridge,
             chaster=chaster,
             force=True,
@@ -829,20 +859,21 @@ def register_extension_routes(
                     )
         snap["play_session"] = play_view
         if spoken and result.get("ok"):
+            scn = _lock_scene()
             apply_play_updates(
-                scene,
+                scn,
                 {"cage": "off_for_play" if action == "unlock" else "on"},
             )
             try:
-                save_scene(scene)
+                persist_scene(scn)
             except Exception:  # noqa: BLE001
                 log.exception("Could not save play thread after lockbox %s", action)
             try:
                 snap["chat"] = await handle_chat_turn(
                     agent=agent,
                     store=store,
-                    scene=scene,
-                    memory=memory,
+                    scene=scn,
+                    memory=_lock_memory(),
                     bridge=bridge,
                     images=images,
                     chaster=chaster,
@@ -851,6 +882,8 @@ def register_extension_routes(
                     message=spoken,
                     chaster_role=sess.role,
                     chaster_username=sess.speaker_username,
+                    lock_id=sess.lock_id,
+                    session_id=sess.session_id,
                 )
             except Exception:  # noqa: BLE001
                 log.exception("Lockbox %s conversation failed", action)
@@ -858,7 +891,7 @@ def register_extension_routes(
         return snap
 
     def _hygiene_note(text: str, *, room: str = "private") -> None:
-        bot = memory.bot_name or "Keyholder"
+        bot = _lock_memory().bot_name or "Keyholder"
         if room == "private":
             bridge.inject_private_note(store, text, speaker=bot)
         else:
@@ -1050,8 +1083,8 @@ def register_extension_routes(
         _require_keyholder(sess, body.main_token)
         catalog = await load_wearer_catalog(
             chaster=chaster,
-            memory=memory,
-            scene=scene,
+            memory=_lock_memory(),
+            scene=_lock_scene(),
             username_hint=sess.wearer_username or "",
         )
         return catalog
@@ -1060,11 +1093,12 @@ def register_extension_routes(
     async def ext_session_kit_save(body: ExtKitSaveBody) -> dict:
         sess = await _require_session(chaster, cache, settings, body.main_token)
         _require_keyholder(sess, body.main_token)
-        updated = scene.update(
+        scn = _lock_scene()
+        updated = scn.update(
             session_kinks=body.session_kinks,
             session_toys=body.session_toys,
         )
-        save_scene(scene)
+        persist_scene(scn)
         return {
             "ok": True,
             "session_kinks": updated.get("session_kinks") or [],

@@ -328,10 +328,21 @@ class ChasterClient:
                     sid = session.get("sessionId")
                     if sid:
                         return str(sid)
+            raise RuntimeError(
+                f"No Duo Domme extension session found for lock {preferred_lock}."
+            )
+        found: list[str] = []
         for session in sessions:
             sid = session.get("sessionId")
             if sid:
-                return str(sid)
+                found.append(str(sid))
+        if len(found) == 1:
+            return found[0]
+        if len(found) > 1:
+            raise RuntimeError(
+                "Multiple Duo Domme extension sessions found. "
+                "Set CHASTER_LOCK_ID so lock actions stay on the right lock."
+            )
         raise RuntimeError(
             "No Duo Domme extension session found. "
             "Is the extension on an active lock?"

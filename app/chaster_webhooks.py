@@ -207,6 +207,12 @@ async def handle_chaster_webhook(
                 log.debug("Webhook flag sync skipped", exc_info=True)
 
         if agent is not None and store is not None and scene is not None and memory:
+            from app.lock_scope import bind_lock_scope
+
+            bind_lock_scope(
+                lock_id=str(alog.get("lock") or ""),
+                session_id=parsed["session_id"],
+            )
             # LLM can exceed Chaster's 10s webhook timeout — run in background
             async def _react() -> None:
                 try:

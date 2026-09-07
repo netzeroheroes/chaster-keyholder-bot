@@ -52,30 +52,54 @@ class SessionStore:
         with self._lock:
             self._sessions[session_id] = trimmed
 
+    def append(self, session_id: str, message: ChatCompletionMessageParam) -> None:
+        history = self.get(session_id)
+        history.append(message)
+        self.set(session_id, history)
+
     def append_display(self, message: DisplayMessage) -> None:
+        from app.lock_scope import display_key
+
+        key = display_key(message.room)
         with self._lock:
-            bucket = self._display[message.room]
+            bucket = self._display[key]
             bucket.append(message)
             if len(bucket) > self._max_messages:
-                self._display[message.room] = bucket[-self._max_messages :]
+                self._display[key] = bucket[-self._max_messages :]
 
     def display_counts(self) -> dict[str, int]:
+        from app.lock_scope import current_lock_scope, public_room
+
+        scope = current_lock_scope()
         with self._lock:
-            return {room: len(msgs) for room, msgs in self._display.items()}
+            out: dict[str, int] = {}
+            for key, msgs in self._display.items():
+                if scope and not key.startswith(f"lock:{scope}:"):
+                    continue
+                if not scope and key.startswith("lock:"):
+                    continue
+                out[public_room(key)] = len(msgs)
+            return out
 
     def get_display(self, room: str) -> list[dict[str, Any]]:
+        from app.lock_scope import display_key
+
+        key = display_key(room)
         with self._lock:
-            return [m.as_dict() for m in self._display[room]]
+            return [m.as_dict() for m in self._display[key]]
 
     def clear(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(session_id, None)
 
     def clear_room(self, room: str) -> None:
-        session_id = f"room:{room}"
+        from app.lock_scope import display_key, session_id_for
+
+        session_id = session_id_for(room)
+        key = display_key(room)
         with self._lock:
             self._sessions.pop(session_id, None)
-            self._display.pop(room, None)
+            self._display.pop(key, None)
 
     def export_state(self) -> dict[str, Any]:
         with self._lock:
