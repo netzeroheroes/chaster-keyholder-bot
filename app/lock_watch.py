@@ -81,7 +81,9 @@ def _is_our_bot_action(event: dict[str, Any]) -> bool:
 
 
 def _should_react(event: dict[str, Any]) -> bool:
-    etype = str(event.get("type") or "")
+    from app.lockbox_sync import normalize_history_type
+
+    etype = normalize_history_type(event)
     # Our own edits are already narrated in chat — don't double-claim as Mistress.
     if _is_our_bot_action(event):
         return False
@@ -95,18 +97,31 @@ def _should_react(event: dict[str, Any]) -> bool:
     return bool(event.get("extension"))
 
 
-def _load_state() -> dict[str, Any]:
-    if not STATE_PATH.is_file():
+def _state_path(lock_id: str = "") -> Path:
+    lid = (lock_id or "").strip()
+    if lid:
+        from app.lock_scope import normalize_lock_id
+        from app.lock_store import lock_data_dir
+
+        return lock_data_dir(normalize_lock_id(lid)) / "lock_watch.json"
+    return STATE_PATH
+
+
+def _load_state(lock_id: str = "") -> dict[str, Any]:
+    path = _state_path(lock_id)
+    if not path.is_file():
         return {"last_id": "", "seen": []}
     try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"last_id": "", "seen": []}
 
 
-def _save_state(state: dict[str, Any]) -> None:
+def _save_state(state: dict[str, Any], lock_id: str = "") -> None:
+    path = _state_path(lock_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def format_history_event(event: dict[str, Any]) -> str:
@@ -139,11 +154,14 @@ def format_history_event(event: dict[str, Any]) -> str:
     return " — ".join(bits)
 
 
-def mark_history_events_seen(events: list[dict[str, Any]]) -> None:
+def mark_history_events_seen(
+    events: list[dict[str, Any]], *, lock_id: str = ""
+) -> None:
     """Record history ids so the poller does not double-handle webhook events."""
     if not events:
         return
-    state = _load_state()
+    lid = (lock_id or "").strip() or _lock_id_from_events(events)
+    state = _load_state(lid)
     seen = [str(x) for x in (state.get("seen") or []) if x]
     seen_set = set(seen)
     last_id = str(state.get("last_id") or "")
@@ -160,16 +178,14 @@ def mark_history_events_seen(events: list[dict[str, Any]]) -> None:
     state["seen"] = seen[-80:]
     if last_id:
         state["last_id"] = last_id
-    _save_state(state)
+    _save_state(state, lid)
 
 
 def _lock_id_from_events(events: list[dict[str, Any]]) -> str:
+    from app.chaster_webhooks import extract_lock_id
+
     for ev in events:
-        raw = ev.get("lock")
-        if isinstance(raw, dict):
-            lid = str(raw.get("_id") or raw.get("id") or "").strip()
-        else:
-            lid = str(raw or "").strip()
+        lid = extract_lock_id(ev.get("lock"))
         if lid:
             return lid
     return ""
@@ -190,23 +206,57 @@ def _bind_watch_scope(
     return lid
 
 
+async def watched_lock_ids(chaster: ChasterClient) -> list[str]:
+    """Every locked Duo Domme session, plus CHASTER_LOCK_ID if set."""
+    from app.chaster_webhooks import extract_lock_id
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(lid: str) -> None:
+        text = (lid or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            found.append(text)
+
+    try:
+        sessions = await chaster.search_extension_sessions()
+        for session in sessions or []:
+            if not isinstance(session, dict):
+                continue
+            _add(extract_lock_id(session.get("lock")))
+    except Exception:  # noqa: BLE001
+        log.debug("Lock-watch session search failed", exc_info=True)
+
+    _add(getattr(chaster.settings, "chaster_lock_id", "") or "")
+    if not found:
+        try:
+            st = await chaster.status()
+            _add(str(((st or {}).get("lock") or {}).get("lock_id") or ""))
+        except Exception:  # noqa: BLE001
+            log.debug("Lock-watch status fallback failed", exc_info=True)
+    return found
+
+
 async def fetch_new_events(
-    chaster: ChasterClient, *, limit: int = 15
+    chaster: ChasterClient, *, lock_id: str = "", limit: int = 15
 ) -> list[dict[str, Any]]:
     """Return newest unseen history events (oldest→newest). Seeds on first run."""
-    lock_id = (chaster.settings.chaster_lock_id or "").strip()
-    if not lock_id:
+    lid = (lock_id or "").strip()
+    if not lid:
+        lid = (chaster.settings.chaster_lock_id or "").strip()
+    if not lid:
         st = await chaster.status()
-        lock_id = str((st.get("lock") or {}).get("lock_id") or "")
-    if not lock_id:
+        lid = str((st.get("lock") or {}).get("lock_id") or "")
+    if not lid:
         return []
-    _bind_watch_scope(chaster, lock_id=lock_id)
+    _bind_watch_scope(chaster, lock_id=lid)
 
-    results = await chaster.get_lock_history(lock_id, limit=limit)
+    results = await chaster.get_lock_history(lid, limit=limit)
     if not results:
         return []
 
-    state = _load_state()
+    state = _load_state(lid)
     last_id = str(state.get("last_id") or "")
     seen_set = {str(x) for x in (state.get("seen") or []) if x}
     newest_id = str(results[0].get("_id") or "")
@@ -215,7 +265,7 @@ async def fetch_new_events(
         # First run: remember tip of history, don't flood chat
         state["last_id"] = newest_id
         state["seen"] = [newest_id]
-        _save_state(state)
+        _save_state(state, lid)
         return []
 
     new: list[dict[str, Any]] = []
@@ -236,7 +286,7 @@ async def fetch_new_events(
                 seen = list(state.get("seen") or [])
                 seen.append(newest_id)
                 state["seen"] = seen[-80:]
-            _save_state(state)
+            _save_state(state, lid)
         return []
 
     # results are newest-first; react oldest-first
@@ -249,7 +299,7 @@ async def fetch_new_events(
             seen.append(eid)
             seen_set.add(eid)
     state["seen"] = seen[-80:]
-    _save_state(state)
+    _save_state(state, lid)
     return new
 
 
@@ -293,7 +343,9 @@ async def react_to_lock_events(
     for ev in events[:5]:
         if not _should_react(ev):
             continue
-        etype = str(ev.get("type") or "")
+        from app.lockbox_sync import normalize_history_type
+
+        etype = normalize_history_type(ev)
         role = str(ev.get("role") or "").strip().lower()
         summary = format_history_event(ev)
         # Only true manual Mistress clicks — not bot API edits logged as keyholder.
@@ -374,17 +426,18 @@ async def lock_watch_loop(
                 getattr(settings, "lock_watch_enabled", True)
                 and chaster.configured
             ):
-                events = await fetch_new_events(chaster)
-                if events:
-                    await react_to_lock_events(
-                        agent=agent,
-                        store=store,
-                        scene=scene,
-                        memory=memory,
-                        chaster=chaster,
-                        events=events,
-                        rad=rad,
-                    )
+                for lid in await watched_lock_ids(chaster):
+                    events = await fetch_new_events(chaster, lock_id=lid)
+                    if events:
+                        await react_to_lock_events(
+                            agent=agent,
+                            store=store,
+                            scene=scene,
+                            memory=memory,
+                            chaster=chaster,
+                            events=events,
+                            rad=rad,
+                        )
                 # Flag edges (freeze/hide/unfreeze/reveal) + hold placeholders.
                 # Periodic remaining-time sync keeps R+D aligned with Chaster.
                 if rad is not None:

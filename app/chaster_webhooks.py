@@ -75,19 +75,69 @@ def _unwrap_event(body: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def extract_lock_id(raw: Any) -> str:
+    """Lock id from a string or a lock object ``{_id,id}``. Do not pass a full action log."""
+    if raw is None:
+        return ""
+    if isinstance(raw, dict):
+        nested = raw.get("lock")
+        if nested is not None and nested is not raw:
+            got = extract_lock_id(nested)
+            if got:
+                return got
+        for key in ("_id", "id", "lockId"):
+            val = raw.get(key)
+            if val is not None and not isinstance(val, (dict, list)):
+                text = str(val).strip()
+                if text:
+                    return text
+        return ""
+    return str(raw).strip()
+
+
+def lock_id_from_session_payload(data: dict[str, Any], raw: dict[str, Any]) -> str:
+    session = data.get("session") if isinstance(data.get("session"), dict) else {}
+    for candidate in (
+        data.get("lock"),
+        session.get("lock") if isinstance(session, dict) else None,
+        data.get("lockId"),
+        raw.get("lock"),
+        session.get("lockId") if isinstance(session, dict) else None,
+    ):
+        lid = extract_lock_id(candidate)
+        if lid:
+            return lid
+    return ""
+
+
+def _normalize_event_name(name: str) -> str:
+    aliases = {
+        "actionLog.created": "action_log.created",
+        "extensionSession.created": "extension_session.created",
+        "extensionSession.updated": "extension_session.updated",
+        "extensionSession.deleted": "extension_session.deleted",
+    }
+    return aliases.get(name, name)
+
+
 def parse_webhook_body(body: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize a Chaster webhook into:
-      {event, request_id, session_id, action_log|None, raw}
+      {event, request_id, session_id, lock_id, action_log|None, raw}
     """
     ev = _unwrap_event(body)
-    event_name = str(ev.get("event") or "").strip()
+    event_name = _normalize_event_name(str(ev.get("event") or "").strip())
     data = ev.get("data") if isinstance(ev.get("data"), dict) else {}
     action_log = data.get("actionLog") if isinstance(data, dict) else None
     if action_log is None and isinstance(ev.get("actionLog"), dict):
         action_log = ev.get("actionLog")
     if not event_name and isinstance(action_log, dict):
         event_name = "action_log.created"
+    lock_id = ""
+    if isinstance(action_log, dict):
+        lock_id = extract_lock_id(action_log.get("lock"))
+    if not lock_id and isinstance(data, dict):
+        lock_id = lock_id_from_session_payload(data, ev)
     return {
         "event": event_name,
         "request_id": str(ev.get("requestId") or body.get("requestId") or ""),
@@ -96,6 +146,7 @@ def parse_webhook_body(body: dict[str, Any]) -> dict[str, Any]:
             or ev.get("sessionId")
             or ""
         ),
+        "lock_id": lock_id,
         "action_log": action_log if isinstance(action_log, dict) else None,
         "raw": ev,
     }
@@ -104,12 +155,13 @@ def parse_webhook_body(body: dict[str, Any]) -> dict[str, Any]:
 def action_log_matches_lock(
     action_log: dict[str, Any], *, lock_id: str
 ) -> bool:
-    """If CHASTER_LOCK_ID is set, ignore logs for other locks."""
-    want = (lock_id or "").strip()
-    if not want:
-        return True
-    got = str(action_log.get("lock") or "").strip()
-    return not got or got == want
+    """Always process every lock — chat/history are already scoped per lock.
+
+    ``lock_id`` is unused; kept so callers that still pass CHASTER_LOCK_ID
+    do not drop a new session's events.
+    """
+    del action_log, lock_id
+    return True
 
 
 def history_event_from_action_log(action_log: dict[str, Any]) -> dict[str, Any]:
@@ -127,6 +179,23 @@ def history_event_from_action_log(action_log: dict[str, Any]) -> dict[str, Any]:
         "prefix": action_log.get("prefix"),
         "user": action_log.get("user"),
     }
+
+
+async def _lock_id_for_extension_session(chaster: Any, session_id: str) -> str:
+    sid = (session_id or "").strip()
+    if not sid or chaster is None:
+        return ""
+    search = getattr(chaster, "search_extension_sessions", None)
+    if search is None:
+        return ""
+    sessions = await search()
+    for session in sessions or []:
+        if not isinstance(session, dict):
+            continue
+        if str(session.get("sessionId") or "").strip() != sid:
+            continue
+        return extract_lock_id(session.get("lock"))
+    return ""
 
 
 async def handle_chaster_webhook(
@@ -152,25 +221,23 @@ async def handle_chaster_webhook(
 
     if event_name == "action_log.created" and parsed["action_log"]:
         alog = parsed["action_log"]
-        if not action_log_matches_lock(
-            alog, lock_id=getattr(settings, "chaster_lock_id", "") or ""
-        ):
-            out["handled"].append("ignored_other_lock")
-            return out
+        lock_id = parsed.get("lock_id") or extract_lock_id(alog.get("lock"))
         history_ev = history_event_from_action_log(alog)
         from app.lockbox_sync import normalize_history_type
 
         etype = normalize_history_type(history_ev)
         log.info(
-            "Chaster webhook action_log type=%s id=%s",
+            "Chaster webhook action_log type=%s id=%s lock=%s",
             etype,
             history_ev.get("_id"),
+            lock_id,
         )
         out["action_type"] = etype
+        out["lock_id"] = lock_id
 
         from app.lock_watch import mark_history_events_seen
 
-        mark_history_events_seen([history_ev])
+        mark_history_events_seen([history_ev], lock_id=lock_id)
 
         # Primary path: freeze / time / hygiene via lockbox sync (force)
         if rad is not None:
@@ -210,7 +277,7 @@ async def handle_chaster_webhook(
             from app.lock_scope import bind_lock_scope
 
             bind_lock_scope(
-                lock_id=str(alog.get("lock") or ""),
+                lock_id=lock_id,
                 session_id=parsed["session_id"],
             )
             # LLM can exceed Chaster's 10s webhook timeout — run in background
@@ -236,6 +303,23 @@ async def handle_chaster_webhook(
 
     if event_name.startswith("extension_session."):
         out["handled"].append("session_event")
+        data = parsed["raw"].get("data") if isinstance(parsed["raw"].get("data"), dict) else {}
+        lock_id = parsed.get("lock_id") or lock_id_from_session_payload(
+            data if isinstance(data, dict) else {},
+            parsed["raw"],
+        )
+        if (not lock_id) and parsed["session_id"] and chaster is not None:
+            try:
+                lock_id = await _lock_id_for_extension_session(
+                    chaster, parsed["session_id"]
+                )
+            except Exception:  # noqa: BLE001
+                log.debug("Session webhook lock lookup failed", exc_info=True)
+        out["lock_id"] = lock_id
+        if lock_id or parsed["session_id"]:
+            from app.lock_scope import bind_lock_scope
+
+            bind_lock_scope(lock_id=lock_id, session_id=parsed["session_id"])
         if rad is not None:
             try:
                 from app.lockbox_sync import (
@@ -254,6 +338,34 @@ async def handle_chaster_webhook(
             except Exception:  # noqa: BLE001
                 log.exception("Webhook session resync failed")
                 out["ok"] = False
+        if (
+            agent is not None
+            and store is not None
+            and scene is not None
+            and memory
+            and chaster is not None
+        ):
+            async def _react_session() -> None:
+                try:
+                    from app.lock_watch import fetch_new_events, react_to_lock_events
+
+                    events = await fetch_new_events(chaster, lock_id=lock_id)
+                    if not events:
+                        return
+                    await react_to_lock_events(
+                        agent=agent,
+                        store=store,
+                        scene=scene,
+                        memory=memory,
+                        chaster=chaster,
+                        events=events,
+                        rad=None,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("Webhook session AI react failed")
+
+            asyncio.create_task(_react_session())
+            out["handled"].append("ai_react_queued")
         return out
 
     out["handled"].append("ignored")
