@@ -16,7 +16,7 @@
     <div class="gate-card">
       <p class="eyebrow">Two-person scene</p>
       <h1>Who are you?</h1>
-      <p class="lede">Plan with your AI keyholder Domme in private. Execute the chastity game together in group. Voice works best in Chrome.</p>
+      <p class="lede">The bot mentors the keyholder in private, questions the lockee in his private chat, and runs the game in group. Voice works best in Chrome.</p>
       <div class="role-picks">
         <button type="button" class="btn primary" data-role="domme">I am the Domme</button>
         <button type="button" class="btn ghost" data-role="sub">I am the Sub</button>
@@ -108,7 +108,8 @@
             <label class="field">
               <span>Role</span>
               <select id="botPersona">
-                <option value="friend" selected>Friend — co-keyholder</option>
+                <option value="mentor" selected>Mentor — assistant who coaches you</option>
+                <option value="friend">Friend — co-keyholder</option>
                 <option value="domme">Domme — authority</option>
                 <option value="bull">Bull — plays with you, he stays caged</option>
                 <option value="male_dom">Male Dom — your male co-keyholder</option>
@@ -146,9 +147,29 @@
             <span>What this intensity means (edit to make Custom)</span>
             <textarea id="botIntensityBlurb" rows="2"></textarea>
           </label>
+          <p class="field-label">Personality traits</p>
+          <p class="meta">Mix how the mentor talks. Example: bratty + tease.</p>
+          <div class="trait-picks" id="botTraits" role="group" aria-label="Personality traits">
+            <button type="button" class="trait-pick active" data-trait="bratty">Bratty</button>
+            <button type="button" class="trait-pick active" data-trait="tease">Tease</button>
+            <button type="button" class="trait-pick" data-trait="cruel">Cruel</button>
+            <button type="button" class="trait-pick" data-trait="playful">Playful</button>
+            <button type="button" class="trait-pick" data-trait="warm">Warm</button>
+            <button type="button" class="trait-pick" data-trait="elegant">Elegant</button>
+            <button type="button" class="trait-pick" data-trait="humiliatrix">Humiliatrix</button>
+            <button type="button" class="trait-pick" data-trait="soft">Soft</button>
+            <button type="button" class="trait-pick" data-trait="strict">Strict</button>
+            <button type="button" class="trait-pick" data-trait="nurturing">Nurturing</button>
+            <button type="button" class="trait-pick" data-trait="sadistic">Sadistic</button>
+            <button type="button" class="trait-pick" data-trait="sweet">Sweet</button>
+          </div>
+          <label class="field">
+            <span>Custom traits (optional)</span>
+            <input id="botTraitsCustom" type="text" maxlength="120" placeholder="e.g. mean girl, dry humour" />
+          </label>
           <label class="field">
             <span>Who they are</span>
-            <textarea id="botBio" rows="3" placeholder="I am a 23 year old dominatrix. Creative. Bondage, humiliation, mind games."></textarea>
+            <textarea id="botBio" rows="3" placeholder="I am a 23 year old mentor. Creative. Bondage, humiliation, mind games."></textarea>
           </label>
           <label class="field">
             <span>First line / greeting</span>

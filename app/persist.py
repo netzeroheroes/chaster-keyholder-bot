@@ -29,11 +29,17 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
     """Load scene. Persona prompts always come from code defaults so updates ship;
     only the active plan and session kit are restored from disk if present.
     """
-    from app.scene import DEFAULT_ACTIVE_PLAN, DEFAULT_GROUP_PROMPT, DEFAULT_PRIVATE_PROMPT
+    from app.scene import (
+        DEFAULT_ACTIVE_PLAN,
+        DEFAULT_GROUP_PROMPT,
+        DEFAULT_LOCKEE_PROMPT,
+        DEFAULT_PRIVATE_PROMPT,
+    )
 
     scene = SceneState(
         private_prompt=DEFAULT_PRIVATE_PROMPT,
         group_prompt=DEFAULT_GROUP_PROMPT,
+        lockee_prompt=DEFAULT_LOCKEE_PROMPT,
         secret_directives=DEFAULT_ACTIVE_PLAN,
     )
     if not path.is_file():
@@ -59,6 +65,8 @@ def load_scene(path: Path = SCENE_PATH) -> SceneState:
         updates["scene_interview"] = raw["scene_interview"]
     if isinstance(raw.get("kink_probe"), dict):
         updates["kink_probe"] = raw["kink_probe"]
+    if isinstance(raw.get("lockee_learn"), dict):
+        updates["lockee_learn"] = raw["lockee_learn"]
     if isinstance(raw.get("handoff"), dict):
         updates["handoff"] = raw["handoff"]
     if isinstance(raw.get("play_thread"), dict):

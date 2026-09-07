@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from app.memory import LongTermMemory
 
 Role = Literal["domme", "sub"]
-Room = Literal["private", "group"]
+Room = Literal["private", "group", "lockee"]
 
 SPEAKER = {
     "domme": "Keyholder",
@@ -32,10 +32,22 @@ PRIVATE_HARD_RULE = (
     "HARD RULE — PRIVATE CHAT: This room is ONLY the keyholder and you (the bot). "
     "The lockee is never here and cannot see this. "
     "Every human line is the keyholder. Never the lockee. "
+    "You are her assistant and mentor — coach her, propose tasks and games, "
+    "feed her what you learned in his private chat. She decides. "
     "Never call her sub. Never order her to lean / watch the clock / stay denied. "
     "Never say 'maybe if you earn it' or 'I'll talk to her' — you are already talking to her. "
     "If she asks about his time, lock, freeze, or timer, quote [CHASTER LIVE STATUS] plainly. "
     "Do not tease him in this room."
+)
+
+LOCKEE_PRIVATE_HARD_RULE = (
+    "HARD RULE — LOCKEE PRIVATE: This room is ONLY the lockee and you (the bot). "
+    "The keyholder cannot read this raw chat. Brief her in her private room. "
+    "Every human line is the lockee. Reply TO him. "
+    "Ask questions that teach you what keeps him aroused. "
+    "Use the personality traits. Develop teasing tasks and games from his answers. "
+    "Never unlock. Never leak her plans, scores, or secret directives. "
+    "She is still the keyholder."
 )
 
 _BULL_PRIVATE_RULE = (
@@ -59,10 +71,28 @@ def session_id_for(room: Room) -> str:
     return f"room:{room}"
 
 
+def is_keyholder_private(room: str | None) -> bool:
+    return (room or "").strip().lower() == "private"
+
+
+def is_lockee_private(room: str | None) -> bool:
+    return (room or "").strip().lower() == "lockee"
+
+
 def can_access(role: Role, room: Room) -> bool:
     if room == "private":
         return role == "domme"
+    if room == "lockee":
+        return role == "sub"
     return True
+
+
+def access_denied_detail(role: Role, room: Room) -> str:
+    if room == "private":
+        return "Only the keyholder can use that private chat."
+    if room == "lockee":
+        return "Only the lockee can use that private chat."
+    return "You cannot use that chat."
 
 
 def speaker_label(
@@ -76,6 +106,8 @@ def speaker_label(
     base = SPEAKER[role] if role in SPEAKER else "Keyholder"
     if room == "private":
         base = "Keyholder"
+    elif room == "lockee":
+        base = "Lockee"
     handle = (chaster_username or "").strip().lstrip("@")
     if handle:
         return f"{base} (@{handle})"
@@ -160,6 +192,8 @@ def format_user_line(
     )
     if room == "private":
         who = "human keyholder (this entire private room is her, except bot answers)"
+    elif room == "lockee":
+        who = "human lockee (this entire private room is him, except bot answers)"
     elif role == "domme":
         who = "human keyholder (his girlfriend — she has the keys)"
     else:
@@ -194,15 +228,26 @@ def format_user_line(
         else:
             channel = (
                 f"[{rule} "
-                "The lockee cannot see this. Talk to her like a friend. "
+                "The lockee cannot see this. Mentor her. Propose tasks and games. "
                 "Use [[[GROUP]]] if you need to speak to him.]"
             )
             address = (
-                "[ADDRESS: Reply TO her as you. You are talking to the keyholder. "
+                "[ADDRESS: Reply TO her as you. You are her assistant and mentor. "
                 "Never 'she lets him out' or 'she has the keys' — that is you. "
-                "Be a helpful friend. Never treat her as locked. Never say she wears a cage. "
-                "The lockee is a different person (he/him). Never call him keyee.]"
+                "Coach her. Use what you learned from him. Never treat her as locked. "
+                "Never say she wears a cage. The lockee is a different person (he/him).]"
             )
+    elif room == "lockee":
+        channel = (
+            f"[{LOCKEE_PRIVATE_HARD_RULE} "
+            "The keyholder cannot read this raw chat. Talk TO him. "
+            "Ask one question that helps you keep him aroused.]"
+        )
+        address = (
+            "[ADDRESS: Reply TO the lockee. She is the keyholder. "
+            "You are her mentor-assistant, not her. Never unlock. "
+            "Never leak her private plan.]"
+        )
     elif room == "group":
         channel = (
             "[CHANNEL: GROUP — keyholder + lockee + you. Everyone can see this. "
@@ -215,7 +260,7 @@ def format_user_line(
         )
     else:
         channel = ""
-    if room == "private":
+    if room in {"private", "lockee"}:
         pass  # address already set above
     elif role == "domme":
         address = (

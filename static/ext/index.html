@@ -63,7 +63,7 @@
         Settings
       </button>
     </nav>
-    <p id="roomHint" class="room-hint">Group: Domme + Sub + AI</p>
+    <p id="roomHint" class="room-hint">Group: keyholder + lockee + mentor</p>
     <div id="hygieneBar" class="hygiene-bar hidden">
       <p id="hygieneCopy" class="hygiene-copy">Hygiene: idle</p>
       <div id="hygKhAsk" class="hyg-ask hidden">
@@ -143,7 +143,9 @@
         <button type="button" id="settingsClose" class="link-btn">Close</button>
       </header>
       <p class="meta settings-lede">
-        Bot sex is on the bar above chat as well. Male can play bull / cuckold with you while he stays locked.
+        The bot is your assistant and mentor. It can question him in his private chat,
+        then brief you and invent tasks and games that keep him aroused.
+        Pick personality traits (e.g. bratty + tease) to flavour how it helps you.
       </p>
       <form id="settingsForm" class="cfg" novalidate>
         <p class="title">Bot sex</p>
@@ -172,15 +174,23 @@
         <label class="field">
           <span>Role</span>
           <select id="setBotPersona">
-            <option value="friend" selected>Friend — co-keyholder</option>
+            <option value="mentor" selected>Mentor — assistant who coaches you</option>
+            <option value="friend">Friend — co-keyholder</option>
             <option value="domme">Domme — authority</option>
             <option value="bull">Bull — plays with you, he stays caged</option>
             <option value="male_dom">Male Dom — your male co-keyholder</option>
           </select>
         </label>
+        <p class="title">Personality traits</p>
+        <p class="meta">Mix how the mentor talks and helps you. Example: bratty + tease.</p>
+        <div class="trait-picks" id="setBotTraits" role="group" aria-label="Personality traits"></div>
+        <label class="field">
+          <span>Custom traits (optional)</span>
+          <input id="setBotTraitsCustom" type="text" maxlength="120" placeholder="e.g. mean girl, dry humour" />
+        </label>
         <label class="field">
           <span>Who they are</span>
-          <textarea id="setBotBio" rows="3" placeholder="I am a 23 year old dominatrix. Creative. Bondage, humiliation, mind games."></textarea>
+          <textarea id="setBotBio" rows="3" placeholder="I am a 23 year old mentor. Creative. Bondage, humiliation, mind games."></textarea>
         </label>
         <label class="field">
           <span>First line / greeting</span>

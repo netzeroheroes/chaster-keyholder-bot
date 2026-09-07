@@ -208,12 +208,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert chat is not None
 
     if chat.type == ChatType.PRIVATE:
-        if role != "domme":
+        if role == "domme":
+            room = "private"
+        elif role == "sub":
+            room = "lockee"
+        else:
             await update.message.reply_text(
-                "Private chat is Domme-only. Use the group chat."
+                "Private chat is for the keyholder or lockee only. Use the group chat."
             )
             return
-        room = "private"
     else:
         _remember_group_chat(context, chat.id)
         if settings.telegram_group_chat_id and chat.id != settings.telegram_group_chat_id:

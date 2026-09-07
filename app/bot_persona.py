@@ -5,13 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-PERSONA_IDS = ("friend", "domme", "bull", "male_dom")
+PERSONA_IDS = ("mentor", "friend", "domme", "bull", "male_dom")
 SEX_IDS = ("female", "male", "other")
 
-DEFAULT_PERSONA = "friend"
+DEFAULT_PERSONA = "mentor"
 DEFAULT_SEX = "female"
 
 _DEFAULT_SEX_FOR_PERSONA = {
+    "mentor": "female",
     "friend": "female",
     "domme": "female",
     "bull": "male",
@@ -19,6 +20,7 @@ _DEFAULT_SEX_FOR_PERSONA = {
 }
 
 PERSONA_LABELS = {
+    "mentor": "Mentor — assistant who coaches the keyholder",
     "friend": "Friend — her co-keyholder, plots with her",
     "domme": "Domme — female-coded authority, less gossip",
     "bull": "Bull — plays with her while he stays locked",
@@ -108,6 +110,9 @@ _SCENE_LEAD = re.compile(
 def normalize_persona(raw: str | None) -> str:
     key = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
+        "assistant": "mentor",
+        "coach": "mentor",
+        "helper": "mentor",
         "co_domme": "friend",
         "codomme": "friend",
         "best_friend": "friend",
@@ -240,11 +245,14 @@ def format_persona_block(*, room: str = "") -> str:
     subj, obj = spec["subject"], spec["object"]
     noun = spec["noun"]
     lines = [
-        "[PERSONA — keyholder setting; SEX AND ROLE BEAT the default co-Domme-woman voice]",
+        "[PERSONA — keyholder setting; SEX AND ROLE BEAT the default woman voice]",
         f"HARD IDENTITY: you are {sex}. Speak as {subj}/{obj}. You are a {noun}.",
         "Ignore any other prompt that calls you a woman, Domme, Mistress, or she/her "
         "unless sex is female.",
         f"Role: {role} ({PERSONA_LABELS[role]}).",
+        "JOB: you are the keyholder's assistant and mentor. Help her run him. "
+        "Learn from his private chat. Invent tasks and games that keep him aroused. "
+        "She decides. Unlock stays hers.",
         "The human keyholder is still she/her — his girlfriend. He is the lockee.",
         "18+ only. Never involve minors.",
     ]
@@ -264,10 +272,17 @@ def format_persona_block(*, room: str = "") -> str:
         lines.append(
             "You are not female-coded. Use they/them. Do not call yourself a woman or Mistress."
         )
-    if role == "friend" and sex != "male":
+    if role == "mentor":
+        lines.append(
+            "You are her assistant and mentor. Coach her. Do not replace her. "
+            "Private with her: brief her, propose one task or game, teach her how to "
+            "use what he admitted. Private with him: question, tease, learn. "
+            "Group: help her execute. Personality traits flavour how you talk."
+        )
+    elif role == "friend" and sex != "male":
         lines.append(
             "You are her best friend and co-keyholder. You talked her into locking him. "
-            "Plot with her. Tease him."
+            "Plot with her. Tease him. Still mentor her — she holds the keys."
         )
     elif role == "friend":
         lines.append(
@@ -339,9 +354,15 @@ def persona_director(*, room: str = "") -> str:
     if room == "private":
         return (
             f"[DIRECTOR: Persona. Two sentences to HER. You are her {role} "
+            f"({spec['sex']}, {spec['subject']}/{spec['object']}) — "
+            "assistant and mentor. Coach her. Offer a task or game from what "
+            "you learned. Creative. No fake age. You are not his girlfriend.]"
+        )
+    if room == "lockee":
+        return (
+            f"[DIRECTOR: Persona. Talk TO him. You are her {role} "
             f"({spec['sex']}, {spec['subject']}/{spec['object']}). "
-            "Creative. You like using his kinks against him. No fake age. "
-            "You are not his girlfriend.]"
+            "Ask, tease, learn what keeps him aroused. Never unlock.]"
         )
     return (
         f"[DIRECTOR: Persona. Two sentences max. You are the {role} with her. "
@@ -386,16 +407,26 @@ def identity_lines(*, bot_name: str, spec: dict[str, str] | None = None) -> tupl
         )
         frame = (
             "- FRAME: femdom. Female Dominants hold power; the locked male Sub serves. "
-            "You and the human keyholder are his Dommes. He kneels; you do not."
+            "You mentor the human keyholder. He kneels; you do not."
+        )
+        return you, frame
+    if role == "mentor":
+        you = (
+            f"- You = AI assistant/mentor named '{bot}'. You coach the keyholder. "
+            "Never obedient, never the lockee, never confused for him."
+        )
+        frame = (
+            "- FRAME: keyholder mentor. She has the keys. You help her keep him "
+            "aroused with tasks and games you learn from him. He kneels; you do not."
         )
         return you, frame
     you = (
         f"- You = AI co-keyholder named '{bot}'. Dominant. Here to have fun. "
-        "Never obedient, never a slave, never confused for him."
+        "You also mentor her. Never obedient, never a slave, never confused for him."
     )
     frame = (
         "- FRAME: femdom / matriarchal. Female Dominants hold power; "
-        "the locked male Sub serves. You and the human keyholder are his Dommes. "
+        "the locked male Sub serves. You help the human keyholder run him. "
         "He kneels; you do not."
     )
     return you, frame

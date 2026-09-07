@@ -41,7 +41,7 @@ from app.lockbox_sync import (
 from app.memory import LongTermMemory
 from app.persist import save_scene
 from app.rad_lockbox import RadLockboxClient, summarize_lockbox
-from app.roles import Room, can_access
+from app.roles import Room, access_denied_detail, can_access
 from app.runtime_controls import RuntimeControls, voice_catalog
 from app.scene import SceneState
 from app.hygiene_request import (
@@ -100,6 +100,7 @@ _CONFIG_KEYS = (
     "bot_greeting",
     "bot_persona",
     "bot_sex",
+    "bot_traits",
     "bot_name",
     "domme_title",
 )
@@ -341,12 +342,20 @@ def register_extension_routes(
         if not can_access(sess.app_role, room):
             raise HTTPException(
                 status_code=403,
-                detail="Only the Chaster keyholder can open private chat.",
+                detail=access_denied_detail(sess.app_role, room),
             )
         speaker = "Domme" if sess.app_role == "domme" else "Sub"
         counts = store.display_counts()
-        if sess.app_role != "domme":
-            counts = {"group": int(counts.get("group") or 0)}
+        if sess.app_role == "domme":
+            counts = {
+                "group": int(counts.get("group") or 0),
+                "private": int(counts.get("private") or 0),
+            }
+        else:
+            counts = {
+                "group": int(counts.get("group") or 0),
+                "lockee": int(counts.get("lockee") or 0),
+            }
         return {
             "room": room,
             "role": sess.app_role,
@@ -366,7 +375,7 @@ def register_extension_routes(
         if not can_access(sess.app_role, room):
             raise HTTPException(
                 status_code=403,
-                detail="Only the Chaster keyholder can use private chat.",
+                detail=access_denied_detail(sess.app_role, room),
             )
         speaker = "Domme" if sess.app_role == "domme" else "Sub"
         label = (
@@ -388,7 +397,7 @@ def register_extension_routes(
         if not can_access(sess.app_role, room):
             raise HTTPException(
                 status_code=403,
-                detail="Only the Chaster keyholder can use private chat.",
+                detail=access_denied_detail(sess.app_role, room),
             )
         clear_typing(room, "Domme" if sess.app_role == "domme" else "Sub")
         try:
@@ -478,7 +487,7 @@ def register_extension_routes(
             elif key in live:
                 cfg[key] = live[key]
         # Live sex/role beat a stale Chaster copy (KH bar saves disk-first).
-        for key in ("bot_persona", "bot_sex"):
+        for key in ("bot_persona", "bot_sex", "bot_traits"):
             live_val = str(live.get(key) or "").strip()
             if live_val:
                 cfg[key] = live_val
@@ -517,8 +526,9 @@ def register_extension_routes(
         cfg.setdefault("bot_quirks", "")
         cfg.setdefault("bot_bio", "")
         cfg.setdefault("bot_greeting", "")
-        cfg.setdefault("bot_persona", "friend")
+        cfg.setdefault("bot_persona", "mentor")
         cfg.setdefault("bot_sex", "female")
+        cfg.setdefault("bot_traits", "bratty, tease")
         return cfg
 
     def _sync_controls_from_config(cfg: dict[str, Any]) -> dict[str, Any]:

@@ -92,8 +92,8 @@ class BotLockPermissionTests(unittest.TestCase):
         self.assertIn("break him", DEFAULT_GROUP_PROMPT.lower())
         self.assertLess(len(DEFAULT_GROUP_PROMPT), 1600)
         self.assertNotIn("WHEN HE SPEAKS", DEFAULT_GROUP_PROMPT)
-        self.assertIn("best friend", DEFAULT_PRIVATE_PROMPT.lower())
-        self.assertIn("break him", DEFAULT_PRIVATE_PROMPT.lower())
+        self.assertIn("assistant and mentor", DEFAULT_PRIVATE_PROMPT.lower())
+        self.assertIn("tasks and games", DEFAULT_PRIVATE_PROMPT.lower())
 
 
 if __name__ == "__main__":

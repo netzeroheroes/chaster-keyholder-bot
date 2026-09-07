@@ -237,9 +237,18 @@ from app.images import (
 )
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
+from app.lockee_learn import (
+    apply_learn_answer,
+    format_kh_briefing,
+    format_learn_director,
+    format_mentor_play_block,
+    start_learn,
+    wants_cancel_learn,
+)
 from app.roles import (
     GROUP_KEYHOLDER_RULE,
     GROUP_LOCKEE_RULE,
+    LOCKEE_PRIVATE_HARD_RULE,
     Room,
     Role,
     bot_label,
@@ -547,6 +556,8 @@ async def handle_chat_turn(
 
     if room == "private":
         role = "domme"
+    elif room == "lockee":
+        role = "sub"
     speaker = speaker_label(
         role, memory, chaster_username=handle or None, room=room
     )
@@ -688,6 +699,9 @@ async def handle_chat_turn(
         lead_now = False
     if room == "private":
         extra_notes.append(f"[{private_hard_rule()}]")
+        extra_notes.append(format_mentor_play_block(memory))
+    elif room == "lockee":
+        extra_notes.append(f"[{LOCKEE_PRIVATE_HARD_RULE}]")
     elif room == "group":
         if lead_now:
             extra_notes.append(
@@ -1033,6 +1047,31 @@ async def handle_chat_turn(
                 log.exception("Could not ping private with kink probe")
         else:
             extra_notes.append(format_probe_director(probe, room=room))
+
+    # Lockee private — question him, learn, brief the keyholder
+    if room == "lockee":
+        learn = dict(scene.snapshot().get("lockee_learn") or {})
+        if wants_cancel_learn(message) and (learn.get("active") or not learn):
+            learn = apply_learn_answer(learn or start_learn(), message, memory=memory)
+            scene.update(lockee_learn=learn)
+            extra_notes.append(format_learn_director(learn, room=room))
+        else:
+            if not learn.get("active") and not learn.get("paused"):
+                learn = start_learn()
+            learn = apply_learn_answer(learn, message, memory=memory)
+            scene.update(lockee_learn=learn)
+            extra_notes.append(format_learn_director(learn, room=room))
+            if learn.get("brief_kh"):
+                briefing = format_kh_briefing(learn, memory)
+                if briefing:
+                    try:
+                        bridge.inject_private_note(
+                            store,
+                            briefing,
+                            speaker=bot_name,
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.exception("Could not brief keyholder from lockee private")
 
     # Keyholder week plan — skeleton stays private even if she asked in Group
     if role == "domme" and wants_week_plan(message):
@@ -1898,6 +1937,14 @@ async def handle_chat_turn(
                 "If she asked about his lock, quote [CHASTER LIVE STATUS] plainly. "
                 "If she did not ask, do not mention remaining time.\n"
             )
+    elif room == "lockee":
+        anti_loop = (
+            "\nTHIS TURN — LOCKEE PRIVATE:\n"
+            f"He (LOCKEE) just spoke. Reply TO him. {title} is the keyholder.\n"
+            "Stay in the personality traits. Keep him aroused.\n"
+            "Answer what he said, then one learn question if you still need it.\n"
+            "Never unlock. Never leak her private plan. No lock-number dump.\n"
+        )
     else:
         if role == "domme" and lead_now:
             anti_loop = (
@@ -2003,7 +2050,14 @@ async def handle_chat_turn(
                     "[SYSTEM: You are looping. Answer the keyholder only. "
                     "She is not the lockee. Do not call her sub. "
                     "If she asked about his lock, quote [CHASTER LIVE STATUS]. "
-                    "Do not order him in this room.]"
+                    "Coach her. Offer one task or game. Do not order him in this room.]"
+                )
+            elif room == "lockee":
+                rewrite_user = (
+                    f"{user_line}\n\n"
+                    "[SYSTEM: You are looping. Reply TO the lockee. "
+                    "Tease him. Ask one new question about what keeps him aroused. "
+                    "Never unlock. Never leak her plan.]"
                 )
             else:
                 rewrite_user = (
@@ -2265,7 +2319,7 @@ async def handle_chat_turn(
         visible_reply = cleaned_salad or (
             "Pick one of his kinks and use it. Keep the hour as play, then lock him."
         )
-    if not tease_force_reply and (room == "private" or role == "domme"):
+    if not tease_force_reply and room != "lockee" and (room == "private" or role == "domme"):
         you_form = rewrite_keyholder_as_you(visible_reply)
         if you_form != (visible_reply or ""):
             log.warning("Rewrote keyholder she→you in %s reply", room)

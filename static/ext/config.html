@@ -27,15 +27,23 @@
     </div>
     <input type="hidden" id="botSex" value="female" />
     <p class="title" style="font-size:1rem">Create the bot</p>
-    <p class="meta">Tone and intensity show below — edit the text and save as Custom. Add who they are and a first line.</p>
+    <p class="meta">The bot is your assistant and mentor. Traits flavour how it coaches you and teases him.</p>
     <label class="field">
       <span>Role</span>
       <select id="botPersona">
-        <option value="friend" selected>Friend — co-keyholder</option>
+        <option value="mentor" selected>Mentor — assistant who coaches you</option>
+        <option value="friend">Friend — co-keyholder</option>
         <option value="domme">Domme</option>
         <option value="bull">Bull</option>
         <option value="male_dom">Male Dom</option>
       </select>
+    </label>
+    <p class="title" style="font-size:1rem">Personality traits</p>
+    <p class="meta">Mix how it talks. Example: bratty + tease.</p>
+    <div class="trait-picks" id="botTraits" role="group" aria-label="Personality traits"></div>
+    <label class="field">
+      <span>Custom traits (optional)</span>
+      <input id="botTraitsCustom" type="text" maxlength="120" placeholder="e.g. mean girl, dry humour" />
     </label>
     <label class="field">
       <span>Who they are</span>

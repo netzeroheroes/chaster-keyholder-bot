@@ -85,6 +85,8 @@ const els = {
   botQuirks: document.getElementById("botQuirks"),
   botBio: document.getElementById("botBio"),
   botGreeting: document.getElementById("botGreeting"),
+  botTraits: document.getElementById("botTraits"),
+  botTraitsCustom: document.getElementById("botTraitsCustom"),
   savePersona: document.getElementById("savePersona"),
   personaStatus: document.getElementById("personaStatus"),
   grillHim: document.getElementById("grillHim"),
@@ -171,7 +173,7 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
     if (m && m.from_bot === true) return true;
     if (m && m.from_bot === false) return false;
     const who = String((m && m.speaker) || "");
-    if (/^(Domme|Sub|Keyholder\s*[\(@])/i.test(who)) return false;
+    if (/^(Domme|Sub|Lockee|Keyholder\s*[\(@])/i.test(who)) return false;
     return !who || /^keyholder$/i.test(who) || /^bot$/i.test(who);
   }
 
@@ -185,15 +187,20 @@ function renderMessages(messages, { speakNewestBot = false, forceScroll = false 
       if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
       return who || "Keyholder";
     }
+    if (state.room === "lockee") {
+      if (/^Sub\b/i.test(who)) return who.replace(/^Sub/i, "Lockee");
+      return who || "Lockee";
+    }
     return who || "Keyholder";
   }
 
   function messageClass(m) {
     if (isBotMessage(m)) return "bot";
     if (state.room === "private") return "Domme";
+    if (state.room === "lockee") return "Sub";
     const who = String((m && m.speaker) || "");
     if (who.startsWith("Domme") || who.startsWith("Keyholder")) return "Domme";
-    if (who.startsWith("Sub")) return "Sub";
+    if (who.startsWith("Sub") || who.startsWith("Lockee")) return "Sub";
     return "bot";
   }
 
@@ -440,20 +447,35 @@ function syncSexPicks(value) {
 }
 
 function updateRoomChrome() {
-  const isPrivate = state.room === "private";
+  const isPrivate = state.room === "private" || state.room === "lockee";
   document.body.classList.toggle("room-private", isPrivate);
   document.body.classList.toggle("room-group", !isPrivate);
-  els.roomTitle.textContent = isPrivate ? "Private — he cannot see this" : "Group — he can see this";
-  els.roomHelp.textContent = isPrivate
-    ? "Plan with the AI here. Orders like “taunt him” go to Group as a mystery tease."
-    : "Everyone in the lock can see this. Don't dump the plan here.";
+  if (state.room === "private") {
+    els.roomTitle.textContent = "Private — mentor chat";
+    els.roomHelp.textContent =
+      "The bot coaches you here. Ask for tasks, games, or a briefing from his private chat.";
+  } else if (state.room === "lockee") {
+    els.roomTitle.textContent = "Private — lockee + bot";
+    els.roomHelp.textContent =
+      "Your answers help the keyholder. She does not read this raw chat.";
+  } else {
+    els.roomTitle.textContent = "Group — he can see this";
+    els.roomHelp.textContent = "Everyone in the lock can see this. Don't dump the plan here.";
+  }
 
   for (const tab of els.roomTabs.querySelectorAll(".tab")) {
-    tab.classList.toggle("active", tab.dataset.room === state.room);
-    if (state.role === "sub" && tab.dataset.room === "private") {
-      tab.classList.add("hidden");
-    } else {
-      tab.classList.remove("hidden");
+    const tabRoom = tab.dataset.room;
+    const active =
+      tabRoom === state.room ||
+      (state.room === "lockee" && tabRoom === "private" && state.role === "sub");
+    tab.classList.toggle("active", active);
+    tab.classList.remove("hidden");
+    if (state.role === "sub" && (tabRoom === "private" || tabRoom === "lockee")) {
+      tab.dataset.room = "lockee";
+      tab.textContent = "Private";
+    } else if (state.role === "domme" && (tabRoom === "lockee" || tabRoom === "private")) {
+      tab.dataset.room = "private";
+      tab.textContent = "Plan";
     }
   }
 
@@ -633,6 +655,38 @@ async function loadMemory() {
   els.memoryPreview.textContent = bits.join(" | ") || "Memory will grow as you chat.";
 }
 
+function fillTraitPicks(raw) {
+  const host = els.botTraits;
+  const parts = String(raw || "bratty, tease")
+    .split(/[,;/|]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (host) {
+    host.querySelectorAll(".trait-pick").forEach((btn) => {
+      btn.classList.toggle("active", parts.includes(btn.dataset.trait));
+    });
+  }
+  const known = new Set(
+    [...(host ? host.querySelectorAll(".trait-pick") : [])].map((b) => b.dataset.trait)
+  );
+  const custom = parts.filter((p) => !known.has(p));
+  if (els.botTraitsCustom) els.botTraitsCustom.value = custom.join(", ");
+}
+
+function readTraitPicks() {
+  const picked = [];
+  if (els.botTraits) {
+    els.botTraits.querySelectorAll(".trait-pick.active").forEach((btn) => {
+      if (btn.dataset.trait) picked.push(btn.dataset.trait);
+    });
+  }
+  const custom = (els.botTraitsCustom?.value || "")
+    .split(/[,;/|]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...picked, ...custom].join(", ") || "bratty, tease";
+}
+
 async function loadControls() {
   if (state.role !== "domme" || !els.autoPunishEnabled) return;
   const res = await fetch(`/api/controls?role=domme`, {
@@ -656,7 +710,7 @@ async function loadControls() {
   els.autopilotMax.value = c.autopilot_max_minutes ?? 120;
   els.autopilotChaster.checked = !!c.autopilot_allow_chaster;
   els.autopilotPunishSeconds.value = c.autopilot_punish_seconds ?? 600;
-  const PERSONAS = ["friend", "domme", "bull", "male_dom"];
+  const PERSONAS = ["mentor", "friend", "domme", "bull", "male_dom"];
   const SEXES = ["female", "male", "other"];
   const VOICES = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix", "custom"];
   const TONE = {
@@ -679,8 +733,8 @@ async function loadControls() {
     Object.assign(INTENSITY, c.voice_catalog.intensity || {});
   }
   if (els.botPersona) {
-    const p = String(c.bot_persona || "friend").toLowerCase();
-    els.botPersona.value = PERSONAS.includes(p) ? p : "friend";
+    const p = String(c.bot_persona || "mentor").toLowerCase();
+    els.botPersona.value = PERSONAS.includes(p) ? p : "mentor";
   }
   if (els.botSex) {
     const s = String(c.bot_sex || "female").toLowerCase();
@@ -708,6 +762,7 @@ async function loadControls() {
   if (els.botQuirks) els.botQuirks.value = c.bot_quirks || "";
   if (els.botBio) els.botBio.value = c.bot_bio || "";
   if (els.botGreeting) els.botGreeting.value = c.bot_greeting || "";
+  fillTraitPicks(c.bot_traits || "bratty, tease");
   const win = c.in_window ? "inside window now" : "outside window now";
   els.controlsStatus.textContent = `Saved · autopilot ${c.autopilot_enabled ? "on" : "off"} · ${win}`;
 }
@@ -1159,8 +1214,9 @@ document.querySelectorAll("[data-role]").forEach((btn) => {
 els.roomTabs.addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-room]");
   if (!btn) return;
-  const room = btn.dataset.room;
-  if (state.role === "sub" && room === "private") return;
+  let room = btn.dataset.room;
+  if (state.role === "sub" && room === "private") room = "lockee";
+  if (state.role === "domme" && room === "lockee") room = "private";
   state.room = room;
   state.lastCount = -1;
   state.lastFingerprint = "";
@@ -1372,6 +1428,14 @@ if (sexPicks && els.botSex) {
     }
   });
 }
+if (els.botTraits) {
+  els.botTraits.addEventListener("click", (e) => {
+    const btn = e.target.closest(".trait-pick");
+    if (!btn) return;
+    btn.classList.toggle("active");
+  });
+}
+
 if (els.savePersona) {
   els.savePersona.addEventListener("click", async () => {
     if (els.personaStatus) els.personaStatus.textContent = "Saving…";
@@ -1381,7 +1445,8 @@ if (els.savePersona) {
       body: JSON.stringify({
         role: "domme",
         pin: state.pin,
-        bot_persona: els.botPersona ? els.botPersona.value : "friend",
+        bot_persona: els.botPersona ? els.botPersona.value : "mentor",
+        bot_traits: readTraitPicks(),
         bot_sex: els.botSex ? els.botSex.value : "female",
         bot_voice: els.botVoice ? els.botVoice.value : "cruel",
         bot_voice_sample: els.botVoiceSample ? els.botVoiceSample.value.trim().slice(0, 800) : "",
@@ -1432,7 +1497,8 @@ if (els.saveControls) {
         autopilot_max_minutes: Number(els.autopilotMax.value) || 120,
         autopilot_allow_chaster: els.autopilotChaster.checked,
         autopilot_punish_seconds: Number(els.autopilotPunishSeconds.value) || 600,
-        bot_persona: els.botPersona ? els.botPersona.value : "friend",
+        bot_persona: els.botPersona ? els.botPersona.value : "mentor",
+        bot_traits: readTraitPicks(),
         bot_sex: els.botSex ? els.botSex.value : "female",
         bot_voice: els.botVoice ? els.botVoice.value : "cruel",
         bot_intensity: els.botIntensity ? els.botIntensity.value : "firm",

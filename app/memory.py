@@ -106,6 +106,12 @@ class LongTermMemory:
     her_turn_ons: list[str] = field(default_factory=list)
     her_fantasies: list[str] = field(default_factory=list)
     her_orgasms: list[dict] = field(default_factory=list)
+    # Learned from lockee private — used to mentor her and keep him aroused
+    arousal_notes: list[str] = field(default_factory=list)
+    what_works: list[str] = field(default_factory=list)
+    learned_tasks: list[str] = field(default_factory=list)
+    learned_games: list[str] = field(default_factory=list)
+    lockee_intel: list[str] = field(default_factory=list)
     _lock: Lock = field(default_factory=Lock, repr=False)
 
     @classmethod
@@ -154,6 +160,11 @@ class LongTermMemory:
                 "her_turn_ons": list(self.her_turn_ons)[-40:],
                 "her_fantasies": list(self.her_fantasies)[-40:],
                 "her_orgasms": list(self.her_orgasms)[-40:],
+                "arousal_notes": list(self.arousal_notes)[-40:],
+                "what_works": list(self.what_works)[-40:],
+                "learned_tasks": list(self.learned_tasks)[-40:],
+                "learned_games": list(self.learned_games)[-40:],
+                "lockee_intel": list(self.lockee_intel)[-40:],
             }
             path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -183,6 +194,11 @@ class LongTermMemory:
                 "her_turn_ons": list(self.her_turn_ons),
                 "her_fantasies": list(self.her_fantasies),
                 "her_orgasms": list(self.her_orgasms),
+                "arousal_notes": list(self.arousal_notes),
+                "what_works": list(self.what_works),
+                "learned_tasks": list(self.learned_tasks),
+                "learned_games": list(self.learned_games),
+                "lockee_intel": list(self.lockee_intel),
             }
 
     def update_fields(self, **kwargs: object) -> dict:
@@ -299,6 +315,8 @@ class LongTermMemory:
         title_bit = f" (optional title: {title})" if title else ""
         if room == "group":
             return self._group_memory_block(snap)
+        if room == "lockee":
+            return self._lockee_memory_block(snap)
 
         def _demo(prefix: str) -> str:
             bits = [
@@ -336,6 +354,10 @@ class LongTermMemory:
             f"- Hard limits: {', '.join(snap['hard_limits']) or '(ask / learn)'}.",
             f"- Soft limits: {', '.join(snap['soft_limits']) or '(none noted)'}.",
             f"- Kinks (his): {', '.join(snap['kinks']) or '(discovering)'}.",
+            f"- What keeps him aroused: {', '.join(snap.get('arousal_notes') or []) or '(ask him in lockee private)'}.",
+            f"- What works on him: {', '.join(snap.get('what_works') or []) or '(learning)'}.",
+            f"- Tasks he responds to: {', '.join(snap.get('learned_tasks') or []) or '(invent from intel)'}.",
+            f"- Games he fears/loves: {', '.join(snap.get('learned_games') or []) or '(invent from intel)'}.",
             f"- Chastity notes: {json.dumps(snap['chastity'], ensure_ascii=False) if snap['chastity'] else '(unknown)'}.",
         ]
         from app.her_taste import format_her_taste_block
@@ -358,6 +380,10 @@ class LongTermMemory:
         if room == "private" and snap["private_bond"]:
             lines.append("- Bond with Domme (private):")
             lines.extend(f"  • {n}" for n in snap["private_bond"][-10:])
+        intel = [str(x) for x in (snap.get("lockee_intel") or []) if str(x).strip()]
+        if room == "private" and intel:
+            lines.append("- Lockee private intel (he cannot see this dump):")
+            lines.extend(f"  • {n}" for n in intel[-10:])
 
         lines.append(
             f"ALWAYS acknowledge {address} when she speaks — reply to her, include her, "
@@ -420,6 +446,34 @@ class LongTermMemory:
             )
         if snap.get("facts"):
             lines.append("Facts: " + "; ".join(snap["facts"][-10:]))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _lockee_memory_block(snap: dict) -> str:
+        """Facts the bot may use on him — no keyholder secrets."""
+        bot = snap.get("bot_name") or "Keyholder"
+        lines = [
+            f"You are {bot}, the keyholder's assistant, talking to him in private.",
+            f"Limits: {', '.join(snap['hard_limits']) or 'ask / learn'}.",
+            f"Kinks: {', '.join(snap['kinks']) or 'discovering'}.",
+        ]
+        ache = [str(x) for x in (snap.get("arousal_notes") or []) if str(x).strip()]
+        if ache:
+            lines.append("His ache notes: " + "; ".join(ache[-6:]))
+        works = [str(x) for x in (snap.get("what_works") or []) if str(x).strip()]
+        if works:
+            lines.append("What works on him: " + "; ".join(works[-6:]))
+        tasks = [str(x) for x in (snap.get("learned_tasks") or []) if str(x).strip()]
+        if tasks:
+            lines.append("Tasks that keep him aching: " + "; ".join(tasks[-4:]))
+        games = [str(x) for x in (snap.get("learned_games") or []) if str(x).strip()]
+        if games:
+            lines.append("Games he responded to: " + "; ".join(games[-4:]))
+        if snap.get("facts"):
+            lines.append("Facts he may already know: " + "; ".join(snap["facts"][-6:]))
+        lines.append(
+            "Do not quote her private plan, orgasm rating, or secret directives."
+        )
         return "\n".join(lines)
 
     def format_recall_reply(self, *, for_domme: bool = True) -> str:

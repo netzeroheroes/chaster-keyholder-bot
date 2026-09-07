@@ -26,6 +26,8 @@
     botGreeting: document.getElementById("botGreeting"),
     botPersona: document.getElementById("botPersona"),
     botSex: document.getElementById("botSex"),
+    botTraits: document.getElementById("botTraits"),
+    botTraitsCustom: document.getElementById("botTraitsCustom"),
   };
 
   let configurationToken = "";
@@ -44,6 +46,70 @@
     strict: "Short orders. Less chat. Use the lock when he pushes. No essays.",
     custom: "Your custom intensity. How hard this bot pushes each turn.",
   };
+  const TRAIT_LABELS = {
+    bratty: "Bratty",
+    tease: "Tease",
+    cruel: "Cruel",
+    playful: "Playful",
+    warm: "Warm",
+    elegant: "Elegant",
+    humiliatrix: "Humiliatrix",
+    soft: "Soft",
+    strict: "Strict",
+    nurturing: "Nurturing",
+    sadistic: "Sadistic",
+    sweet: "Sweet",
+  };
+
+  function ensureTraitPicks() {
+    const host = els.botTraits;
+    if (!host || host.dataset.ready === "1") return;
+    host.innerHTML = "";
+    Object.entries(TRAIT_LABELS).forEach(([id, label]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "trait-pick";
+      btn.dataset.trait = id;
+      btn.textContent = label;
+      host.appendChild(btn);
+    });
+    host.dataset.ready = "1";
+    host.addEventListener("click", (e) => {
+      const btn = e.target.closest(".trait-pick");
+      if (!btn) return;
+      btn.classList.toggle("active");
+    });
+  }
+
+  function fillTraitPicks(raw) {
+    ensureTraitPicks();
+    const parts = String(raw || "bratty, tease")
+      .split(/[,;/|]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (els.botTraits) {
+      els.botTraits.querySelectorAll(".trait-pick").forEach((btn) => {
+        btn.classList.toggle("active", parts.includes(btn.dataset.trait));
+      });
+    }
+    const custom = parts.filter((p) => !TRAIT_LABELS[p] && !TRAIT_LABELS[p.replace(/\s+/g, "_")]);
+    if (els.botTraitsCustom) els.botTraitsCustom.value = custom.join(", ");
+  }
+
+  function readTraitPicks() {
+    const picked = [];
+    if (els.botTraits) {
+      els.botTraits.querySelectorAll(".trait-pick.active").forEach((btn) => {
+        if (btn.dataset.trait) picked.push(btn.dataset.trait);
+      });
+    }
+    const custom = (els.botTraitsCustom?.value || "")
+      .split(/[,;/|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return [...picked, ...custom].join(", ") || "bratty, tease";
+  }
+
   const SAMPLES = {
     cruel: "Hey you. Tell me your kinks and a hard limit. Now.",
     elegant: "Good. You are locked. Tell me a limit, then a kink I may use.",
@@ -132,7 +198,8 @@
       autopilot_punish_seconds: Number(els.autopilotPunishSeconds.value) || 600,
       bot_name: els.botName.value.trim() || "Keyholder",
       domme_title: els.dommeTitle.value.trim() || "Mistress",
-      bot_persona: els.botPersona?.value || "friend",
+      bot_persona: els.botPersona?.value || "mentor",
+      bot_traits: readTraitPicks(),
       bot_sex: els.botSex?.value || "female",
       bot_voice: els.botVoice?.value || "cruel",
       bot_voice_sample: (els.botVoiceSample?.value || "").trim().slice(0, 800),
@@ -194,10 +261,11 @@
     els.botName.value = cfg.bot_name || "Keyholder";
     els.dommeTitle.value = cfg.domme_title || "Mistress";
     if (els.botPersona) {
-      const p = String(cfg.bot_persona || "friend").toLowerCase();
-      const personas = ["friend", "domme", "bull", "male_dom"];
-      els.botPersona.value = personas.includes(p) ? p : "friend";
+      const p = String(cfg.bot_persona || "mentor").toLowerCase();
+      const personas = ["mentor", "friend", "domme", "bull", "male_dom"];
+      els.botPersona.value = personas.includes(p) ? p : "mentor";
     }
+    fillTraitPicks(cfg.bot_traits || "bratty, tease");
     if (els.botSex) {
       const s = String(cfg.bot_sex || "female").toLowerCase();
       els.botSex.value = ["female", "male", "other"].includes(s) ? s : "female";

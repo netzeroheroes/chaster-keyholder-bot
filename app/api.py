@@ -37,7 +37,7 @@ from app.config import Settings
 from app.images import IMAGES_DIR, ImageService
 from app.memory import LongTermMemory
 from app.persist import save_scene, save_sessions
-from app.roles import Room, Role, can_access
+from app.roles import Room, Role, access_denied_detail, can_access
 from app.scene import SceneState
 from app.sessions import DisplayMessage, SessionStore
 from app.typing_presence import clear_typing, list_typing, set_typing
@@ -130,6 +130,11 @@ class MemoryUpdate(BaseModel):
     her_turn_ons: list[str] | None = None
     her_fantasies: list[str] | None = None
     her_orgasms: list[dict] | None = None
+    arousal_notes: list[str] | None = None
+    what_works: list[str] | None = None
+    learned_tasks: list[str] | None = None
+    learned_games: list[str] | None = None
+    lockee_intel: list[str] | None = None
 
 
 class ChasterTimeRequest(BaseModel):
@@ -201,6 +206,7 @@ class ControlsUpdate(BaseModel):
     bot_greeting: str | None = None
     bot_persona: str | None = None
     bot_sex: str | None = None
+    bot_traits: str | None = None
 
 
 def create_api(
@@ -721,7 +727,7 @@ def create_api(
     ) -> dict:
         _check_pin(role, x_role_pin)
         if not can_access(role, room):
-            raise HTTPException(status_code=403, detail="Sub cannot access Domme private chat")
+            raise HTTPException(status_code=403, detail=access_denied_detail(role, room))
         speaker = "Domme" if role == "domme" else "Sub"
         return {
             "room": room,
@@ -758,7 +764,9 @@ def create_api(
     async def chat(body: ChatRequest) -> ChatResponse:
         _check_pin(body.role, body.pin)
         if not can_access(body.role, body.room):
-            raise HTTPException(status_code=403, detail="Sub cannot access Domme private chat")
+            raise HTTPException(
+                status_code=403, detail=access_denied_detail(body.role, body.room)
+            )
         clear_typing(body.room, "Domme" if body.role == "domme" else "Sub")
         try:
             result = await handle_chat_turn(

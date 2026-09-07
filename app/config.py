@@ -116,8 +116,9 @@ class Settings(BaseSettings):
     bot_quirks: str = ""
     bot_bio: str = ""
     bot_greeting: str = ""
-    bot_persona: str = "friend"
+    bot_persona: str = "mentor"
     bot_sex: str = "female"
+    bot_traits: str = "bratty, tease"
 
     # Chaster partner extension (iframe) hosting
     # Main/config pages must be public HTTPS; content is token-gated.

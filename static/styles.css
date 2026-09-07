@@ -163,6 +163,28 @@ body.room-private .tab.active {
   color: #1a100c;
   border-color: transparent;
 }
+.trait-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0.35rem 0 0.75rem;
+}
+.trait-pick {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.trait-pick.active {
+  background: linear-gradient(135deg, #e08763, #c45d3a);
+  color: #1a100c;
+  border-color: transparent;
+}
 .orgasm-picks {
   display: flex;
   flex-wrap: wrap;

@@ -53,8 +53,9 @@ class RuntimeControls:
     bot_quirks: str = ""
     bot_bio: str = ""
     bot_greeting: str = ""
-    bot_persona: str = "friend"
+    bot_persona: str = "mentor"
     bot_sex: str = "female"
+    bot_traits: str = "bratty, tease"
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
     def _public_dict(self) -> dict:
@@ -91,8 +92,9 @@ class RuntimeControls:
             bot_quirks=getattr(settings, "bot_quirks", "") or "",
             bot_bio=getattr(settings, "bot_bio", "") or "",
             bot_greeting=getattr(settings, "bot_greeting", "") or "",
-            bot_persona=getattr(settings, "bot_persona", "friend") or "friend",
+            bot_persona=getattr(settings, "bot_persona", "mentor") or "mentor",
             bot_sex=getattr(settings, "bot_sex", "female") or "female",
+            bot_traits=getattr(settings, "bot_traits", "bratty, tease") or "bratty, tease",
         )
 
     @classmethod
@@ -156,16 +158,20 @@ class RuntimeControls:
                 self.bot_voice = normalize_voice(self.bot_voice)
             if "bot_intensity" in kwargs:
                 self.bot_intensity = normalize_intensity(self.bot_intensity)
+            if "bot_traits" in kwargs:
+                from app.personality_traits import traits_csv
+
+                self.bot_traits = traits_csv(self.bot_traits)
             if "bot_persona" in kwargs or "bot_sex" in kwargs:
                 role = normalize_persona(self.bot_persona)
                 sex = normalize_sex(self.bot_sex)
                 self.bot_sex = sex or default_sex_for(role)
                 # KH bar sends sex alone. Male without an explicit role → the bull.
                 if "bot_persona" not in kwargs:
-                    if self.bot_sex == "male" and role == "friend":
+                    if self.bot_sex == "male" and role in {"friend", "mentor"}:
                         role = "bull"
                     elif self.bot_sex == "female" and role == "bull":
-                        role = "friend"
+                        role = "mentor"
                 self.bot_persona = role
             if self.min_add_time_seconds > self.max_add_time_seconds:
                 self.min_add_time_seconds, self.max_add_time_seconds = (
@@ -307,10 +313,14 @@ def normalize_intensity(raw: str | None) -> str:
 
 
 def voice_catalog() -> dict[str, dict[str, str]]:
+    from app.personality_traits import TRAIT_LABELS, TRAIT_PRESETS
+
     return {
         "tone": dict(VOICE_PRESETS),
         "intensity": dict(INTENSITY_PRESETS),
         "samples": dict(VOICE_SAMPLES),
+        "traits": dict(TRAIT_PRESETS),
+        "trait_labels": dict(TRAIT_LABELS),
     }
 
 
@@ -339,6 +349,7 @@ def format_voice_block(*, room: str = "") -> str:
     quirks = str(getattr(controls, "bot_quirks", "") or "").strip()[:800]
     bio = str(getattr(controls, "bot_bio", "") or "").strip()[:1200]
     greeting = str(getattr(controls, "bot_greeting", "") or "").strip()[:400]
+    from app.personality_traits import format_traits_block
     from app.bot_persona import (
         BULL_GROUP_SAMPLE,
         BULL_PRIVATE_SAMPLE,
@@ -356,6 +367,9 @@ def format_voice_block(*, room: str = "") -> str:
         "Read his last beat (beg / brat / quiet) and answer it — "
         "do not soften the lock to comfort him.",
     ]
+    traits = format_traits_block(room=room)
+    if traits:
+        lines.append(traits)
     if bio:
         lines.append("WHO YOU ARE (character card — stay in this):")
         lines.append(bio)
@@ -370,11 +384,17 @@ def format_voice_block(*, room: str = "") -> str:
         lines.append(quirks)
     room_key = (room or "").strip().lower()
     male = is_bull_voice(spec)
+    if room_key == "lockee":
+        lines.append(
+            "LOCKEE PRIVATE: Talk TO him. Use the personality traits. "
+            "Ask one question that teaches you what keeps him aroused. "
+            "Never unlock. Never leak her plans."
+        )
     if room_key == "private" and male:
         lines.append(
-            "PRIVATE: Male voice. You are her bull. When she gives a mood or asks "
-            "what to do, START the scene with her — hungry, specific. He stays locked. "
-            "Do not dump his remaining time. Do not ask 'any ideas?'. "
+            "PRIVATE: Male voice. Mentor her first. When she wants YOU, be her bull. "
+            "When she wants help running him, coach her and offer a task or game. "
+            "He stays locked. Do not dump his remaining time. Do not ask 'any ideas?'. "
             "Never call her the lockee."
         )
         if not sample:

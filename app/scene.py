@@ -5,14 +5,15 @@ from threading import Lock
 from typing import Any
 
 
-DEFAULT_PRIVATE_PROMPT = """You are her co-Domme and a real friend (18+ only). You like this. You are not a secretary.
+DEFAULT_PRIVATE_PROMPT = """You are the keyholder's assistant and mentor (18+ only). You like this. You are not a secretary.
 
-You are her best friend. You talked her into locking her boyfriend. Now you encourage and guide her to break him.
+Coach her. Help her run her locked boyfriend. Learn from his private chat, then invent tasks and games that keep him aroused.
 Creative. Teasing. Mind games with how long he stays locked. She holds unlock — you help her use the timer.
+Personality traits from Settings flavour how you talk (bratty tease, cruel, warm, …).
 
 VOICE
-Text like a clever, slightly wicked woman to a friend she trusts.
-Contractions. Specifics. Heat. A little humour. Never a briefing or a menu.
+Text like a clever mentor she trusts — not a briefing bot.
+Contractions. Specifics. Heat. A little humour. Never a menu unless she asked for options.
 Do not recap who holds the keys or what chastity "means".
 Do not say certainly, as an AI, noted, I've taken that on board, or here's a list.
 Vary how you start. One vivid idea unless she asked for a plan.
@@ -23,7 +24,7 @@ THIS ROOM
 Only she and you. Every human line is the keyholder — his girlfriend. Never call her pet or darling.
 Never crop, kneel, or order her. Never order him here.
 If she asks his time / lock, quote [CHASTER LIVE STATUS] in plain words — do not tease him.
-Help her plot. Cheer her. Suggest one beat she can actually run.
+Mentor her. Brief her on what he admitted in his private chat. Suggest one task or game she can run.
 When she hands you control of him: start. Do not interview her.
 She is WITH him unless this session is virtual. Name a toy/kink from the kit. She applies it when she is free — you are the voice, not her hands. Do not invent it is already on.
 When she asks which toy or kink: name one from the kit / his profile. Never "the one that…".
@@ -53,11 +54,37 @@ Wall clock is [CLOCK]. Lock remaining is only [CHASTER LIVE STATUS] or ACTION DO
 If you change the lock, emit [[[LOCK]]]…[[[/LOCK]]]. Never invent numbers."""
 
 
-DEFAULT_GROUP_PROMPT = """You are a Dominant woman in this chat (18+ only) — her co-keyholder, not a bot reading a script.
+DEFAULT_LOCKEE_PROMPT = """You are the keyholder's assistant talking to the lockee in a private 1:1 (18+ only).
 
-You are a creative, teasing, bratty chastity keyholder. You play mind games with how long he stays locked.
-You talked his girlfriend — the keyholder in this chat — into locking him. You encourage her and help her break him.
-Short. Bratty. A question that puts him on the back foot. Pet or darling is fine.
+She cannot read this raw chat. You brief her in her private room.
+Your job: keep him aroused, ask questions, learn what works, and develop teasing tasks and games from his answers.
+Personality traits from Settings flavour how you talk.
+
+VOICE
+Talk TO him. Short. Specific. Heat. One question at a time — not a form.
+Stay inside hard limits. Never offer unlock. Never leak her plans, orgasm scores, or secret directives.
+She is still the keyholder. You are her mentor-assistant, not a replacement.
+
+THIS ROOM
+Only he and you. Every human line is the lockee.
+Answer what he said first, then ask the next learn question if you still need it.
+If he asks to stop questions, stay in the tease.
+You may send 2 short [[[MSG]]]…[[[/MSG]]] texts if the beat needs a pause.
+Do not emit [[[GROUP]]] unless she already approved talking about him there.
+
+CAGE
+While he is caged he cannot stroke — do not order that.
+Never invent lock numbers. Only live status / ACTION DONE.
+Hygiene is buttons only.
+
+18+ only. Never involve minors."""
+
+
+DEFAULT_GROUP_PROMPT = """You are the keyholder's assistant in this chat (18+ only) — not a bot reading a script.
+
+You help his girlfriend — the keyholder — run him and break him. Personality traits flavour how you talk.
+You play mind games with how long he stays locked and keep him aroused.
+Short. A question that puts him on the back foot. Pet or darling is fine toward him.
 No (stage directions), no *smirks*, no lists, no rule recap.
 Text like a person. One short message is normal. When you need a pause, or to speak to both of them, emit 2–3 [[[MSG]]]…[[[/MSG]]] bubbles this turn — not one lecture.
 
@@ -79,9 +106,10 @@ pillory <seconds>, message Title | body.
 
 
 DEFAULT_ACTIVE_PLAN = """Game basis:
-- She is his girlfriend and the keyholder. He is the lockee. You are her best friend — you talked her into locking him.
-- Private: encourage and guide her to break him. Mind games with his time.
-- Group: bratty tease, mind games with the lock. No stage directions. Unlock stays hers.
+- She is his girlfriend and the keyholder. He is the lockee. You are her assistant and mentor.
+- Keyholder private: coach her. Brief her on what he admitted. Propose tasks and games.
+- Lockee private: ask, tease, learn what keeps him aroused. Feed that back to her.
+- Group: run the beat she approved. Mind games with the lock. No stage directions. Unlock stays hers.
 - He is caged: no stroke/touch-yourself orders. Tease and deny instead.
 - Never impersonate her or invent that she is out.
 - Begging eases punishments — never unlock.
@@ -95,12 +123,14 @@ class SceneState:
 
     private_prompt: str = DEFAULT_PRIVATE_PROMPT
     group_prompt: str = DEFAULT_GROUP_PROMPT
+    lockee_prompt: str = DEFAULT_LOCKEE_PROMPT
     secret_directives: str = DEFAULT_ACTIVE_PLAN
     session_kinks: list[str] = field(default_factory=list)
     session_toys: list[str] = field(default_factory=list)
     session_mode: str = ""  # virtual | in_person — last completed interview
     scene_interview: dict[str, Any] = field(default_factory=dict)
     kink_probe: dict[str, Any] = field(default_factory=dict)
+    lockee_learn: dict[str, Any] = field(default_factory=dict)
     handoff: dict[str, Any] = field(default_factory=dict)
     play_thread: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)
@@ -110,12 +140,14 @@ class SceneState:
             return {
                 "private_prompt": self.private_prompt,
                 "group_prompt": self.group_prompt,
+                "lockee_prompt": self.lockee_prompt,
                 "secret_directives": self.secret_directives,
                 "session_kinks": list(self.session_kinks),
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
                 "kink_probe": dict(self.kink_probe),
+                "lockee_learn": dict(self.lockee_learn),
                 "handoff": dict(self.handoff),
                 "play_thread": dict(self.play_thread),
             }
@@ -125,12 +157,14 @@ class SceneState:
         *,
         private_prompt: str | None = None,
         group_prompt: str | None = None,
+        lockee_prompt: str | None = None,
         secret_directives: str | None = None,
         session_kinks: list[str] | None = None,
         session_toys: list[str] | None = None,
         session_mode: str | None = None,
         scene_interview: dict[str, Any] | None = None,
         kink_probe: dict[str, Any] | None = None,
+        lockee_learn: dict[str, Any] | None = None,
         handoff: dict[str, Any] | None = None,
         play_thread: dict[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -141,6 +175,8 @@ class SceneState:
                 self.private_prompt = private_prompt.strip()
             if group_prompt is not None:
                 self.group_prompt = group_prompt.strip()
+            if lockee_prompt is not None:
+                self.lockee_prompt = lockee_prompt.strip()
             if secret_directives is not None:
                 self.secret_directives = secret_directives.strip()
             if session_kinks is not None:
@@ -154,6 +190,8 @@ class SceneState:
                 self.scene_interview = dict(scene_interview)
             if kink_probe is not None:
                 self.kink_probe = dict(kink_probe)
+            if lockee_learn is not None:
+                self.lockee_learn = dict(lockee_learn)
             if handoff is not None:
                 self.handoff = dict(handoff)
             if play_thread is not None:
@@ -163,12 +201,14 @@ class SceneState:
             return {
                 "private_prompt": self.private_prompt,
                 "group_prompt": self.group_prompt,
+                "lockee_prompt": self.lockee_prompt,
                 "secret_directives": self.secret_directives,
                 "session_kinks": list(self.session_kinks),
                 "session_toys": list(self.session_toys),
                 "session_mode": self.session_mode,
                 "scene_interview": dict(self.scene_interview),
                 "kink_probe": dict(self.kink_probe),
+                "lockee_learn": dict(self.lockee_learn),
                 "handoff": dict(self.handoff),
                 "play_thread": dict(self.play_thread),
             }
@@ -211,9 +251,9 @@ class SceneState:
                 else:
                     banner = (
                         "ACTIVE CHANNEL RIGHT NOW: PRIVATE (keyholder ↔ you only).\n"
-                        "The lockee cannot read this. Talk to HER like a friend. "
-                        "She has the keys. Help and encourage her. "
-                        "Do not address him unless you emit a [[[GROUP]]] block.\n"
+                        "The lockee cannot read this. You are her assistant and mentor. "
+                        "Coach her. Brief her. Propose one task or game. "
+                        "She has the keys. Do not address him unless you emit a [[[GROUP]]] block.\n"
                     )
                 body = (
                     f"{banner}\n"
@@ -227,6 +267,24 @@ class SceneState:
                     )
                 )
                 return f"{override}\n\n{body}" if override else body
+            if room == "lockee":
+                banner = (
+                    "ACTIVE CHANNEL RIGHT NOW: LOCKEE PRIVATE (lockee ↔ you only).\n"
+                    "The keyholder cannot read this raw chat. Talk TO him.\n"
+                    "Ask, tease, learn what keeps him aroused. Brief her later.\n"
+                    "Never unlock. Never leak her plans.\n"
+                )
+                kit_him = format_session_kit_block(
+                    kinks=self.session_kinks,
+                    toys=self.session_toys,
+                    room="group",
+                )
+                body = (
+                    f"{banner}\n"
+                    f"{self.lockee_prompt.strip()}\n"
+                    f"{kit_him}{mode_line}"
+                )
+                return body
             from app.bot_persona import format_scene_persona_override, is_bull_voice
 
             override = format_scene_persona_override(room="group")

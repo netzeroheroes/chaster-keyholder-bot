@@ -112,6 +112,79 @@
 
   function setVoiceCatalog(cat) {
     if (cat && cat.tone) voiceCatalog = cat;
+    ensureTraitPicks();
+  }
+
+  const FALLBACK_TRAITS = {
+    bratty: "Bratty",
+    tease: "Tease",
+    cruel: "Cruel",
+    playful: "Playful",
+    warm: "Warm",
+    elegant: "Elegant",
+    humiliatrix: "Humiliatrix",
+    soft: "Soft",
+    strict: "Strict",
+    nurturing: "Nurturing",
+    sadistic: "Sadistic",
+    sweet: "Sweet",
+  };
+
+  function traitLabels() {
+    return (voiceCatalog && voiceCatalog.trait_labels) || FALLBACK_TRAITS;
+  }
+
+  function ensureTraitPicks() {
+    const host = document.getElementById("setBotTraits");
+    if (!host || host.dataset.ready === "1") return;
+    host.innerHTML = "";
+    Object.entries(traitLabels()).forEach(([id, label]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "trait-pick";
+      btn.dataset.trait = id;
+      btn.textContent = label;
+      host.appendChild(btn);
+    });
+    host.dataset.ready = "1";
+    host.addEventListener("click", (e) => {
+      const btn = e.target.closest(".trait-pick");
+      if (!btn) return;
+      btn.classList.toggle("active");
+    });
+  }
+
+  function fillTraitPicks(raw) {
+    ensureTraitPicks();
+    const parts = String(raw || "bratty, tease")
+      .split(/[,;/|]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const known = new Set(Object.keys(traitLabels()));
+    const host = document.getElementById("setBotTraits");
+    if (host) {
+      host.querySelectorAll(".trait-pick").forEach((btn) => {
+        btn.classList.toggle("active", parts.includes(btn.dataset.trait));
+      });
+    }
+    const custom = parts.filter((p) => !known.has(p.replace(/\s+/g, "_")) && !known.has(p));
+    const customEl = document.getElementById("setBotTraitsCustom");
+    if (customEl) customEl.value = custom.join(", ");
+  }
+
+  function readTraitPicks() {
+    const host = document.getElementById("setBotTraits");
+    const picked = [];
+    if (host) {
+      host.querySelectorAll(".trait-pick.active").forEach((btn) => {
+        if (btn.dataset.trait) picked.push(btn.dataset.trait);
+      });
+    }
+    const custom = (document.getElementById("setBotTraitsCustom")?.value || "")
+      .split(/[,;/|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return [...picked, ...custom].join(", ") || "bratty, tease";
   }
 
   function toneBlurb(key) {
@@ -230,9 +303,10 @@
   }
 
   function renderTabBadges(counts) {
-    const rooms = counts && typeof counts === "object" ? counts : {};
-    ["group", "private"].forEach((room) => {
-      const n = Number(rooms[room] || 0);
+    const tallies = counts && typeof counts === "object" ? counts : {};
+    const watch = ["group", state.role === "domme" ? "private" : "lockee"];
+    watch.forEach((room) => {
+      const n = Number(tallies[room] || 0);
       if (state.seenCounts[room] == null) state.seenCounts[room] = n;
       const seen = Number(state.seenCounts[room] || 0);
       const unread = Math.max(0, n - seen);
@@ -265,12 +339,19 @@
     els.roomTabs.querySelectorAll(".room-tab").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.room === state.room);
     });
-    els.app.classList.toggle("room-private", state.room === "private");
-    els.app.classList.toggle("room-group", state.room !== "private");
+    const priv = state.room === "private" || state.room === "lockee";
+    els.app.classList.toggle("room-private", priv);
+    els.app.classList.toggle("room-group", !priv);
     if (state.room === "private") {
       els.heading.textContent = "Private";
-      els.roomHint.textContent = "Private — lockee cannot see this";
-      els.input.placeholder = "Plan with the AI… he cannot see this";
+      els.roomHint.textContent =
+        "Mentor chat — lockee cannot see this. Ask for tasks, games, or a briefing.";
+      els.input.placeholder = "Ask your mentor… he cannot see this";
+    } else if (state.room === "lockee") {
+      els.heading.textContent = "Private";
+      els.roomHint.textContent =
+        "Private with the bot. Your answers help the keyholder. She does not read this raw.";
+      els.input.placeholder = "Talk to the bot… she cannot read this";
     } else {
       els.heading.textContent = "Group";
       els.roomHint.textContent = "Group — lockee can see this";
@@ -298,12 +379,13 @@
     }
     if (/^Domme\b/i.test(who)) return who.replace(/^Domme/i, "Keyholder");
     if (/^Sub\b/i.test(who)) return who.replace(/^Sub/i, "Lockee");
-    return who || (state.room === "private" ? "Keyholder" : "Lockee");
+    return who || (state.room === "lockee" ? "Lockee" : state.room === "private" ? "Keyholder" : "Lockee");
   }
 
   function messageClass(m) {
     if (isBotMessage(m)) return "bot";
     if (state.room === "private") return "Domme";
+    if (state.room === "lockee") return "Sub";
     const who = String((m && m.speaker) || "");
     if (who.startsWith("Domme") || who.startsWith("Keyholder")) return "Domme";
     if (who.startsWith("Sub") || who.startsWith("Lockee")) return "Sub";
@@ -484,8 +566,11 @@
       .filter(Boolean)
       .join(" · ");
 
+    els.privateTab.classList.remove("hidden");
     if (s.app_role === "domme" || s.role === "keyholder") {
-      els.privateTab.classList.remove("hidden");
+      els.privateTab.dataset.room = "private";
+      const badge = els.privateTab.querySelector("[data-badge]");
+      if (badge) badge.setAttribute("data-badge", "private");
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");
@@ -495,7 +580,9 @@
       if (khBar) khBar.classList.remove("hidden");
       syncAllSexPicks(data.bot_sex || "female");
     } else {
-      els.privateTab.classList.add("hidden");
+      els.privateTab.dataset.room = "lockee";
+      const badge = els.privateTab.querySelector("[data-badge]");
+      if (badge) badge.setAttribute("data-badge", "lockee");
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
@@ -503,7 +590,7 @@
       if (els.quickLockBtn) els.quickLockBtn.classList.add("hidden");
       const khBar = document.getElementById("khBar");
       if (khBar) khBar.classList.add("hidden");
-      state.room = "group";
+      if (state.room === "private") state.room = "lockee";
     }
     updateRoomUi();
     els.gate.classList.add("hidden");
@@ -1005,13 +1092,13 @@
     g("setAutopilotPunish").value = cfg.autopilot_punish_seconds ?? 600;
     g("setBotName").value = cfg.bot_name || "Keyholder";
     g("setDommeTitle").value = cfg.domme_title || "Mistress";
-    const PERSONAS = ["friend", "domme", "bull", "male_dom"];
+    const PERSONAS = ["mentor", "friend", "domme", "bull", "male_dom"];
     const SEXES = ["female", "male", "other"];
     const VOICES = ["cruel", "elegant", "playful", "warm", "soft", "humiliatrix", "custom"];
     const personaEl = g("setBotPersona");
     if (personaEl) {
-      const p = String(cfg.bot_persona || "friend").toLowerCase();
-      personaEl.value = PERSONAS.includes(p) ? p : "friend";
+      const p = String(cfg.bot_persona || "mentor").toLowerCase();
+      personaEl.value = PERSONAS.includes(p) ? p : "mentor";
     }
     const sexVal = SEXES.includes(String(cfg.bot_sex || "").toLowerCase())
       ? String(cfg.bot_sex).toLowerCase()
@@ -1042,6 +1129,7 @@
     if (quirksEl) quirksEl.value = cfg.bot_quirks || "";
     if (g("setBotBio")) g("setBotBio").value = cfg.bot_bio || "";
     if (g("setBotGreeting")) g("setBotGreeting").value = cfg.bot_greeting || "";
+    fillTraitPicks(cfg.bot_traits || "bratty, tease");
     const allowP = secondsToParts(cfg.hygiene_allowed_seconds ?? 600, "minutes");
     const lateP = secondsToParts(cfg.hygiene_late_punish_seconds ?? 1800, "minutes");
     if (g("hygAllowValue")) {
@@ -1093,7 +1181,8 @@
       autopilot_punish_seconds: Number(g("setAutopilotPunish").value) || 600,
       bot_name: g("setBotName").value.trim() || "Keyholder",
       domme_title: g("setDommeTitle").value.trim() || "Mistress",
-      bot_persona: g("setBotPersona")?.value || "friend",
+      bot_persona: g("setBotPersona")?.value || "mentor",
+      bot_traits: readTraitPicks(),
       bot_sex: readBotSex(),
       bot_voice: g("setBotVoice")?.value || "cruel",
       bot_voice_sample: (g("setBotVoiceSample")?.value || "").trim().slice(0, 800),
@@ -1439,7 +1528,10 @@
   async function switchRoom(room) {
     if (room === state.room) return;
     if (room === "private" && state.role !== "domme") {
-      setStatus("Only the keyholder can use private chat.");
+      room = "lockee";
+    }
+    if (room === "lockee" && state.role === "domme") {
+      setStatus("That private chat is the lockee's.");
       return;
     }
     state.room = room;
@@ -1670,6 +1762,8 @@
     intensityBlurb: "setBotIntensityBlurb",
     sample: "setBotVoiceSample",
   });
+  ensureTraitPicks();
+  fillTraitPicks("bratty, tease");
   const personaEl = document.getElementById("setBotPersona");
   if (personaEl) {
     personaEl.addEventListener("change", () => {

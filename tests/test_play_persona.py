@@ -96,7 +96,7 @@ class BotPersonaTests(unittest.TestCase):
         self.assertIn("She's with me tonight", voice)
         self.assertNotIn("talked her into locking that pathetic thing", voice)
         private_voice = rc.format_voice_block(room="private")
-        self.assertIn("You are her bull", private_voice)
+        self.assertIn("be her bull", private_voice)
         self.assertIn("Come here. He's locked", private_voice)
         self.assertTrue(is_bull_voice())
         override = format_scene_persona_override(room="private")
@@ -108,7 +108,7 @@ class BotPersonaTests(unittest.TestCase):
 
         ctrl = rc.RuntimeControls()
         ctrl.save = lambda: None  # type: ignore[method-assign]
-        self.assertEqual(ctrl.bot_persona, "friend")
+        self.assertEqual(ctrl.bot_persona, "mentor")
         ctrl.update(bot_sex="male")
         self.assertEqual(ctrl.bot_sex, "male")
         self.assertEqual(ctrl.bot_persona, "bull")
