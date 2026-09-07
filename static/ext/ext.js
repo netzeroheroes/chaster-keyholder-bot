@@ -574,11 +574,8 @@
       if (els.settingsBtn) els.settingsBtn.classList.remove("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.remove("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.remove("hidden");
-      if (els.quickUnlockBtn) els.quickUnlockBtn.classList.remove("hidden");
-      if (els.quickLockBtn) els.quickLockBtn.classList.remove("hidden");
-      const khBar = document.getElementById("khBar");
-      if (khBar) khBar.classList.remove("hidden");
       syncAllSexPicks(data.bot_sex || "female");
+      updateLockUnlockButtons(data.lockbox);
     } else {
       els.privateTab.dataset.room = "lockee";
       const badge = els.privateTab.querySelector("[data-badge]");
@@ -586,10 +583,7 @@
       if (els.settingsBtn) els.settingsBtn.classList.add("hidden");
       if (els.kinksBtn) els.kinksBtn.classList.add("hidden");
       if (els.teaseNowBtn) els.teaseNowBtn.classList.add("hidden");
-      if (els.quickUnlockBtn) els.quickUnlockBtn.classList.add("hidden");
-      if (els.quickLockBtn) els.quickLockBtn.classList.add("hidden");
-      const khBar = document.getElementById("khBar");
-      if (khBar) khBar.classList.add("hidden");
+      updateLockUnlockButtons(null);
       if (state.room === "private") state.room = "lockee";
     }
     updateRoomUi();
@@ -636,18 +630,35 @@
     el.textContent = bits.join(" · ");
   }
 
+  function isKeyholder() {
+    return state.chasterRole === "keyholder" || state.role === "domme";
+  }
+
+  function updateLockUnlockButtons(st) {
+    const kh = isKeyholder();
+    const locked = st && typeof st === "object" ? st.locked : null;
+    if (els.quickUnlockBtn) {
+      els.quickUnlockBtn.classList.toggle("hidden", !kh || locked !== true);
+    }
+    if (els.quickLockBtn) {
+      els.quickLockBtn.classList.toggle("hidden", !kh || locked !== false);
+    }
+  }
+
   function renderBoxStatus(st) {
     const el = els.boxStatus;
-    if (!el) return;
-    if (!st || typeof st !== "object") {
-      el.textContent = "Box: —";
-      el.classList.remove("locked", "open");
-      return;
+    if (el) {
+      if (!st || typeof st !== "object") {
+        el.textContent = "Box: —";
+        el.classList.remove("locked", "open");
+      } else {
+        const label = st.label || "unknown";
+        el.textContent = `Box: ${label}`;
+        el.classList.toggle("locked", st.locked === true);
+        el.classList.toggle("open", st.locked === false);
+      }
     }
-    const label = st.label || "unknown";
-    el.textContent = `Box: ${label}`;
-    el.classList.toggle("locked", st.locked === true);
-    el.classList.toggle("open", st.locked === false);
+    updateLockUnlockButtons(st);
   }
 
   function formatRemain(sec) {
@@ -915,8 +926,7 @@
   }
 
   function setKhStatus(text) {
-    const el = document.getElementById("khBarStatus");
-    if (el) el.textContent = text || "";
+    if (els.settingsStatus) els.settingsStatus.textContent = text || "";
   }
 
   function syncAllSexPicks(value) {
@@ -1008,48 +1018,6 @@
         persistBotSex(btn.dataset.sex || "female");
       });
     });
-  }
-
-  function selectedOrgasm() {
-    const active = document.querySelector(".orgasm-pick.active");
-    return active ? Number(active.dataset.rating) : 0;
-  }
-
-  function bindOrgasmPicks() {
-    const picks = document.getElementById("orgasmPicks");
-    if (!picks) return;
-    picks.addEventListener("click", (e) => {
-      const btn = e.target.closest(".orgasm-pick");
-      if (!btn) return;
-      picks.querySelectorAll(".orgasm-pick").forEach((b) => {
-        b.classList.toggle("active", b === btn);
-      });
-    });
-  }
-
-  async function applyOrgasm(where) {
-    const n = selectedOrgasm();
-    if (!n) {
-      setKhStatus("Pick 1–10 first, then Tell him or Keep private.");
-      return;
-    }
-    const note = (document.getElementById("orgasmNote")?.value || "").trim();
-    const line = note
-      ? `I came. Orgasm rating ${n}/10. Note: ${note}`
-      : `I came. Orgasm rating ${n}/10. Use this on him.`;
-    if (where === "private") {
-      await switchRoom("private");
-      await sendMessage(
-        `${line} Keep the rating private. Let him know I came, not the number.`
-      );
-      setKhStatus(
-        `Logged ${n}/10 in private. He’ll see that you came — not the score.`
-      );
-      return;
-    }
-    if (state.room !== "group") await switchRoom("group");
-    await sendMessage(line);
-    setKhStatus(`Logged ${n}/10 and told him.`);
   }
 
   async function learnHer() {
@@ -1754,7 +1722,6 @@
     });
   }
   bindSexPicks();
-  bindOrgasmPicks();
   bindVoiceCard({
     voice: "setBotVoice",
     voiceBlurb: "setBotVoiceBlurb",
@@ -1771,26 +1738,6 @@
       if (role === "bull" || role === "male_dom") {
         persistBotSex("male");
       }
-    });
-  }
-  const tellHim = document.getElementById("orgasmTellHim");
-  const keepPriv = document.getElementById("orgasmPrivate");
-  const learnBtn = document.getElementById("learnHerBtn");
-  if (tellHim) {
-    tellHim.addEventListener("click", () => {
-      applyOrgasm("group").catch((err) => setKhStatus(String(err.message || err)));
-    });
-  }
-  if (keepPriv) {
-    keepPriv.addEventListener("click", () => {
-      applyOrgasm("private").catch((err) =>
-        setKhStatus(String(err.message || err))
-      );
-    });
-  }
-  if (learnBtn) {
-    learnBtn.addEventListener("click", () => {
-      learnHer().catch((err) => setKhStatus(String(err.message || err)));
     });
   }
   document.addEventListener("keydown", (e) => {
