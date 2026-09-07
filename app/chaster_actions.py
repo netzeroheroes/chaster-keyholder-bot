@@ -1063,8 +1063,21 @@ def _facts_after(
     )
 
 
-async def resolve_lock(chaster: ChasterClient) -> dict[str, Any]:
-    preferred = (chaster.settings.chaster_lock_id or "").strip()
+async def resolve_lock(
+    chaster: ChasterClient, lock_id: str = ""
+) -> dict[str, Any]:
+    preferred = (lock_id or "").strip()
+    if not preferred:
+        try:
+            from app.lock_scope import current_lock_scope
+
+            scope = current_lock_scope()
+            if scope and scope != "dev" and not scope.startswith("sid-"):
+                preferred = scope
+        except Exception:  # noqa: BLE001
+            preferred = ""
+    if not preferred:
+        preferred = (chaster.settings.chaster_lock_id or "").strip()
     if preferred:
         lock = await chaster.get_lock(preferred)
         if lock:
@@ -1922,7 +1935,11 @@ async def run_chaster_intent(
                 rad = get_rad_client()
                 if rad is not None:
                     await sync_duration_from_chaster(
-                        rad, chaster, reason="unfreeze_api", force=True
+                        rad,
+                        chaster,
+                        reason="unfreeze_api",
+                        force=True,
+                        lock_id=lock_id,
                     )
             except Exception:  # noqa: BLE001
                 log.exception("R+D resync after unfreeze failed")
@@ -1978,7 +1995,11 @@ async def run_chaster_intent(
                 rad = get_rad_client()
                 if rad is not None:
                     await sync_duration_from_chaster(
-                        rad, chaster, reason="timer_revealed_api", force=True
+                        rad,
+                        chaster,
+                        reason="timer_revealed_api",
+                        force=True,
+                        lock_id=lock_id,
                     )
             except Exception:  # noqa: BLE001
                 log.exception("R+D resync after show_time failed")

@@ -88,61 +88,150 @@ _LAST_CHASTER_FLAGS: dict[str, bool | None] = {
 }
 
 
+_ENDED = frozenset({"unlocked", "archived", "deserted", "ended"})
+
+
+def _hint_lock_id(explicit: str = "") -> str:
+    from app.lock_scope import current_lock_scope, normalize_lock_id
+
+    lid = normalize_lock_id(explicit)
+    if lid and lid != "dev" and not lid.startswith("sid-"):
+        return lid
+    scope = current_lock_scope()
+    if scope and scope != "dev" and not scope.startswith("sid-"):
+        return scope
+    return ""
+
+
+def remaining_seconds_from_lock(lock: dict[str, Any] | None) -> int | None:
+    """Remaining seconds from a Chaster lock object (new sessions included)."""
+    if not isinstance(lock, dict):
+        return None
+    end = lock.get("endDate") or lock.get("end_date")
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+            rem = int((end_dt - datetime.now(timezone.utc)).total_seconds())
+            return rem if rem > 0 else None
+        except ValueError:
+            pass
+    for key in ("remainingTime", "remainingSeconds", "timeToUnlock"):
+        raw = lock.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            rem = int(raw)
+        except (TypeError, ValueError):
+            continue
+        # Some payloads store milliseconds
+        if rem > 31_536_000 * 20:
+            rem = rem // 1000
+        if rem > 0:
+            return rem
+    return None
+
+
+def _snapshot_from_lock(lock: dict[str, Any]) -> dict[str, Any]:
+    status = str(lock.get("status") or "").lower()
+    if status in _ENDED:
+        return {
+            "status": status,
+            "remaining": None,
+            "frozen": False,
+            "time_hidden": False,
+            "end_date": None,
+        }
+    frozen = bool(lock.get("isFrozen"))
+    display = lock.get("displayRemainingTime")
+    time_hidden = display is False
+    rem = remaining_seconds_from_lock(lock)
+    if rem is None and frozen:
+        rem = _MAX_DURATION
+    return {
+        "status": status or "locked",
+        "remaining": rem,
+        "frozen": frozen,
+        "time_hidden": time_hidden,
+        "end_date": lock.get("endDate") or lock.get("end_date"),
+    }
+
+
+async def _complete_lock(
+    chaster: ChasterClient, lock_id: str
+) -> dict[str, Any] | None:
+    """GET /locks plus partner session.lock (complete endDate on new sessions)."""
+    lid = (lock_id or "").strip()
+    if not lid:
+        return None
+    lock = await chaster.get_lock(lid)
+    if isinstance(lock, dict) and (
+        remaining_seconds_from_lock(lock) or lock.get("endDate") or lock.get("isFrozen")
+    ):
+        return lock
+    try:
+        for session in await chaster.search_extension_sessions():
+            raw = session.get("lock") if isinstance(session, dict) else None
+            if not isinstance(raw, dict):
+                continue
+            if str(raw.get("_id") or raw.get("id") or "") != lid:
+                continue
+            if remaining_seconds_from_lock(raw) or raw.get("endDate") or raw.get(
+                "isFrozen"
+            ):
+                return raw
+            return lock or raw
+    except Exception:  # noqa: BLE001
+        log.debug("extension session lock lookup failed", exc_info=True)
+    return lock if isinstance(lock, dict) else None
+
+
 async def chaster_lock_snapshot(
     chaster: ChasterClient | None,
+    *,
+    lock_id: str = "",
 ) -> dict[str, Any] | None:
     """Read Chaster remaining / frozen / timer-hidden for R+D mirroring."""
     if chaster is None or not getattr(chaster, "configured", False):
         return None
     try:
-        lock_id = (getattr(chaster.settings, "chaster_lock_id", None) or "").strip()
-        lock = await chaster.get_lock(lock_id) if lock_id else None
-        if not lock:
-            sessions = await chaster.search_extension_sessions()
-            if sessions:
-                raw = sessions[0].get("lock") if isinstance(sessions[0], dict) else None
-                if isinstance(raw, dict) and (raw.get("_id") or raw.get("id")):
-                    lock = await chaster.get_lock(
-                        str(raw.get("_id") or raw.get("id"))
-                    ) or raw
+        preferred = _hint_lock_id(lock_id)
+        lock: dict[str, Any] | None = None
+        if preferred:
+            lock = await _complete_lock(chaster, preferred)
+        else:
+            env_id = (getattr(chaster.settings, "chaster_lock_id", None) or "").strip()
+            if env_id:
+                lock = await _complete_lock(chaster, env_id)
+                status = str((lock or {}).get("status") or "").lower()
+                if status in _ENDED:
+                    # Stale CHASTER_LOCK_ID — this is a new lock/session.
+                    lock = None
+            if not lock:
+                sessions = await chaster.search_extension_sessions()
+                for session in sessions:
+                    raw = session.get("lock") if isinstance(session, dict) else None
+                    if not isinstance(raw, dict):
+                        continue
+                    lid = str(raw.get("_id") or raw.get("id") or "")
+                    if not lid:
+                        continue
+                    candidate = await _complete_lock(chaster, lid) or raw
+                    if str(candidate.get("status") or "").lower() in _ENDED:
+                        continue
+                    lock = candidate
+                    break
         if not isinstance(lock, dict):
             return None
-        status = str(lock.get("status") or "").lower()
-        if status in ("unlocked", "archived", "deserted", "ended"):
-            return {
-                "status": status,
-                "remaining": None,
-                "frozen": False,
-                "time_hidden": False,
-                "end_date": None,
-            }
-        frozen = bool(lock.get("isFrozen"))
-        # Chaster: displayRemainingTime True = shown; False = hidden
-        display = lock.get("displayRemainingTime")
-        time_hidden = display is False
-        rem: int | None = None
-        end = lock.get("endDate")
-        if end:
-            end_dt = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
-            rem = int((end_dt - datetime.now(timezone.utc)).total_seconds())
-            if rem <= 0:
-                rem = None
-        elif frozen:
-            rem = _MAX_DURATION
-        return {
-            "status": status or "locked",
-            "remaining": rem,
-            "frozen": frozen,
-            "time_hidden": time_hidden,
-            "end_date": end,
-        }
+        return _snapshot_from_lock(lock)
     except Exception:  # noqa: BLE001
         log.exception("Failed to read Chaster lock snapshot")
         return None
 
 
-async def chaster_remaining_seconds(chaster: ChasterClient | None) -> int | None:
-    snap = await chaster_lock_snapshot(chaster)
+async def chaster_remaining_seconds(
+    chaster: ChasterClient | None, *, lock_id: str = ""
+) -> int | None:
+    snap = await chaster_lock_snapshot(chaster, lock_id=lock_id)
     if not snap:
         return None
     return snap.get("remaining")
@@ -202,6 +291,8 @@ def _manual_only(rad: RadLockboxClient) -> bool:
 async def maybe_resync_after_chaster_flags(
     rad: RadLockboxClient,
     chaster: ChasterClient | None,
+    *,
+    lock_id: str = "",
 ) -> dict[str, Any] | None:
     """If Chaster just unfroze or unhid the timer, force a duration resync.
 
@@ -222,7 +313,7 @@ async def maybe_resync_after_chaster_flags(
             detail="RAD_LOCKBOX_SYNC_ENABLED is false",
             chaster_type="config",
         )
-    snap = await chaster_lock_snapshot(chaster)
+    snap = await chaster_lock_snapshot(chaster, lock_id=lock_id)
     if not snap:
         return None
     frozen = bool(snap.get("frozen"))
@@ -242,7 +333,7 @@ async def maybe_resync_after_chaster_flags(
             if hidden:
                 reason += "+timer_hidden"
             return await sync_duration_from_chaster(
-                rad, chaster, reason=reason, force=True
+                rad, chaster, reason=reason, force=True, lock_id=lock_id
             )
         return None
 
@@ -264,10 +355,11 @@ async def maybe_resync_after_chaster_flags(
                 chaster,
                 reason="frozen_hold" if frozen else "hidden_hold",
                 force=True,
+                lock_id=lock_id,
             )
         return None
     return await sync_duration_from_chaster(
-        rad, chaster, reason="+".join(reasons), force=True
+        rad, chaster, reason="+".join(reasons), force=True, lock_id=lock_id
     )
 
 
@@ -277,6 +369,7 @@ async def sync_duration_from_chaster(
     *,
     reason: str = "time_sync",
     force: bool = False,
+    lock_id: str = "",
 ) -> dict[str, Any]:
     """PATCH active R+D session duration from Chaster (handles freeze + hidden timer)."""
     if _manual_only(rad) and not force:
@@ -300,7 +393,7 @@ async def sync_duration_from_chaster(
             detail="R+D sync disabled",
             chaster_type=reason,
         )
-    snap = await chaster_lock_snapshot(chaster)
+    snap = await chaster_lock_snapshot(chaster, lock_id=lock_id)
     if not snap:
         return _stamp(
             action="set_duration",
@@ -452,6 +545,7 @@ async def relock_from_chaster(
     *,
     reason: str = "hygiene_closed",
     force: bool = False,
+    lock_id: str = "",
 ) -> dict[str, Any]:
     """Start (or refresh) R+D lock and set duration from Chaster remaining."""
     if not rad.configured:
@@ -469,7 +563,11 @@ async def relock_from_chaster(
             chaster_type=reason,
         )
 
-    snap = await chaster_lock_snapshot(chaster) if not _manual_only(rad) else None
+    snap = (
+        await chaster_lock_snapshot(chaster, lock_id=lock_id)
+        if not _manual_only(rad)
+        else None
+    )
     rem = snap.get("remaining") if snap else None
     frozen = bool(snap.get("frozen")) if snap else False
     hidden = bool(snap.get("time_hidden")) if snap else False
@@ -543,7 +641,7 @@ async def relock_from_chaster(
         else:
             detail = (
                 "Re-locked with template duration "
-                "(Chaster remaining unavailable — check CHASTER_LOCK_ID)"
+                "(Chaster remaining unavailable on this lock)"
             )
         log.info("R+D lockbox re-locked after %s (%s)", reason, detail)
         return _stamp(
@@ -597,7 +695,7 @@ async def relock_from_chaster(
                     ok=False,
                     detail=(
                         f"Active lock exists but duration sync failed: {exc2}. "
-                        "Use RAD_IS_TEST_LOCK=true if there is no R+D keyholder."
+                        "Use the keyholder Ultra token and RAD_KEYHOLDER_IDS."
                     ),
                     chaster_type=reason,
                     chaster_remaining=rem,
@@ -623,9 +721,10 @@ async def relock_after_hygiene(
     *,
     reason: str = "hygiene_closed",
     force: bool = False,
+    lock_id: str = "",
 ) -> dict[str, Any]:
     return await relock_from_chaster(
-        rad, chaster, reason=reason, force=force
+        rad, chaster, reason=reason, force=force, lock_id=lock_id
     )
 
 
@@ -727,9 +826,16 @@ async def handle_chaster_events(
     results: list[dict[str, Any]] = []
     synced_time = False
 
+    def _ev_lock(event: dict[str, Any]) -> str:
+        raw = event.get("lock")
+        if isinstance(raw, dict):
+            return str(raw.get("_id") or raw.get("id") or "").strip()
+        return str(raw or "").strip()
+
     for ev in events:
         etype = normalize_history_type(ev)
         reason = f"{source}:{etype}" if from_webhook else etype
+        ev_lock = _ev_lock(ev)
         log.info(
             "Lockbox sync handling Chaster event type=%s source=%s",
             etype,
@@ -739,14 +845,18 @@ async def handle_chaster_events(
             results.append(await unlock_for_hygiene(rad, reason=reason))
         elif hygiene and etype in _HYGIENE_CLOSE_TYPES:
             results.append(
-                await relock_from_chaster(rad, chaster, reason=reason)
+                await relock_from_chaster(
+                    rad, chaster, reason=reason, lock_id=ev_lock
+                )
             )
             synced_time = True
         elif session_sync and etype == "unlocked":
             results.append(await unlock_for_hygiene(rad, reason=reason))
         elif session_sync and etype == "locked":
             results.append(
-                await relock_from_chaster(rad, chaster, reason=reason)
+                await relock_from_chaster(
+                    rad, chaster, reason=reason, lock_id=ev_lock
+                )
             )
             synced_time = True
         elif etype in _FORCE_RESYNC_TYPES or (
@@ -754,7 +864,7 @@ async def handle_chaster_events(
         ):
             results.append(
                 await sync_duration_from_chaster(
-                    rad, chaster, reason=reason, force=True
+                    rad, chaster, reason=reason, force=True, lock_id=ev_lock
                 )
             )
             synced_time = True
@@ -765,7 +875,11 @@ async def handle_chaster_events(
         ):
             results.append(
                 await sync_duration_from_chaster(
-                    rad, chaster, reason=reason, force=from_webhook
+                    rad,
+                    chaster,
+                    reason=reason,
+                    force=from_webhook,
+                    lock_id=ev_lock,
                 )
             )
             synced_time = True

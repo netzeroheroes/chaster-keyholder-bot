@@ -83,8 +83,10 @@ class Settings(BaseSettings):
     # Lock template id — only used to *start* a session; duration comes from Chaster.
     # Leave 0 to auto-pick the first available template.
     rad_lock_settings_id: int = 0
-    # Comma-separated R+D user ids assigned as keyholders on re-lock
+    # Comma-separated R+D user ids assigned as keyholders on re-lock.
+    # Leave empty to use the API token owner as keyholder (required to unlock a real lock).
     rad_keyholder_ids: str = ""
+    # Real locks only. true would mark the session as a test lock.
     rad_is_test_lock: bool = False
 
     # Auto-punish Sub rule breaks with real lock detriment

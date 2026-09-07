@@ -146,15 +146,16 @@ class RadLockboxClient:
         tid = target_user_id if target_user_id is not None else self.target_user_id
         if tid is not None:
             body["targetUserId"] = int(tid)
-        kh = keyholder_ids if keyholder_ids is not None else self.keyholder_ids
+        kh = list(keyholder_ids if keyholder_ids is not None else self.keyholder_ids)
+        if not kh:
+            me = await self.token_user_id()
+            if me is not None:
+                kh = [me]
         if kh:
             body["keyholderIds"] = [int(x) for x in kh]
-        test = self.is_test_lock if is_test_lock is None else is_test_lock
-        # No R+D keyholder linked → self/test lock so hygiene unlock works via API
-        if not kh and is_test_lock is None:
-            test = True
-        if test:
-            body["isTestLock"] = True
+        test = bool(self.is_test_lock if is_test_lock is None else is_test_lock)
+        # Always send this so a test-lock template cannot silently start a test session.
+        body["isTestLock"] = test
         return await self._request("POST", "/lkbx/session/current", json_body=body)
 
     async def unlock(self, *, target_user_id: int | None = None) -> dict[str, Any]:
@@ -162,7 +163,49 @@ class RadLockboxClient:
         tid = target_user_id if target_user_id is not None else self.target_user_id
         if tid is not None:
             body["targetUserId"] = int(tid)
-        return await self._request("POST", "/lkbx/session/current", json_body=body)
+        kh = list(self.keyholder_ids)
+        if not kh:
+            me = await self.token_user_id()
+            if me is not None:
+                kh = [me]
+        if kh:
+            body["keyholderIds"] = [int(x) for x in kh]
+        try:
+            return await self._request("POST", "/lkbx/session/current", json_body=body)
+        except RuntimeError as exc:
+            if is_unlock_permission_error(str(exc)):
+                raise RuntimeError(unlock_permission_hint()) from exc
+            raise
+
+    async def token_user_id(self) -> int | None:
+        """R+D user id for the API token (the keyholder on real locks)."""
+        for path in ("/users/me", "/me"):
+            try:
+                data = await self._request("GET", path)
+            except Exception:  # noqa: BLE001
+                continue
+            user = data.get("data")
+            if isinstance(user, dict) and user.get("id"):
+                try:
+                    return int(user["id"])
+                except (TypeError, ValueError):
+                    continue
+        try:
+            users = await self.list_users()
+        except Exception:  # noqa: BLE001
+            return None
+        for user in users:
+            if user.get("isSelf") or user.get("isCurrent") or user.get("isMe"):
+                try:
+                    return int(user["id"])
+                except (TypeError, ValueError):
+                    continue
+        if len(users) == 1 and users[0].get("id"):
+            try:
+                return int(users[0]["id"])
+            except (TypeError, ValueError):
+                return None
+        return None
 
     async def set_duration(
         self,
@@ -256,6 +299,35 @@ class RadLockboxClient:
             out["error"] = str(exc)
             log.warning("R+D status fetch failed: %s", exc)
         return out
+
+
+UNLOCK_PERMISSION_HINT = (
+    "R+D will not unlock this real lock from this API token. "
+    "Use the keyholder's Ultra token, set RAD_TARGET_USER_ID to the lockee, "
+    "and RAD_KEYHOLDER_IDS to the keyholder's R+D user id "
+    "(or leave it empty so the token owner is the keyholder). "
+    "Linked Chaster accounts can also unlock if that link is active on this session."
+)
+
+
+def is_unlock_permission_error(err: str) -> bool:
+    text = (err or "").lower()
+    return "only keyholders" in text or "linked chaster" in text or (
+        "test lock" in text and "unlock" in text
+    )
+
+
+def unlock_permission_hint() -> str:
+    return UNLOCK_PERMISSION_HINT
+
+
+def session_is_test_lock(session: dict[str, Any] | None) -> bool | None:
+    if not isinstance(session, dict):
+        return None
+    for key in ("isTestLock", "testLock", "is_test_lock"):
+        if key in session:
+            return bool(session.get(key))
+    return None
 
 
 def _unwrap_list(data: Any) -> list[dict[str, Any]]:

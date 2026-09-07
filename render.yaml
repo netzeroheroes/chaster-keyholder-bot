@@ -57,4 +57,4 @@ services:
       - key: RAD_KEYHOLDER_IDS
         value: ""
       - key: RAD_IS_TEST_LOCK
-        value: "true"
+        value: "false"

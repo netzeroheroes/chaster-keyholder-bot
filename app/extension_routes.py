@@ -768,11 +768,19 @@ def register_extension_routes(
             result = await unlock_for_hygiene(rad, reason="manual_ext", force=True)
         elif action == "lock":
             result = await relock_after_hygiene(
-                rad, chaster, reason="manual_ext", force=True
+                rad,
+                chaster,
+                reason="manual_ext",
+                force=True,
+                lock_id=sess.lock_id,
             )
         elif action == "sync_time":
             result = await sync_duration_from_chaster(
-                rad, chaster, reason="manual_ext", force=True
+                rad,
+                chaster,
+                reason="manual_ext",
+                force=True,
+                lock_id=sess.lock_id,
             )
         else:
             raise HTTPException(
@@ -1049,7 +1057,11 @@ def register_extension_routes(
                 )
             await _hygiene_view()
             result = await relock_after_hygiene(
-                rad, chaster, reason="hygiene_request", force=True
+                rad,
+                chaster,
+                reason="hygiene_request",
+                force=True,
+                lock_id=sess.lock_id,
             )
             if not result.get("ok"):
                 mark_error(str(result.get("detail") or "relock failed"))
