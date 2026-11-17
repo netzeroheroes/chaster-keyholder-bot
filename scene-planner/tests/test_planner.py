@@ -9,6 +9,7 @@ from planner import (
     kit_block,
     sanitize_brief,
     sanitize_session,
+    scene_markdown,
     surprise_brief,
 )
 from planner import _clean_messages
@@ -40,6 +41,14 @@ class ComposeTests(unittest.TestCase):
         self.assertGreaterEqual(len(scene["steps"]), 4)
         self.assertEqual(scene["steps"][-1]["end_min"], 60)
         self.assertTrue(scene["aftercare"])
+        play = " ".join(f"{s['title']} {s['phase']}" for s in scene["steps"]).lower()
+        self.assertNotIn("aftercare", play)
+        md = scene_markdown(scene).lower()
+        before, sep, after = md.partition("aftercare")
+        self.assertTrue(sep)
+        self.assertIn("after the clock", after)
+        self.assertIn("minutes of play", before)
+        self.assertNotIn("aftercare", before)
 
 
 class JsonTests(unittest.TestCase):
@@ -87,6 +96,9 @@ class KitTests(unittest.TestCase):
         self.assertIn("blood", lower)
         self.assertIn("45 minutes", lower)
         self.assertNotIn("30 minutes", lower)
+        self.assertIn("play", lower)
+        self.assertIn("aftercare", lower)
+        self.assertIn("after the clock", lower)
 
     def test_session_duration_is_not_locked_to_example(self) -> None:
         self.assertEqual(sanitize_session({"duration_minutes": 90})["duration_minutes"], 90)

@@ -7,7 +7,8 @@ Flow:
 1. Kit quiz: toys, kinks, hard limits.
 2. Ask for a session of any length (30 minutes is only an example).
 3. Two questions: what the session should do to him, and orgasm policy.
-4. The bot writes a timed itinerary from that kit. Follow-ups rewrite the whole scene.
+4. The bot writes a timed itinerary from that kit. The minutes are play time;
+   aftercare is after the clock. Follow-ups rewrite the whole scene.
 
 It is not the Chaster extension. Run it as its own local server.
 

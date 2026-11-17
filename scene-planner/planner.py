@@ -433,7 +433,8 @@ def kit_block(kit: dict[str, Any], session: dict[str, Any] | None = None) -> str
     if session:
         brief = sanitize_session(session)
         lines += [
-            f"Duration: {brief['duration_minutes']} minutes. Timed beats must fill this length and stop there.",
+            f"Play time: {brief['duration_minutes']} minutes. Timed beats are play only "
+            "and must fill this length. Aftercare is after the clock, untimed, not counted.",
             f"Tonight's job: {brief['focus']}",
             f"Orgasm policy: {brief['orgasm']}",
             f"Extra notes: {brief['notes'] or '(none)'}",
@@ -635,6 +636,9 @@ def scene_markdown(scene: dict[str, Any]) -> str:
         "",
         f'**Theme:** "{scene["title"]}" – {scene["premise"]}',
         "",
+        f"**Duration:** {scene.get('duration_minutes', '')} minutes of play "
+        "(aftercare is after the clock)",
+        "",
         f"**Toys Available:** {toys}.",
         "",
         "**Dynamic:** Female Dominant, Male Submissive.",
@@ -651,9 +655,9 @@ def scene_markdown(scene: dict[str, Any]) -> str:
         end = step.get("end_min")
         timing = f" ({start}–{end} min)" if start is not None and end is not None else ""
         lines.append(f"{i}. **{title}{timing}:** {body}")
-    lines += ["", "**Aftercare:**"]
+    lines += ["", "**Aftercare (after the clock, not play time):**"]
     for i, line in enumerate(scene.get("aftercare") or _AFTERCARE, 1):
-        lines.append(f"{i}. {line}")
+        lines.append(f"- {line}")
     return "\n".join(lines)
 
 
@@ -781,7 +785,8 @@ async def chat(
                 "role": "assistant",
                 "content": (
                     "Kit received. I will use only those toys, lean on those kinks, "
-                    "never cross the hard limits, and fit the scene to the duration."
+                    "never cross the hard limits, and fill the asked minutes with play. "
+                    "Aftercare comes after the clock."
                 ),
             },
         ]
