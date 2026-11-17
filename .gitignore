@@ -14,3 +14,6 @@ dist/
 build/
 *.log
 .DS_Store
+scene-planner/node_modules/
+scene-planner/.agent-serve/
+scene-planner/memory/

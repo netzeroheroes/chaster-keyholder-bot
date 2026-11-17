@@ -1,0 +1,10 @@
+.git
+.venv
+venv
+__pycache__
+data
+*.pyc
+scene-planner
+node_modules
+.agent-serve
+memory
