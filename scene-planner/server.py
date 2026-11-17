@@ -15,27 +15,22 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 
-from planner import catalog, llm_configured, plan_scene, surprise_brief
+from planner import catalog, chat, llm_configured
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="Scene Planner", version="0.1.0")
+app = FastAPI(title="Scene Planner", version="0.2.0")
 
 
-class PlanRequest(BaseModel):
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
     adults_confirmed: bool = False
-    surprise: bool = False
-    duration_minutes: int = 60
-    intensity: str = "extreme"
-    setting: str = "in_person"
-    tone: str = "cruel"
-    orgasm: str = "denied"
-    experience: str = "practiced"
-    kinks: list[str] = Field(default_factory=list)
-    toys: str = ""
-    limits: str = ""
-    notes: str = ""
+    messages: list[ChatTurn] = Field(default_factory=list)
 
 
 @app.get("/api/meta")
@@ -47,13 +42,12 @@ async def meta() -> dict:
     }
 
 
-@app.post("/api/scene")
-async def scene(body: PlanRequest) -> dict:
+@app.post("/api/chat")
+async def chat_endpoint(body: ChatRequest) -> dict:
     if not body.adults_confirmed:
         raise HTTPException(status_code=400, detail="Confirm you are 18+.")
-    brief = surprise_brief() if body.surprise else body.model_dump()
     try:
-        return await plan_scene(brief)
+        return await chat([turn.model_dump() for turn in body.messages])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

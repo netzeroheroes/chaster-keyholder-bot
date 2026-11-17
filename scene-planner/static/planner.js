@@ -1,157 +1,119 @@
 const $ = (id) => document.getElementById(id);
-const state = { last: null, catalog: null };
+const state = { messages: [], lastScene: "" };
 
-function fillSelect(el, values, selected) {
-  el.innerHTML = "";
-  for (const value of values) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = value.replaceAll("_", " ");
-    if (value === selected) opt.selected = true;
-    el.appendChild(opt);
-  }
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
-function renderKinks(kinks, chosen) {
-  const box = $("kinkPicks");
-  box.innerHTML = "";
-  const picked = new Set(chosen || []);
-  for (const kink of kinks) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pick" + (picked.has(kink) ? " active" : "");
-    btn.textContent = kink;
-    btn.addEventListener("click", () => btn.classList.toggle("active"));
-    box.appendChild(btn);
-  }
+function renderMarkdown(raw) {
+  const escaped = escapeHtml(raw || "").replaceAll("\r\n", "\n");
+  const blocks = escaped.split(/\n{2,}/);
+  return blocks.map((block) => {
+    const lines = block.split("\n");
+    if (lines.every((line) => /^\d+\.\s+/.test(line))) {
+      const items = lines.map((line) => `<li>${inline(line.replace(/^\d+\.\s+/, ""))}</li>`).join("");
+      return `<ol>${items}</ol>`;
+    }
+    if (lines.every((line) => /^[-*]\s+/.test(line))) {
+      const items = lines.map((line) => `<li>${inline(line.replace(/^[-*]\s+/, ""))}</li>`).join("");
+      return `<ul>${items}</ul>`;
+    }
+    return `<p>${inline(lines.join("<br>"))}</p>`;
+  }).join("");
 }
 
-function selectedKinks() {
-  return [...document.querySelectorAll("#kinkPicks .pick.active")].map((b) => b.textContent);
+function inline(text) {
+  return text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
 }
 
-function briefFromForm() {
-  return {
-    adults_confirmed: true,
-    duration_minutes: Number($("duration").value || 60),
-    intensity: $("intensity").value,
-    setting: $("setting").value,
-    tone: $("tone").value,
-    orgasm: $("orgasm").value,
-    experience: $("experience").value,
-    kinks: selectedKinks(),
-    toys: $("toys").value.trim(),
-    limits: $("limits").value.trim(),
-    notes: $("notes").value.trim(),
-  };
+function addMessage(role, content) {
+  state.messages.push({ role, content });
+  const node = document.createElement("article");
+  node.className = `msg ${role === "user" ? "you" : "bot"}`;
+  const who = document.createElement("p");
+  who.className = "who";
+  who.textContent = role === "user" ? "You" : "Scenario Planner";
+  const body = document.createElement("div");
+  body.className = "body";
+  if (role === "user") body.innerHTML = `<p>${escapeHtml(content).replaceAll("\n", "<br>")}</p>`;
+  else body.innerHTML = renderMarkdown(content);
+  node.append(who, body);
+  $("thread").appendChild(node);
+  node.scrollIntoView({ block: "end" });
 }
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
+function resetChat(opener) {
+  state.messages = [];
+  state.lastScene = "";
+  $("thread").innerHTML = "";
+  addMessage("assistant", opener);
 }
 
-function renderItinerary(data) {
-  $("empty").classList.add("hidden");
-  $("itinerary").classList.remove("hidden");
-  $("itTitle").textContent = data.title || "Itinerary";
-  $("itPremise").textContent = data.premise || "";
-  $("itMeta").textContent = [
-    data.source,
-    data.intensity,
-    data.setting && String(data.setting).replaceAll("_", " "),
-    data.duration_minutes ? `${data.duration_minutes} min` : "",
-    data.orgasm ? `orgasm: ${data.orgasm}` : "",
-  ].filter(Boolean).join(" · ");
-  $("itWarnings").textContent = (data.warnings || []).join(" ");
-  $("itKit").textContent = data.equipment?.length ? `Kit: ${data.equipment.join(", ")}` : "";
-  const sw = data.safeword || {};
-  $("itSafe").replaceChildren(
-    el("strong", "", "Safewords: "),
-    document.createTextNode(`green ${sw.green || "green"} · yellow ${sw.yellow || "yellow"} · red ${sw.red || "red"}`)
-  );
-  const list = $("itSteps");
-  list.innerHTML = "";
-  for (const step of data.steps || []) {
-    const item = el("li", "step");
-    item.appendChild(el("p", "step-time", `${step.start_min}–${step.end_min} min · ${step.phase || "beat"}`));
-    item.appendChild(el("h3", "", step.title || "Beat"));
-    if (step.domme) { item.appendChild(el("p", "who", "You")); item.appendChild(el("p", "", step.domme)); }
-    if (step.sub) { item.appendChild(el("p", "who", "Him")); item.appendChild(el("p", "", step.sub)); }
-    if (step.notes) item.appendChild(el("p", "notes", step.notes));
-    list.appendChild(item);
-  }
-  $("itAfter").replaceChildren(...(data.aftercare || []).map((line) => el("li", "", line)));
-  $("itVars").replaceChildren(...(data.variations || []).map((line) => el("li", "", line)));
-  $("itVarWrap").classList.toggle("hidden", !(data.variations || []).length);
-}
-
-function itineraryText(data) {
-  const lines = [data.title, data.premise, "", (data.warnings || []).join(" "), ""];
-  for (const step of data.steps || []) {
-    lines.push(`${step.start_min}–${step.end_min} min — ${step.title}`, `You: ${step.domme || ""}`, `Him: ${step.sub || ""}`, "");
-  }
-  lines.push("Aftercare:");
-  for (const line of data.aftercare || []) lines.push(`- ${line}`);
-  return lines.join("\n");
-}
-
-async function generate(payload) {
+async function send() {
+  const text = $("prompt").value.trim();
+  if (!text) return;
+  $("prompt").value = "";
+  addMessage("user", text);
   $("formStatus").textContent = "Writing the scene…";
-  $("planBtn").disabled = true;
-  $("surpriseBtn").disabled = true;
+  $("sendBtn").disabled = true;
   try {
-    const res = await fetch("/api/scene", {
+    const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ adults_confirmed: true, messages: state.messages }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || res.statusText || "Could not plan");
-    state.last = data;
-    renderItinerary(data);
+    const reply = data.reply || "";
+    addMessage("assistant", reply);
+    if (/theme:|scenario:/i.test(reply)) state.lastScene = reply;
     $("formStatus").textContent = data.detail || "";
   } catch (err) {
     $("formStatus").textContent = err.message || String(err);
   } finally {
-    $("planBtn").disabled = false;
-    $("surpriseBtn").disabled = false;
+    $("sendBtn").disabled = false;
+    $("prompt").focus();
   }
 }
 
 async function boot() {
+  const meta = await fetch("/api/meta").then((r) => r.json());
+  const opener = meta.opener || "List your toys and hard limits.";
   $("adultBtn").addEventListener("click", () => {
     sessionStorage.setItem("planner18", "1");
     $("gate").classList.add("hidden");
     $("app").classList.remove("hidden");
+    if (!state.messages.length) resetChat(opener);
+    $("prompt").focus();
   });
   if (sessionStorage.getItem("planner18") === "1") {
     $("gate").classList.add("hidden");
     $("app").classList.remove("hidden");
+    resetChat(opener);
   }
-  const meta = await fetch("/api/meta").then((r) => r.json());
-  state.catalog = meta;
-  fillSelect($("intensity"), meta.intensities, "extreme");
-  fillSelect($("setting"), meta.settings, "in_person");
-  fillSelect($("tone"), meta.tones, "cruel");
-  fillSelect($("orgasm"), meta.orgasm_policies, "denied");
-  renderKinks(meta.kinks, ["chastity", "orgasm denial", "humiliation", "bondage"]);
   if (!meta.llm_configured) {
     $("formStatus").textContent = "No LLM_API_KEY — local composer only until you set the OpenRouter key in .env";
   }
-  $("brief").addEventListener("submit", (ev) => {
+  $("composer").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    generate(briefFromForm());
+    send();
   });
-  $("surpriseBtn").addEventListener("click", () => generate({ ...briefFromForm(), surprise: true }));
+  $("prompt").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      send();
+    }
+  });
+  $("resetBtn").addEventListener("click", () => resetChat(opener));
   $("copyBtn").addEventListener("click", async () => {
-    if (!state.last) return;
-    await navigator.clipboard.writeText(itineraryText(state.last));
+    const text = state.lastScene || [...state.messages].reverse().find((m) => m.role === "assistant")?.content;
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
     $("formStatus").textContent = "Copied.";
   });
-  $("printBtn").addEventListener("click", () => window.print());
 }
 
 boot();

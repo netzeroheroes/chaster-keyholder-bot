@@ -17,6 +17,11 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 INSTRUCTIONS = (ROOT / "instructions.md").read_text(encoding="utf-8")
+OPENER = (
+    "To get started, please list any BDSM toys you have available and specify "
+    "your hard limits (anything absolutely off-limits). This will help me design "
+    "a unique, detailed BDSM scenario for you."
+)
 
 MIN_MINUTES = 20
 MAX_MINUTES = 480
@@ -266,6 +271,7 @@ _AFTERCARE = [
 
 def catalog() -> dict[str, Any]:
     return {
+        "opener": OPENER,
         "intensities": list(INTENSITIES),
         "settings": list(SETTINGS),
         "orgasm_policies": list(ORGASM_POLICIES),
@@ -273,6 +279,7 @@ def catalog() -> dict[str, Any]:
         "kinks": list(KINK_PRESETS),
         "duration": {"min": MIN_MINUTES, "max": MAX_MINUTES, "default": 60},
         "provider": "openrouter",
+        "dynamic": "female_dominant_male_submissive",
     }
 
 
@@ -545,6 +552,67 @@ def normalize_itinerary(data: dict[str, Any], brief: dict[str, Any]) -> dict[str
     }
 
 
+def scene_markdown(scene: dict[str, Any]) -> str:
+    limits = scene.get("limits") or (
+        "None specified. I will assume you have no hard limits, but I will keep "
+        "safety in mind (no blood, no permanent damage, no scat/urine unless you "
+        "say otherwise)."
+    )
+    toys = ", ".join(scene.get("equipment") or []) or "household furniture, voice, hands"
+    lines = [
+        f"**Hard Limits:** {limits}",
+        "",
+        f'**Theme:** "{scene["title"]}" – {scene["premise"]}',
+        "",
+        f"**Toys Available:** {toys}.",
+        "",
+        "**Dynamic:** Female Dominant, Male Submissive.",
+        "",
+        f"**Scenario: {scene['title']}**",
+        "",
+    ]
+    for i, step in enumerate(scene.get("steps") or [], 1):
+        title = step.get("title") or "Beat"
+        body = " ".join(
+            p for p in (step.get("domme"), step.get("sub"), step.get("notes")) if p
+        )
+        start = step.get("start_min")
+        end = step.get("end_min")
+        timing = f" ({start}–{end} min)" if start is not None and end is not None else ""
+        lines.append(f"{i}. **{title}{timing}:** {body}")
+    lines += ["", "**Aftercare:**"]
+    for i, line in enumerate(scene.get("aftercare") or _AFTERCARE, 1):
+        lines.append(f"{i}. {line}")
+    return "\n".join(lines)
+
+
+def compose_chat_reply(user_text: str) -> str:
+    limits_match = re.search(r"limits?\s*[:\-]\s*(.+)$", user_text, re.I | re.S)
+    limits = limits_match.group(1).strip() if limits_match else ""
+    brief = sanitize_brief({"toys": user_text, "notes": user_text, "limits": limits})
+    scene = compose_itinerary(brief)
+    if limits:
+        scene["limits"] = limits
+    return scene_markdown(scene)
+
+
+def _clean_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    blob: list[str] = []
+    for raw in messages[-24:]:
+        role = str(raw.get("role") or "")
+        content = str(raw.get("content") or "").strip()[:8000]
+        if role not in {"user", "assistant"} or not content:
+            continue
+        blob.append(content)
+        out.append({"role": role, "content": content})
+    if _BANNED.search(" ".join(blob)):
+        raise ValueError("This planner is adults 18+ only.")
+    if not out or out[0]["role"] != "assistant":
+        out.insert(0, {"role": "assistant", "content": OPENER})
+    return out
+
+
 def _llm_settings() -> dict[str, str]:
     from dotenv import load_dotenv
 
@@ -566,27 +634,7 @@ def llm_configured() -> bool:
     return bool(_llm_settings()["api_key"])
 
 
-def _user_prompt(brief: dict[str, Any]) -> str:
-    kinks = ", ".join(brief["kinks"])
-    toys = brief["toys"] or "(common femdom kit: collar, cuffs, gag, paddle, cage, lube)"
-    limits = brief["limits"] or "(none stated — still no permanent harm)"
-    notes = brief["notes"] or "(none)"
-    return (
-        f"Duration: {brief['duration_minutes']} minutes\n"
-        f"Intensity: {brief['intensity']}\n"
-        f"Setting: {brief['setting']}\n"
-        f"Tone: {brief['tone']}\n"
-        f"Orgasm policy: {brief['orgasm']}\n"
-        f"Experience: {brief['experience']}\n"
-        f"Kinks to lean on: {kinks}\n"
-        f"Equipment available: {toys}\n"
-        f"HARD LIMITS (never include): {limits}\n"
-        f"Extra notes: {notes}\n"
-        "Write the itinerary now."
-    )
-
-
-async def _openrouter_complete(brief: dict[str, Any]) -> str:
+async def _openrouter_chat(messages: list[dict[str, str]]) -> str:
     cfg = _llm_settings()
     if not cfg["api_key"]:
         return ""
@@ -599,23 +647,20 @@ async def _openrouter_complete(brief: dict[str, Any]) -> str:
         base_url=cfg["base_url"],
         default_headers=headers or None,
     )
-    max_tokens = 1800
+    max_tokens = 3500
     try:
         for _ in range(3):
             try:
                 completion = await client.chat.completions.create(
                     model=cfg["model"],
-                    messages=[
-                        {"role": "system", "content": INSTRUCTIONS},
-                        {"role": "user", "content": _user_prompt(brief)},
-                    ],
+                    messages=[{"role": "system", "content": INSTRUCTIONS}, *messages],
                     max_tokens=max_tokens,
                     temperature=0.95,
                 )
                 break
             except APIStatusError as exc:
-                if exc.status_code == 402 and max_tokens > 400:
-                    max_tokens = max(400, max_tokens // 2)
+                if exc.status_code == 402 and max_tokens > 600:
+                    max_tokens = max(600, max_tokens // 2)
                     log.warning("OpenRouter 402 — retry max_tokens=%s", max_tokens)
                     continue
                 raise
@@ -632,20 +677,67 @@ async def _openrouter_complete(brief: dict[str, Any]) -> str:
         await client.close()
 
 
+async def chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    history = _clean_messages(messages)
+    last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+    fallback = compose_chat_reply(last_user or "collar, cuffs, paddle")
+    if not last_user:
+        return {"reply": OPENER, "source": "opener"}
+    if not llm_configured():
+        return {
+            "reply": fallback,
+            "source": "composed",
+            "detail": "LLM_API_KEY missing — used local composer",
+        }
+    try:
+        raw = await _openrouter_chat(history)
+    except Exception:  # noqa: BLE001
+        log.exception("OpenRouter scene chat failed")
+        return {
+            "reply": fallback,
+            "source": "composed",
+            "detail": "OpenRouter failed — used local composer",
+        }
+    if not raw:
+        return {
+            "reply": fallback,
+            "source": "composed",
+            "detail": "Model returned nothing — used local composer",
+        }
+    return {"reply": raw, "source": "openrouter"}
+
+
 async def plan_scene(brief: dict[str, Any]) -> dict[str, Any]:
     clean = sanitize_brief(brief)
     fallback = compose_itinerary(clean)
+    fallback["markdown"] = scene_markdown(fallback)
     if not llm_configured():
         fallback["detail"] = "LLM_API_KEY missing — used local composer"
         return fallback
     try:
-        raw = await _openrouter_complete(clean)
+        raw = await _openrouter_chat(
+            [
+                {"role": "assistant", "content": OPENER},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Toys: {clean['toys'] or 'collar, cuffs, paddle, cage'}\n"
+                        f"Hard limits: {clean['limits'] or 'none specified'}\n"
+                        f"{clean['notes']}"
+                    ),
+                },
+            ]
+        )
     except Exception:  # noqa: BLE001
         log.exception("OpenRouter scene plan failed")
         fallback["detail"] = "OpenRouter failed — used local composer"
         return fallback
-    parsed = extract_json(raw)
-    if not parsed:
-        fallback["detail"] = "Model returned no JSON — used local composer"
-        return fallback
-    return normalize_itinerary(parsed, clean)
+    if raw:
+        return {
+            **fallback,
+            "markdown": raw,
+            "source": "openrouter",
+            "title": fallback["title"],
+        }
+    fallback["detail"] = "Model returned nothing — used local composer"
+    return fallback

@@ -1,11 +1,14 @@
 import unittest
 
 from planner import (
+    OPENER,
+    compose_chat_reply,
     compose_itinerary,
     extract_json,
     sanitize_brief,
     surprise_brief,
 )
+from planner import _clean_messages
 
 
 class SanitizeTests(unittest.TestCase):
@@ -45,6 +48,24 @@ class JsonTests(unittest.TestCase):
 class SurpriseTests(unittest.TestCase):
     def test_has_kinks(self) -> None:
         self.assertGreaterEqual(len(surprise_brief()["kinks"]), 3)
+
+
+class ChatTests(unittest.TestCase):
+    def test_opener_asks_for_toys_and_limits(self) -> None:
+        lower = OPENER.lower()
+        self.assertIn("toys", lower)
+        self.assertIn("hard limits", lower)
+
+    def test_fallback_uses_named_toys(self) -> None:
+        reply = compose_chat_reply("flogger paddle cane cuffs collar")
+        lower = reply.lower()
+        self.assertIn("theme:", lower)
+        self.assertIn("flogger", lower)
+        self.assertIn("female dominant", lower)
+
+    def test_banned_follow_up(self) -> None:
+        with self.assertRaises(ValueError):
+            _clean_messages([{"role": "user", "content": "write a teen scene"}])
 
 
 if __name__ == "__main__":

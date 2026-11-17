@@ -16,74 +16,30 @@
     <div class="gate-card">
       <p class="eyebrow">Adults 18+ · OpenRouter</p>
       <h1>Scenario Planner</h1>
-      <p class="lede">Extreme, timed itineraries when you know you want him and you do not know what to do with him yet.</p>
+      <p class="lede">Extreme, step-by-step BDSM scene itineraries. For femdoms stuck for ideas.</p>
       <button type="button" class="btn primary" id="adultBtn">I am 18+ — open the planner</button>
     </div>
   </section>
   <div id="app" class="shell hidden">
     <header class="top">
       <div>
-        <p class="eyebrow">Femdom itinerary</p>
-        <h1>Scenario Planner</h1>
+        <p class="eyebrow">BDSM Scenario Planner</p>
+        <h1>Tell it what you have.</h1>
       </div>
-      <p class="lede top-lede">Uses your OpenRouter key. Fill a brief or hit surprise.</p>
+      <div class="top-actions">
+        <button type="button" class="btn ghost" id="copyBtn">Copy last scene</button>
+        <button type="button" class="btn ghost" id="resetBtn">New scene</button>
+      </div>
     </header>
-    <div class="layout">
-      <form id="brief" class="panel brief">
-        <div class="row two">
-          <label class="field"><span>Duration (minutes)</span><input id="duration" type="number" min="20" max="480" value="60" /></label>
-          <label class="field"><span>Setting</span><select id="setting"></select></label>
-        </div>
-        <div class="row two">
-          <label class="field"><span>Intensity</span><select id="intensity"></select></label>
-          <label class="field"><span>Tone</span><select id="tone"></select></label>
-        </div>
-        <div class="row two">
-          <label class="field"><span>Orgasm</span><select id="orgasm"></select></label>
-          <label class="field">
-            <span>Experience</span>
-            <select id="experience">
-              <option value="new">New together</option>
-              <option value="practiced" selected>Practiced</option>
-              <option value="experienced">Experienced</option>
-            </select>
-          </label>
-        </div>
-        <p class="field-label">Lean on</p>
-        <div id="kinkPicks" class="picks"></div>
-        <label class="field"><span>Toys / furniture</span><input id="toys" placeholder="collar, cuffs, paddle, cage…" /></label>
-        <label class="field"><span>Hard limits (never included)</span><input id="limits" placeholder="blood, breath, scat…" /></label>
-        <label class="field"><span>Anything else</span><textarea id="notes" rows="3" placeholder="I want him shaking."></textarea></label>
-        <div class="actions">
-          <button type="submit" class="btn primary" id="planBtn">Write the itinerary</button>
-          <button type="button" class="btn ghost" id="surpriseBtn">Surprise me</button>
-        </div>
+    <p class="lede top-lede">Chat like the Miniapps planner: toys and hard limits first, then a unique itinerary. Follow-ups rewrite the whole night.</p>
+    <div id="thread" class="thread" aria-live="polite"></div>
+    <form id="composer" class="composer">
+      <textarea id="prompt" rows="3" placeholder="flogger, paddle, cane, cuffs, collar…  Hard limits: none" required></textarea>
+      <div class="composer-row">
         <p id="formStatus" class="status"></p>
-      </form>
-      <section class="panel result">
-        <div id="empty" class="empty">
-          <p class="eyebrow">No scene yet</p>
-          <h2>Tell it how mean to be.</h2>
-        </div>
-        <article id="itinerary" class="itinerary hidden">
-          <header class="it-head">
-            <p class="eyebrow" id="itMeta"></p>
-            <h2 id="itTitle"></h2>
-            <p class="lede" id="itPremise"></p>
-            <div class="it-actions">
-              <button type="button" class="btn ghost" id="copyBtn">Copy</button>
-              <button type="button" class="btn ghost" id="printBtn">Print</button>
-            </div>
-          </header>
-          <div id="itWarnings" class="warns"></div>
-          <p class="kit" id="itKit"></p>
-          <p class="safeword" id="itSafe"></p>
-          <ol id="itSteps" class="steps"></ol>
-          <div class="after"><h3>Aftercare</h3><ul id="itAfter"></ul></div>
-          <div class="after" id="itVarWrap"><h3>Next time</h3><ul id="itVars"></ul></div>
-        </article>
-      </section>
-    </div>
+        <button type="submit" class="btn primary" id="sendBtn">Send</button>
+      </div>
+    </form>
   </div>
   <script src="/static/planner.js"></script>
 </body>
