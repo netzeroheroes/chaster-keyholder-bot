@@ -20,21 +20,81 @@
       <button type="button" class="btn primary" id="adultBtn">I am 18+ — open the planner</button>
     </div>
   </section>
+
+  <section id="kit" class="shell hidden">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Step 1 · Kit quiz</p>
+        <h1>Toys, kinks, limits.</h1>
+      </div>
+    </header>
+    <p class="lede">The bot keeps this kit. You ask for a session of any length next. 30 minutes is only an example.</p>
+    <form id="kitForm" class="panel quiz">
+      <label class="field">
+        <span>Toys you have</span>
+        <textarea id="kitToys" rows="3" placeholder="collar, cuffs, paddle, flogger, cane, cage…" required></textarea>
+      </label>
+      <p class="field-label">Kinks to lean on</p>
+      <div id="kinkPicks" class="picks"></div>
+      <label class="field">
+        <span>Hard limits (never included)</span>
+        <input id="kitLimits" placeholder="blood, scat, breath… or none" />
+      </label>
+      <div class="actions">
+        <button type="submit" class="btn primary">Save kit</button>
+      </div>
+      <p id="kitStatus" class="status"></p>
+    </form>
+  </section>
+
+  <section id="session" class="shell hidden">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Step 2 · Session</p>
+        <h1>How long is tonight?</h1>
+      </div>
+      <button type="button" class="btn ghost" id="editKitBtn">Edit kit</button>
+    </header>
+    <p class="lede" id="kitSummary"></p>
+    <form id="sessionForm" class="panel quiz">
+      <label class="field">
+        <span>Duration (minutes)</span>
+        <input id="duration" type="number" min="15" max="480" value="30" />
+        <small>Ask for whatever length you want. 30 is just a starting number.</small>
+      </label>
+      <p class="field-label">1. What should this session do to him?</p>
+      <div id="focusPicks" class="picks"></div>
+      <label class="field">
+        <span>2. Orgasm</span>
+        <select id="orgasm"></select>
+      </label>
+      <label class="field">
+        <span>Anything else? (optional)</span>
+        <textarea id="sessionNotes" rows="3" placeholder="He is already locked. I want him shaking."></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit" class="btn primary" id="writeBtn">Write the itinerary</button>
+      </div>
+      <p id="sessionStatus" class="status"></p>
+    </form>
+  </section>
+
   <div id="app" class="shell hidden">
     <header class="top">
       <div>
         <p class="eyebrow">BDSM Scenario Planner</p>
-        <h1>Tell it what you have.</h1>
+        <h1>Tonight's itinerary</h1>
       </div>
       <div class="top-actions">
         <button type="button" class="btn ghost" id="copyBtn">Copy last scene</button>
-        <button type="button" class="btn ghost" id="resetBtn">New scene</button>
+        <button type="button" class="btn ghost" id="newSessionBtn">New session</button>
+        <button type="button" class="btn ghost" id="resetKitBtn">Edit kit</button>
       </div>
     </header>
-    <p class="lede top-lede">Chat like the Miniapps planner: toys and hard limits first, then a unique itinerary. Follow-ups rewrite the whole night.</p>
+    <p class="lede top-lede" id="runSummary"></p>
     <div id="thread" class="thread" aria-live="polite"></div>
     <form id="composer" class="composer">
-      <textarea id="prompt" rows="3" placeholder="flogger, paddle, cane, cuffs, collar…  Hard limits: none" required></textarea>
+      <textarea id="prompt" rows="3" placeholder="Rewrite it: add isolation while I am on a call…"></textarea>
       <div class="composer-row">
         <p id="formStatus" class="status"></p>
         <button type="submit" class="btn primary" id="sendBtn">Send</button>

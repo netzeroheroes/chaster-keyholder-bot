@@ -18,14 +18,27 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 INSTRUCTIONS = (ROOT / "instructions.md").read_text(encoding="utf-8")
 OPENER = (
-    "To get started, please list any BDSM toys you have available and specify "
-    "your hard limits (anything absolutely off-limits). This will help me design "
-    "a unique, detailed BDSM scenario for you."
+    "Kit is saved. Ask for a session of any length — 30 minutes is only an example — "
+    "then answer the two questions and I will write the itinerary from your toys, "
+    "kinks, and hard limits."
 )
 
-MIN_MINUTES = 20
+MIN_MINUTES = 15
 MAX_MINUTES = 480
 MAX_TEXT = 800
+DEFAULT_MINUTES = 30
+
+FOCUS_PRESETS = (
+    "ownership",
+    "humiliation",
+    "impact",
+    "denial",
+    "service",
+    "objectification",
+    "cuckold",
+    "training",
+    "surprise",
+)
 
 INTENSITIES = ("tease", "firm", "cruel", "extreme")
 SETTINGS = ("in_person", "distance", "mixed")
@@ -277,7 +290,8 @@ def catalog() -> dict[str, Any]:
         "orgasm_policies": list(ORGASM_POLICIES),
         "tones": list(TONES),
         "kinks": list(KINK_PRESETS),
-        "duration": {"min": MIN_MINUTES, "max": MAX_MINUTES, "default": 60},
+        "focuses": list(FOCUS_PRESETS),
+        "duration": {"min": MIN_MINUTES, "max": MAX_MINUTES, "default": DEFAULT_MINUTES},
         "provider": "openrouter",
         "dynamic": "female_dominant_male_submissive",
     }
@@ -337,7 +351,7 @@ def respects_limits(text: str, limits: str) -> bool:
 
 def sanitize_brief(raw: dict[str, Any] | None) -> dict[str, Any]:
     src = dict(raw or {})
-    duration = max(MIN_MINUTES, min(MAX_MINUTES, int(src.get("duration_minutes") or 60)))
+    duration = max(MIN_MINUTES, min(MAX_MINUTES, int(src.get("duration_minutes") or DEFAULT_MINUTES)))
     intensity = str(src.get("intensity") or "extreme").strip().lower()
     if intensity not in INTENSITIES:
         intensity = "extreme"
@@ -368,6 +382,63 @@ def sanitize_brief(raw: dict[str, Any] | None) -> dict[str, Any]:
         "limits": limits,
         "notes": notes,
     }
+
+
+def sanitize_kit(raw: dict[str, Any] | None) -> dict[str, Any]:
+    src = dict(raw or {})
+    kinks = _string_list(src.get("kinks"), fallback=[])
+    toys = _clip(src.get("toys") or "")
+    limits = _clip(src.get("limits") or "")
+    extra = _clip(src.get("extra") or "")
+    if _BANNED.search(" ".join([toys, limits, extra, " ".join(kinks)])):
+        raise ValueError("This planner is adults 18+ only.")
+    return {"toys": toys, "kinks": kinks, "limits": limits, "extra": extra}
+
+
+def sanitize_session(raw: dict[str, Any] | None) -> dict[str, Any]:
+    src = dict(raw or {})
+    try:
+        minutes = int(src.get("duration_minutes") or DEFAULT_MINUTES)
+    except (TypeError, ValueError):
+        minutes = DEFAULT_MINUTES
+    focus = str(src.get("focus") or "").strip().lower()
+    if focus and focus not in FOCUS_PRESETS:
+        focus = _clip(src.get("focus") or "")[:80]
+    orgasm = str(src.get("orgasm") or "denied").strip().lower()
+    if orgasm not in ORGASM_POLICIES:
+        orgasm = "denied"
+    notes = _clip(src.get("notes") or "")
+    if _BANNED.search(" ".join([str(focus), notes])):
+        raise ValueError("This planner is adults 18+ only.")
+    return {
+        "duration_minutes": max(MIN_MINUTES, min(MAX_MINUTES, minutes)),
+        "focus": focus or "ownership",
+        "orgasm": orgasm,
+        "notes": notes,
+    }
+
+
+def kit_block(kit: dict[str, Any], session: dict[str, Any] | None = None) -> str:
+    clean = sanitize_kit(kit)
+    kinks = ", ".join(clean["kinks"]) or "(none picked)"
+    toys = clean["toys"] or "(none listed — household furniture, hands, voice only)"
+    limits = clean["limits"] or "none specified — keep default safety"
+    lines = [
+        "KIT (always honor this):",
+        f"Toys: {toys}",
+        f"Kinks to lean on: {kinks}",
+        f"Hard limits (never include): {limits}",
+        "Dynamic: female dominant, male submissive.",
+    ]
+    if session:
+        brief = sanitize_session(session)
+        lines += [
+            f"Duration: {brief['duration_minutes']} minutes. Timed beats must fill this length and stop there.",
+            f"Tonight's job: {brief['focus']}",
+            f"Orgasm policy: {brief['orgasm']}",
+            f"Extra notes: {brief['notes'] or '(none)'}",
+        ]
+    return "\n".join(lines)
 
 
 def extract_json(text: str) -> dict[str, Any] | None:
@@ -586,17 +657,33 @@ def scene_markdown(scene: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def compose_chat_reply(user_text: str) -> str:
+def compose_chat_reply(
+    user_text: str,
+    kit: dict[str, Any] | None = None,
+    session: dict[str, Any] | None = None,
+) -> str:
+    kit_data = sanitize_kit(kit) if kit else {"toys": "", "kinks": [], "limits": ""}
+    sess = sanitize_session(session) if session else sanitize_session({})
     limits_match = re.search(r"limits?\s*[:\-]\s*(.+)$", user_text, re.I | re.S)
-    limits = limits_match.group(1).strip() if limits_match else ""
-    brief = sanitize_brief({"toys": user_text, "notes": user_text, "limits": limits})
+    limits = kit_data["limits"] or (limits_match.group(1).strip() if limits_match else "")
+    brief = sanitize_brief(
+        {
+            "duration_minutes": sess["duration_minutes"],
+            "toys": kit_data["toys"] or user_text,
+            "kinks": kit_data["kinks"] or None,
+            "limits": limits,
+            "notes": " ".join(p for p in (sess["focus"], sess["notes"], user_text) if p),
+            "orgasm": sess["orgasm"],
+            "tone": "ownership" if sess["focus"] == "ownership" else "cruel",
+        }
+    )
     scene = compose_itinerary(brief)
     if limits:
         scene["limits"] = limits
     return scene_markdown(scene)
 
 
-def _clean_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _clean_messages(messages: list[dict[str, Any]], *, inject_opener: bool = True) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     blob: list[str] = []
     for raw in messages[-24:]:
@@ -608,7 +695,7 @@ def _clean_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         out.append({"role": role, "content": content})
     if _BANNED.search(" ".join(blob)):
         raise ValueError("This planner is adults 18+ only.")
-    if not out or out[0]["role"] != "assistant":
+    if inject_opener and (not out or out[0]["role"] != "assistant"):
         out.insert(0, {"role": "assistant", "content": OPENER})
     return out
 
@@ -677,12 +764,36 @@ async def _openrouter_chat(messages: list[dict[str, str]]) -> str:
         await client.close()
 
 
-async def chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    history = _clean_messages(messages)
+async def chat(
+    messages: list[dict[str, Any]],
+    kit: dict[str, Any] | None = None,
+    session: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    kit_data = sanitize_kit(kit) if kit is not None else None
+    sess = sanitize_session(session) if session is not None else None
+    history = _clean_messages(messages, inject_opener=not kit_data)
     last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-    fallback = compose_chat_reply(last_user or "collar, cuffs, paddle")
-    if not last_user:
+    fallback = compose_chat_reply(last_user or "collar, cuffs, paddle", kit_data, sess)
+    if kit_data or sess:
+        primed = [
+            {"role": "user", "content": kit_block(kit_data or {}, sess)},
+            {
+                "role": "assistant",
+                "content": (
+                    "Kit received. I will use only those toys, lean on those kinks, "
+                    "never cross the hard limits, and fit the scene to the duration."
+                ),
+            },
+        ]
+        history = primed + [m for m in history if m["content"] != OPENER]
+    if not last_user and not (kit_data and sess):
         return {"reply": OPENER, "source": "opener"}
+    if not last_user and kit_data and sess:
+        last_user = (
+            f"Write a {sess['duration_minutes']} minute session. "
+            f"Tonight's job: {sess['focus']}. Orgasm: {sess['orgasm']}."
+        )
+        history.append({"role": "user", "content": last_user})
     if not llm_configured():
         return {
             "reply": fallback,

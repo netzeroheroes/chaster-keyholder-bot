@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const state = { messages: [], lastScene: "" };
+const KIT_KEY = "plannerKit";
+const state = { catalog: null, kit: null, session: null, messages: [], lastScene: "" };
 
 function escapeHtml(text) {
   return String(text)
@@ -29,8 +30,71 @@ function inline(text) {
   return text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
 }
 
-function addMessage(role, content) {
-  state.messages.push({ role, content });
+function show(id) {
+  ["gate", "kit", "session", "app"].forEach((name) => $(name).classList.toggle("hidden", name !== id));
+}
+
+function renderPicks(boxId, values, chosen, { single = false } = {}) {
+  const box = $(boxId);
+  box.innerHTML = "";
+  const picked = new Set(chosen || []);
+  for (const value of values) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pick" + (picked.has(value) ? " active" : "");
+    btn.textContent = value;
+    btn.addEventListener("click", () => {
+      if (single) {
+        box.querySelectorAll(".pick").forEach((el) => el.classList.remove("active"));
+        btn.classList.add("active");
+      } else {
+        btn.classList.toggle("active");
+      }
+    });
+    box.appendChild(btn);
+  }
+}
+
+function selectedPicks(boxId) {
+  return [...document.querySelectorAll(`#${boxId} .pick.active`)].map((b) => b.textContent);
+}
+
+function readKit() {
+  return {
+    toys: $("kitToys").value.trim(),
+    kinks: selectedPicks("kinkPicks"),
+    limits: $("kitLimits").value.trim(),
+  };
+}
+
+function readSession() {
+  return {
+    duration_minutes: Number($("duration").value || state.catalog.duration.default),
+    focus: selectedPicks("focusPicks")[0] || "ownership",
+    orgasm: $("orgasm").value,
+    notes: $("sessionNotes").value.trim(),
+  };
+}
+
+function kitLine(kit) {
+  const kinks = (kit.kinks || []).join(", ") || "no kinks picked";
+  const limits = kit.limits || "no hard limits listed";
+  return `Kit: ${kit.toys || "no toys listed"} · ${kinks} · limits: ${limits}`;
+}
+
+function fillSelect(el, values, selected) {
+  el.innerHTML = "";
+  for (const value of values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value.replaceAll("_", " ");
+    if (value === selected) opt.selected = true;
+    el.appendChild(opt);
+  }
+}
+
+function addMessage(role, content, { store = true } = {}) {
+  if (store) state.messages.push({ role, content });
   const node = document.createElement("article");
   node.className = `msg ${role === "user" ? "you" : "bot"}`;
   const who = document.createElement("p");
@@ -45,69 +109,136 @@ function addMessage(role, content) {
   node.scrollIntoView({ block: "end" });
 }
 
-function resetChat(opener) {
-  state.messages = [];
-  state.lastScene = "";
-  $("thread").innerHTML = "";
-  addMessage("assistant", opener);
-}
-
-async function send() {
-  const text = $("prompt").value.trim();
-  if (!text) return;
-  $("prompt").value = "";
-  addMessage("user", text);
+async function postChat(userText) {
+  if (userText) addMessage("user", userText);
   $("formStatus").textContent = "Writing the scene…";
   $("sendBtn").disabled = true;
+  $("writeBtn").disabled = true;
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adults_confirmed: true, messages: state.messages }),
+      body: JSON.stringify({
+        adults_confirmed: true,
+        kit: state.kit,
+        session: state.session,
+        messages: state.messages,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || res.statusText || "Could not plan");
     const reply = data.reply || "";
     addMessage("assistant", reply);
-    if (/theme:|scenario:/i.test(reply)) state.lastScene = reply;
+    if (/theme:|scenario:|duration:/i.test(reply)) state.lastScene = reply;
     $("formStatus").textContent = data.detail || "";
+    $("sessionStatus").textContent = data.detail || "";
   } catch (err) {
     $("formStatus").textContent = err.message || String(err);
+    $("sessionStatus").textContent = err.message || String(err);
   } finally {
     $("sendBtn").disabled = false;
-    $("prompt").focus();
+    $("writeBtn").disabled = false;
+  }
+}
+
+function openKit() {
+  const kit = state.kit || {};
+  $("kitToys").value = kit.toys || "";
+  $("kitLimits").value = kit.limits || "";
+  renderPicks("kinkPicks", state.catalog.kinks, kit.kinks || ["chastity", "orgasm denial", "humiliation"]);
+  show("kit");
+}
+
+function openSession() {
+  $("kitSummary").textContent = kitLine(state.kit);
+  const dur = state.catalog.duration;
+  $("duration").min = dur.min;
+  $("duration").max = dur.max;
+  $("duration").value = state.session?.duration_minutes || dur.default;
+  renderPicks("focusPicks", state.catalog.focuses, [state.session?.focus || "ownership"], { single: true });
+  fillSelect($("orgasm"), state.catalog.orgasm_policies, state.session?.orgasm || "denied");
+  $("sessionNotes").value = state.session?.notes || "";
+  show("session");
+}
+
+function openChat() {
+  $("runSummary").textContent = `${kitLine(state.kit)} · ${state.session.duration_minutes} min · ${state.session.focus} · orgasm ${state.session.orgasm}`;
+  show("app");
+}
+
+function loadSavedKit() {
+  try {
+    const raw = localStorage.getItem(KIT_KEY);
+    if (!raw) return null;
+    const kit = JSON.parse(raw);
+    if (!kit || typeof kit !== "object") return null;
+    return kit;
+  } catch {
+    return null;
   }
 }
 
 async function boot() {
   const meta = await fetch("/api/meta").then((r) => r.json());
-  const opener = meta.opener || "List your toys and hard limits.";
+  state.catalog = meta;
+  state.kit = loadSavedKit();
   $("adultBtn").addEventListener("click", () => {
     sessionStorage.setItem("planner18", "1");
-    $("gate").classList.add("hidden");
-    $("app").classList.remove("hidden");
-    if (!state.messages.length) resetChat(opener);
-    $("prompt").focus();
+    if (state.kit?.toys) openSession();
+    else openKit();
   });
   if (sessionStorage.getItem("planner18") === "1") {
-    $("gate").classList.add("hidden");
-    $("app").classList.remove("hidden");
-    resetChat(opener);
+    if (state.kit?.toys) openSession();
+    else openKit();
   }
-  if (!meta.llm_configured) {
-    $("formStatus").textContent = "No LLM_API_KEY — local composer only until you set the OpenRouter key in .env";
-  }
+  $("kitForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const kit = readKit();
+    if (!kit.toys) {
+      $("kitStatus").textContent = "List at least one toy or household stand-in.";
+      return;
+    }
+    state.kit = kit;
+    localStorage.setItem(KIT_KEY, JSON.stringify(kit));
+    openSession();
+  });
+  $("editKitBtn").addEventListener("click", openKit);
+  $("resetKitBtn").addEventListener("click", openKit);
+  $("newSessionBtn").addEventListener("click", () => {
+    state.messages = [];
+    state.lastScene = "";
+    $("thread").innerHTML = "";
+    openSession();
+  });
+  $("sessionForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    state.session = readSession();
+    state.messages = [];
+    state.lastScene = "";
+    $("thread").innerHTML = "";
+    openChat();
+    const ask = [
+      `I want a ${state.session.duration_minutes} minute session.`,
+      `Tonight's job: ${state.session.focus}.`,
+      `Orgasm: ${state.session.orgasm}.`,
+      state.session.notes ? `Notes: ${state.session.notes}` : "",
+    ].filter(Boolean).join(" ");
+    await postChat(ask);
+    $("prompt").focus();
+  });
   $("composer").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    send();
+    const text = $("prompt").value.trim();
+    if (!text) return;
+    $("prompt").value = "";
+    postChat(text);
   });
   $("prompt").addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && !ev.shiftKey) {
       ev.preventDefault();
-      send();
+      $("composer").requestSubmit();
     }
   });
-  $("resetBtn").addEventListener("click", () => resetChat(opener));
   $("copyBtn").addEventListener("click", async () => {
     const text = state.lastScene || [...state.messages].reverse().find((m) => m.role === "assistant")?.content;
     if (!text) return;

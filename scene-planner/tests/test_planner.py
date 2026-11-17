@@ -1,11 +1,14 @@
 import unittest
 
 from planner import (
+    DEFAULT_MINUTES,
     OPENER,
     compose_chat_reply,
     compose_itinerary,
     extract_json,
+    kit_block,
     sanitize_brief,
+    sanitize_session,
     surprise_brief,
 )
 from planner import _clean_messages
@@ -51,10 +54,10 @@ class SurpriseTests(unittest.TestCase):
 
 
 class ChatTests(unittest.TestCase):
-    def test_opener_asks_for_toys_and_limits(self) -> None:
+    def test_opener_mentions_kit_and_any_duration(self) -> None:
         lower = OPENER.lower()
-        self.assertIn("toys", lower)
-        self.assertIn("hard limits", lower)
+        self.assertIn("kit", lower)
+        self.assertIn("any length", lower)
 
     def test_fallback_uses_named_toys(self) -> None:
         reply = compose_chat_reply("flogger paddle cane cuffs collar")
@@ -66,6 +69,28 @@ class ChatTests(unittest.TestCase):
     def test_banned_follow_up(self) -> None:
         with self.assertRaises(ValueError):
             _clean_messages([{"role": "user", "content": "write a teen scene"}])
+
+
+class KitTests(unittest.TestCase):
+    def test_kit_block_uses_toys_kinks_limits_and_duration(self) -> None:
+        text = kit_block(
+            {
+                "toys": "collar, cage",
+                "kinks": ["chastity", "humiliation"],
+                "limits": "blood",
+            },
+            {"duration_minutes": 45, "focus": "ownership", "orgasm": "denied"},
+        )
+        lower = text.lower()
+        self.assertIn("collar", lower)
+        self.assertIn("chastity", lower)
+        self.assertIn("blood", lower)
+        self.assertIn("45 minutes", lower)
+        self.assertNotIn("30 minutes", lower)
+
+    def test_session_duration_is_not_locked_to_example(self) -> None:
+        self.assertEqual(sanitize_session({"duration_minutes": 90})["duration_minutes"], 90)
+        self.assertEqual(sanitize_session({})["duration_minutes"], DEFAULT_MINUTES)
 
 
 if __name__ == "__main__":

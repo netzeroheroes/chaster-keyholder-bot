@@ -20,7 +20,7 @@ from planner import catalog, chat, llm_configured
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="Scene Planner", version="0.2.0")
+app = FastAPI(title="Scene Planner", version="0.3.0")
 
 
 class ChatTurn(BaseModel):
@@ -28,8 +28,23 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class KitIn(BaseModel):
+    toys: str = ""
+    kinks: list[str] = Field(default_factory=list)
+    limits: str = ""
+
+
+class SessionIn(BaseModel):
+    duration_minutes: int = 30
+    focus: str = ""
+    orgasm: str = "denied"
+    notes: str = ""
+
+
 class ChatRequest(BaseModel):
     adults_confirmed: bool = False
+    kit: KitIn | None = None
+    session: SessionIn | None = None
     messages: list[ChatTurn] = Field(default_factory=list)
 
 
@@ -47,7 +62,11 @@ async def chat_endpoint(body: ChatRequest) -> dict:
     if not body.adults_confirmed:
         raise HTTPException(status_code=400, detail="Confirm you are 18+.")
     try:
-        return await chat([turn.model_dump() for turn in body.messages])
+        return await chat(
+            [turn.model_dump() for turn in body.messages],
+            kit=body.kit.model_dump() if body.kit else None,
+            session=body.session.model_dump() if body.session else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
