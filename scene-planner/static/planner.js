@@ -164,6 +164,9 @@ function openSession() {
 function openChat() {
   $("runSummary").textContent = `${kitLine(state.kit)} · ${state.session.duration_minutes} min · ${state.session.focus} · orgasm ${state.session.orgasm}`;
   show("app");
+  if (!state.messages.length && state.catalog.opener) {
+    addMessage("assistant", state.catalog.opener);
+  }
 }
 
 function loadSavedKit() {

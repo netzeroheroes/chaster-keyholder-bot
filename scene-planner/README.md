@@ -2,6 +2,11 @@
 
 Standalone femdom scene planner. Uses **OpenRouter** (`LLM_API_KEY` in the repo `.env`). It does not use Cursor models and does not need `agent-sdk login`.
 
+The persona matches the BDSM Scenario Planner: it asks for toys and hard
+limits, then writes a theatrical scene. Follow-ups replace the whole scene.
+A removed detail stays removed (no live bull, video call, or her toy unless
+they asked). A named schedule is the calendar.
+
 Flow:
 
 1. Kit quiz: toys, kinks, hard limits.

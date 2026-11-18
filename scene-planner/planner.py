@@ -18,9 +18,9 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 INSTRUCTIONS = (ROOT / "instructions.md").read_text(encoding="utf-8")
 OPENER = (
-    "Kit is saved. Ask for a session of any length — 30 minutes is only an example — "
-    "then answer the two questions and I will write the itinerary from your toys, "
-    "kinks, and hard limits."
+    "To get started, please list any BDSM toys you have available and specify "
+    "your hard limits (anything absolutely off-limits). This will help me design "
+    "a unique, detailed BDSM scenario for you."
 )
 
 MIN_MINUTES = 15
@@ -784,9 +784,10 @@ async def chat(
             {
                 "role": "assistant",
                 "content": (
-                    "Kit received. I will use only those toys, lean on those kinks, "
-                    "never cross the hard limits, and fill the asked minutes with play. "
-                    "Aftercare comes after the clock."
+                    "Kit received. I will write the full scenario from these toys, "
+                    "kinks, and hard limits. If limits are blank I will assume no blood, "
+                    "no permanent damage, and no scat or urine. Follow-ups replace the "
+                    "whole scene. Aftercare comes after the clock."
                 ),
             },
         ]

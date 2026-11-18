@@ -63,10 +63,23 @@ class SurpriseTests(unittest.TestCase):
 
 
 class ChatTests(unittest.TestCase):
-    def test_opener_mentions_kit_and_any_duration(self) -> None:
+    def test_opener_asks_for_toys_and_hard_limits(self) -> None:
         lower = OPENER.lower()
-        self.assertIn("kit", lower)
-        self.assertIn("any length", lower)
+        self.assertIn("toys", lower)
+        self.assertIn("hard limits", lower)
+        self.assertIn("bdsm scenario", lower)
+
+    def test_instructions_match_planner_persona(self) -> None:
+        from pathlib import Path
+
+        text = Path(__file__).resolve().parents[1].joinpath("instructions.md").read_text(
+            encoding="utf-8"
+        ).lower()
+        self.assertIn("core focus", text)
+        self.assertIn("rewrite the whole scene", text)
+        self.assertIn("no blood", text)
+        self.assertIn("future task", text)
+        self.assertIn("female dominant", text)
 
     def test_fallback_uses_named_toys(self) -> None:
         reply = compose_chat_reply("flogger paddle cane cuffs collar")
