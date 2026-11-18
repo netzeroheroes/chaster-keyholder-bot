@@ -75,10 +75,10 @@ class ChatTests(unittest.TestCase):
         text = Path(__file__).resolve().parents[1].joinpath("instructions.md").read_text(
             encoding="utf-8"
         ).lower()
-        self.assertIn("core focus", text)
-        self.assertIn("rewrite the whole scene", text)
+        self.assertIn("scenario:", text)
+        self.assertIn("dominant (d)", text)
+        self.assertIn("climax & aftercare", text)
         self.assertIn("no blood", text)
-        self.assertIn("future task", text)
         self.assertIn("female dominant", text)
 
     def test_fallback_uses_named_toys(self) -> None:
@@ -109,9 +109,8 @@ class KitTests(unittest.TestCase):
         self.assertIn("blood", lower)
         self.assertIn("45 minutes", lower)
         self.assertNotIn("30 minutes", lower)
-        self.assertIn("play", lower)
-        self.assertIn("aftercare", lower)
-        self.assertIn("after the clock", lower)
+        self.assertIn("climax & aftercare", lower)
+        self.assertIn("inside the clock", lower)
 
     def test_session_duration_is_not_locked_to_example(self) -> None:
         self.assertEqual(sanitize_session({"duration_minutes": 90})["duration_minutes"], 90)

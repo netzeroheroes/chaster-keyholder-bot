@@ -433,8 +433,8 @@ def kit_block(kit: dict[str, Any], session: dict[str, Any] | None = None) -> str
     if session:
         brief = sanitize_session(session)
         lines += [
-            f"Play time: {brief['duration_minutes']} minutes. Timed beats are play only "
-            "and must fill this length. Aftercare is after the clock, untimed, not counted.",
+            f"Duration: {brief['duration_minutes']} minutes. Phase times must add up "
+            "to this. The last one or two minutes are Climax & Aftercare, inside the clock.",
             f"Tonight's job: {brief['focus']}",
             f"Orgasm policy: {brief['orgasm']}",
             f"Extra notes: {brief['notes'] or '(none)'}",
@@ -784,10 +784,10 @@ async def chat(
             {
                 "role": "assistant",
                 "content": (
-                    "Kit received. I will write the full scenario from these toys, "
-                    "kinks, and hard limits. If limits are blank I will assume no blood, "
-                    "no permanent damage, and no scat or urine. Follow-ups replace the "
-                    "whole scene. Aftercare comes after the clock."
+                    "Understood. I will write a new scenario on the fixed template: "
+                    "one intro sentence, a title, timed phases, D and s, numbered steps, "
+                    "and Climax & Aftercare in the last minutes. Named limits stay out of "
+                    "the beats."
                 ),
             },
         ]
