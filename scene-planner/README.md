@@ -1,0 +1,30 @@
+# Scene Planner
+
+Standalone femdom scene planner. Uses **OpenRouter** (`LLM_API_KEY` in the repo `.env`). It does not use Cursor models and does not need `agent-sdk login`.
+
+The persona matches the BDSM Scenario Planner: it asks for toys and hard
+limits, then writes a theatrical scene. Follow-ups replace the whole scene.
+A removed detail stays removed (no live bull, video call, or her toy unless
+they asked). A named schedule is the calendar.
+
+Flow:
+
+1. Kit quiz: toys, kinks, hard limits.
+2. Ask for a session of any length (30 minutes is only an example).
+3. Two questions: what the session should do to him, and orgasm policy.
+4. The bot writes a timed itinerary from that kit. Phase times add up to the
+   duration. The last one or two minutes are climax and aftercare. A follow-up
+   writes a new scenario on the same template.
+
+It is not the Chaster extension. Run it as its own local server.
+
+Adults 18+ only. Default dynamic is female dominant / male submissive.
+
+```powershell
+cd C:\Users\andre\chatbot
+.\.venv\Scripts\python.exe scene-planner\server.py
+```
+
+Open http://127.0.0.1:8787
+
+Training is `scene-planner/instructions.md` plus `scene-planner/tests`. Change the prompt, keep the tests green, then send a scene you like or hate and tighten the instructions.
